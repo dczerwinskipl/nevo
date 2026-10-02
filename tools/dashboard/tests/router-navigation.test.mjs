@@ -207,8 +207,14 @@ test('11. AgentSessionRoute: Fatal initial load error blocks with StatusCard; ba
   const routerSource = readSource('screens/agent-session/agent-session-screen.tsx');
 
   assert.ok(
-    routerSource.includes('if (sessionsQuery.error && !sessionsQuery.data) {'),
-    'Fatal error requires error && !data',
+    routerSource.includes('if (sessionsQuery.error && (!sessionsQuery.data || missingSessionRetryFailed)) {'),
+    // The extra `|| missingSessionRetryFailed` branch (added alongside the one-shot
+    // missing-session retry) does not weaken this invariant: a background refresh error
+    // with existing, still-matching data still falls through to the active chat below,
+    // unchanged. It only additionally treats a *failed* one-shot retry for an
+    // already-known-missing session as fatal too, rather than misreporting it as a
+    // confirmed "Sesja nie znaleziona" (see case 15 below).
+    'Fatal error requires error && !data (or a failed one-shot missing-session retry, see case 18 below)',
   );
   assert.ok(routerSource.includes('Nie udało się wczytać sesji specyfikacji'), 'Error card title present');
   assert.ok(routerSource.includes('sessionsQuery.refresh()'), 'Retry calls sessionsQuery.refresh');
@@ -496,4 +502,34 @@ test('17. AgentSessionScreen: invalid $source canonicalizes to active via replac
   assert.equal(validResult.selectedSpec?.slug, 'sample-spec');
   assert.equal(validResult.sessionsQueryEnabled, true);
   assert.equal(validResult.rendersLoading, false);
+});
+
+test('18. AgentSessionRoute: a failed one-shot missing-session retry is a retryable error, never an authoritative "not found"', () => {
+  const routerSource = readSource('screens/agent-session/agent-session-screen.tsx');
+
+  assert.ok(
+    routerSource.includes('missingSessionRetryFailed'),
+    'The one-shot missing-session retry must track whether that retry itself failed',
+  );
+  assert.ok(
+    routerSource.includes('Boolean(sessionsQuery.error)'),
+    'Distinguishing a failed retry requires checking the query error, not just data/refreshing',
+  );
+
+  // React Query keeps the previous (stale) data on a failed refetch while also exposing
+  // the new error (verified against real @tanstack/react-query behavior) — so a naive
+  // `sessionsQuery.data && !session` check alone cannot tell a confirmed absence apart
+  // from a failed refetch attempt. missingSessionRetryFailed must require the error too.
+  const hasRetriedForCurrentSession = true;
+  const sessionMissing = true;
+  const refreshing = false;
+
+  const confirmedAbsent = { error: null };
+  const failedRetry = { error: 'network down' };
+
+  const isRetryFailed = (state) =>
+    sessionMissing && hasRetriedForCurrentSession && !refreshing && Boolean(state.error);
+
+  assert.equal(isRetryFailed(confirmedAbsent), false, 'No error -> authoritative not-found, not a failed retry');
+  assert.equal(isRetryFailed(failedRetry), true, 'Error present -> failed retry, never "Sesja nie znaleziona"');
 });

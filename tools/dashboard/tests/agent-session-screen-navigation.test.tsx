@@ -5,7 +5,7 @@
 // sessions query cache (the admission request is a plain fetch, not a React Query
 // mutation, so useCreateAgentSession's own onSuccess invalidation never runs for it).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const mockNavigate = vi.fn();
@@ -61,13 +61,16 @@ import { AgentSessionScreen } from '../ui/screens/agent-session/agent-session-sc
 const SESSION_A = { sessionId: 'session-a', provider: 'claude', specId: 'spec-1', purpose: 'execution' };
 const SESSION_B = { sessionId: 'session-b', provider: 'claude', specId: 'spec-1', purpose: 'execution' };
 
-function mockSessionsFetch(sequence: Array<Array<typeof SESSION_A>>) {
+function mockSessionsFetch(sequence: Array<Array<typeof SESSION_A> | 'error'>) {
   let call = 0;
   (global as any).fetch = vi.fn(async (url: string) => {
     if (typeof url === 'string' && url.startsWith('/api/agent-sessions')) {
-      const sessions = sequence[Math.min(call, sequence.length - 1)];
+      const entry = sequence[Math.min(call, sequence.length - 1)];
       call += 1;
-      return { ok: true, status: 200, json: async () => ({ sessions }) } as any;
+      if (entry === 'error') {
+        return { ok: false, status: 500, json: async () => ({}) } as any;
+      }
+      return { ok: true, status: 200, json: async () => ({ sessions: entry }) } as any;
     }
     return { ok: true, status: 200, json: async () => ({}) } as any;
   });
@@ -118,6 +121,38 @@ describe('AgentSessionScreen: session missing from a stale cached sessions list'
       expect(screen.getByText('Sesja nie znaleziona')).toBeInTheDocument();
     });
     expect((global.fetch as any).mock.calls.filter((c: any[]) => String(c[0]).startsWith('/api/agent-sessions?')).length).toBe(2);
+  });
+
+  it('must NOT render "Sesja nie znaleziona" when the one authoritative retry itself fails — exposes a retryable error instead, then resolves on manual retry', async () => {
+    // Cache has only A; the one-shot retry for B fails (network/server error) rather
+    // than authoritatively confirming B's absence. useAgentSessions itself configures
+    // retry: 1, so a genuinely-failing backend fails both that automatic internal retry
+    // attempt and the original one before the error ever surfaces to this component.
+    mockSessionsFetch([[SESSION_A], 'error', 'error', [SESSION_A, SESSION_B]]);
+
+    renderScreen('session-b', queryClient);
+
+    // useAgentSessions's own retry: 1 means a genuinely-failing fetch only surfaces as
+    // an error to this component after its one built-in automatic retry (~1s backoff)
+    // also fails — a fixed, bounded delay inherent to that pre-existing hook
+    // configuration, not a poll/retry loop added by this fix.
+    await waitFor(
+      () => {
+        expect(screen.getByText('Nie udało się wczytać sesji specyfikacji')).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+    // Must never claim the session does not exist — the server never said that; the
+    // refetch itself just failed.
+    expect(screen.queryByText('Sesja nie znaleziona')).not.toBeInTheDocument();
+
+    const retryButton = screen.getByRole('button', { name: /Spróbuj ponownie/i });
+    fireEvent.click(retryButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-session-page')).toHaveTextContent('session-b');
+    });
+    expect(screen.queryByText('Sesja nie znaleziona')).not.toBeInTheDocument();
   });
 
   it('renders the existing session immediately with no extra refetch when it is already present in the cache', async () => {

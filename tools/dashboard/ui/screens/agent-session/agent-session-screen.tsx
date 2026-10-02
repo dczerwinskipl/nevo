@@ -107,7 +107,14 @@ export function AgentSessionScreen({ source: rawSource, slug, sessionId }: Agent
       void sessionsQuery.refresh();
     }
   }, [sessionMissing, sessionId, missingSessionRetriedFor, sessionsQuery.refresh]);
-  const awaitingMissingSessionRetry = sessionMissing && (missingSessionRetriedFor !== sessionId || sessionsQuery.refreshing);
+  const hasRetriedForCurrentSession = missingSessionRetriedFor === sessionId;
+  const awaitingMissingSessionRetry = sessionMissing && (!hasRetriedForCurrentSession || sessionsQuery.refreshing);
+  // React Query keeps the previous (stale) data on a failed refetch while also exposing
+  // the new error — so a failed one-shot retry still leaves sessionMissing true. That is
+  // NOT an authoritative "the server confirmed this session does not exist"; it's a
+  // failed refetch and must surface as a retryable error instead.
+  const missingSessionRetryFailed =
+    sessionMissing && hasRetriedForCurrentSession && !sessionsQuery.refreshing && Boolean(sessionsQuery.error);
 
   const router = useRouter();
 
@@ -164,7 +171,7 @@ export function AgentSessionScreen({ source: rawSource, slug, sessionId }: Agent
 
   if (sessionsQuery.loading && !sessionsQuery.data) return <LoadingScreen />;
 
-  if (sessionsQuery.error && !sessionsQuery.data) {
+  if (sessionsQuery.error && (!sessionsQuery.data || missingSessionRetryFailed)) {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
         <StatusCard
