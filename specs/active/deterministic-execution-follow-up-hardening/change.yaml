@@ -263,8 +263,10 @@ tasks:
   - id: acceptance-scenario-d-regression
     order: 12
     file: tasks/12-acceptance-scenario-d-regression.md
-    status: approved
+    status: implemented
     depends_on: [ terminal-reconciliation-adopts-outcome ]
+    implementation:
+      baseline_revision: add2f5fa3cfef5385acc4308e7352bcbd22816d8
   - id: acceptance-scenario-finish-operation-replay
     order: 13
     file: tasks/13-acceptance-scenario-finish-operation-replay.md
