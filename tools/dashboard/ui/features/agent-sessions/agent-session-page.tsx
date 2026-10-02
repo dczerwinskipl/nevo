@@ -47,7 +47,14 @@ export interface AgentSessionPageProps {
   session: AgentSession;
   onBack: () => void;
   backLabel?: string;
-  onSwitchSession: (session: AgentSession) => void;
+  /**
+   * Navigates to a different session. Only the canonical sessionId is ever read by the
+   * existing navigation handler (`AgentSessionScreen.handleSwitchSession`) — this
+   * contract is intentionally the minimal shape it actually consumes, not a full
+   * `AgentSession`, so callers (e.g. an explicit execution action that admitted a fresh
+   * session server-side) never need to fabricate one.
+   */
+  onSwitchSession: (target: { sessionId: string }) => void;
   onInspectTask?: (target: TaskNavigationTarget | string) => void;
   taskOverlay?: React.ReactNode;
   /**
@@ -301,7 +308,7 @@ export function AgentSessionPage({
         // have admitted a brand-new session rather than this one. Follow it: this session
         // page has no further work to do for a turn that isn't its own.
         if (result?.sessionId && result.sessionId !== sessionId) {
-          onSwitchSession({ sessionId: result.sessionId } as AgentSession);
+          onSwitchSession({ sessionId: result.sessionId });
           return;
         }
         await onRefreshTaskActions?.();
