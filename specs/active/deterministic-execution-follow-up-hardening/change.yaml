@@ -10,6 +10,11 @@ created: 2026-09-30
 # Set it at /nevo-ai:spec-approve time, matching this branch's other active deterministic
 # specs (e.g. ai-spec-history) unless the owner chooses otherwise.
 
+# Dogfooding decision: all work for this change lands on feature/ai-spec-history
+# (the shared spec-workflow dogfooding branch), not a separate per-change branch.
+branch:
+  name: feature/ai-spec-history
+
 tasks:
   - id: shared-finish-operation-replayability-classifier
     order: 1
@@ -247,12 +252,14 @@ tasks:
   - id: acceptance-scenario-b-and-c
     order: 11
     file: tasks/11-acceptance-scenario-b-and-c.md
-    status: approved
+    status: implemented
     depends_on:
       [
         terminal-reconciliation-adopts-outcome,
         dependency-consumption-idempotent-on-resume
       ]
+    implementation:
+      baseline_revision: 2076672f3c7e2e088a614f4597e4e77f7e91c34b
   - id: acceptance-scenario-d-regression
     order: 12
     file: tasks/12-acceptance-scenario-d-regression.md
