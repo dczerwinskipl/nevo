@@ -16,17 +16,21 @@ task stuck in human review and start the next one, the owner hit two real UI def
 see `owner-decisions.md` D1). Discovery evidence and exact file:line citations for all
 three are in `owner-decisions.md`.
 
+Mid-flight, recovered an orphaned branch (`feature/ai-spec-history`, 216 commits never
+merged to `main`, deleted but still reachable via reflog) that turned out to already
+contain a working, tested, CI-gated fix for one of the two bugs (D6). This change's
+work now happens on that recovered branch, merged with `main`, not on `main` directly.
+
 ## Goal
 
-1. Eliminate the "Sesja nie znaleziona" race that can appear right after a session is
-   created/admitted, by using the data the backend already returns at creation time
-   (optimistic cache seed) plus a real fetch-by-id fallback, instead of relying on a
-   single retry against an eventually-consistent list query (D2).
+1. ~~Eliminate the "Sesja nie znaleziona" race~~ — **already done** on the recovered
+   branch via a different (simpler, already-shipped) mechanism than originally planned;
+   task 01 is now confirm-and-lock-in, not build (D2, superseded by D6).
 2. Fix the "Uruchom z..." (execution policy) provider selector so clicking a different
    provider (e.g. `claude` instead of a preselected `antigravity`) actually changes the
    selection — currently a self-resetting `useEffect` immediately overwrites any
    user-driven provider change, making it impossible to start a task with a non-default
-   provider (D3).
+   provider (D3). Confirmed still unfixed on the recovered branch.
 
 ## Non-goals
 
@@ -39,31 +43,27 @@ three are in `owner-decisions.md`.
 
 - Legacy lifecycle only for this change (D5) — no `workflow.mode: deterministic`,
   no `workflow step start/finish`.
-- No new public API/contract surface: `GET /api/agent-sessions/:sessionId` already
-  exists and is reused as-is (D2); no server-side response shape changes are required.
-- `AgentSession.status` is a closed enum (`'idle' | 'running' | 'waitingForUser'`,
-  `tools/dashboard/ui/features/agent-sessions/types.ts:1`) — an optimistic placeholder
-  session must reuse an existing value, not add a new enum case, unless a task finds
-  that genuinely untenable (then it's a new owner decision, not a silent addition).
+- Work happens on the recovered `feature/ai-spec-history` branch (merged with `main`),
+  not on `main` directly.
+- Task 01 is confirmation-only (D6) — no production-code change expected; its
+  `allowed_paths` deliberately excludes `queries.ts` and
+  `create-agent-session-dialog.tsx` to keep it that way.
 
 ## Affected Areas
 
-- `tools/dashboard/ui/screens/specification-detail/specification-detail-content.tsx`
-  (`proceedWithAgentExecution`, `startStep`)
-- `tools/dashboard/ui/features/agent-sessions/queries.ts` (`useCreateAgentSession`)
-- `tools/dashboard/ui/screens/agent-session/agent-session-screen.tsx` (missing-session
-  handling)
+- `tools/dashboard/ui/screens/agent-session/agent-session-screen.tsx` (confirmation
+  only, D6 — no change expected)
 - `tools/dashboard/ui/features/agent-sessions/create-agent-session-dialog.tsx`
-  (`ExecutionPolicySelectionDialog`)
-- `tools/dashboard/tests/agent-session-screen-navigation.test.tsx` and a new interaction
-  test for the provider selector
+  (`ExecutionPolicySelectionDialog`, D3)
+- `tools/dashboard/tests/agent-session-screen-navigation.test.tsx` (confirmation run)
+  and a new interaction test for the provider selector (D3)
 
 ## Implementation Decomposition
 
 Two independent tasks (D4) — neither depends on the other:
 
-- `tasks/01-session-visibility-on-creation.md` — D2.
-- `tasks/02-execution-policy-provider-selection-fix.md` — D3.
+- `tasks/01-session-visibility-on-creation.md` — D2, confirm-only per D6.
+- `tasks/02-execution-policy-provider-selection-fix.md` — D3, real implementation work.
 
 ## Acceptance Criteria & Verification
 

@@ -6,103 +6,74 @@ context:
   required:
     - specs/active/deterministic-flow-hardening-pt3/overview.md
     - specs/active/deterministic-flow-hardening-pt3/owner-decisions.md
-    - tools/dashboard/ui/screens/specification-detail/specification-detail-content.tsx
-    - tools/dashboard/ui/features/agent-sessions/queries.ts
     - tools/dashboard/ui/screens/agent-session/agent-session-screen.tsx
-    - tools/dashboard/ui/features/agent-sessions/types.ts
     - tools/dashboard/tests/agent-session-screen-navigation.test.tsx
-  optional:
-    - tools/dashboard/server/ai/orchestration/admission.mjs
-    - tools/dashboard/server/ai/sessions/turns/routes.mjs
-    - tools/dashboard/server/ai/sessions/routes.mjs
 semantic_references:
-  decisions: [D2]
+  decisions: [D2, D6]
 allowed_paths:
-  - tools/dashboard/ui/screens/specification-detail/specification-detail-content.tsx
-  - tools/dashboard/ui/features/agent-sessions/queries.ts
   - tools/dashboard/ui/screens/agent-session/agent-session-screen.tsx
   - tools/dashboard/tests/agent-session-screen-navigation.test.tsx
 forbidden_paths:
   - src/**
   - tools/dashboard/server/**
+  - tools/dashboard/ui/features/agent-sessions/queries.ts
+  - tools/dashboard/ui/features/agent-sessions/create-agent-session-dialog.tsx
 ---
 
-# Task: Session visibility on creation
+# Task: Session visibility on creation — confirm the existing fix
 
 ## Goal
 
-Eliminate the "Sesja nie znaleziona" race after a session is created/admitted, by
-using the data the creation response already carries instead of waiting on a single
-retry against the separately-cached sessions list (D2, `owner-decisions.md`).
-
-Current behavior (evidence, do not re-derive — see `owner-decisions.md` D2 for full
-citations):
-- `useCreateAgentSession` (`queries.ts:78-106`) receives the full created `session`
-  object from `POST /api/agent-sessions`, but its `onSuccess` only calls
-  `invalidateQueries` — it never seeds the list-query cache with the session it
-  already has.
-- `proceedWithAgentExecution` (`specification-detail-content.tsx:143-197`) gets only
-  `{ sessionId, ownerId, turnId }` from `POST /api/agent-sessions/turns` (201), never
-  invalidates the sessions-list cache at all, and navigates immediately on success.
-- `AgentSessionScreen` (`agent-session-screen.tsx:89-117`) resolves the session purely
-  from the cached list query, with exactly one bounded retry before permanently
-  rendering "Sesja nie znaleziona" (no further automatic retry, no fetch-by-id).
+D2's actual goal — eliminate the "Sesja nie znaleziona" race after a session is
+created/admitted, and never confuse a real failure with "not yet visible" — is
+**already implemented** on this branch (`agent-session-screen.tsx`, commits `a9c121cf`
+and `2076672f`, made in a prior session before this branch was orphaned and recovered;
+see `owner-decisions.md` D6). This task is **confirm-and-lock-in, not build**: there is
+no new production-code mechanism to add. D2's original plan (optimistic cache seed from
+the creation response + a `GET`-by-id fallback) is superseded by D6 — do not implement
+it; the shipped mechanism (bounded single retry + explicit "retry failed" vs. "retry
+confirmed absence" distinction, `agent-session-screen.tsx:89-117`) already satisfies
+the goal.
 
 ## Requirements
 
-- `useCreateAgentSession`: on success, seed the `AGENT_SESSIONS_QUERY_KEY` cache with
-  the returned `session` directly (`queryClient.setQueryData`, prepending/merging by
-  `sessionId`) in addition to (or instead of, if redundant) invalidating — the screen
-  must see the real, complete session immediately, with no network round-trip needed.
-- `proceedWithAgentExecution`: after a successful `/turns` admission, construct a
-  minimal placeholder `AgentSession` record from data already known client-side (the
-  response's `sessionId`, and the request's own `provider`/`mode`/`model`/`taskId`/
-  `specId` — no new server fields required) and seed the same cache with it before
-  navigating. Reuse an existing `AgentSessionStatus` value (e.g. `'running'`) for the
-  placeholder — do not add a new enum case without flagging it as a new decision first.
-- `AgentSessionScreen`: when the session is still not resolvable from the list cache
-  (covers both a stale cache racing a real session, and a genuinely bad id), fetch it
-  directly by id (`GET /api/agent-sessions/:sessionId`, already implemented server-side)
-  as the authoritative check — not just another refetch of the same list query. Render
-  "Sesja nie znaleziona" only once that direct fetch confirms a 404; a transport/5xx
-  failure on that fetch must surface as a retryable error, not a false "not found"
-  (mirror the existing `missingSessionRetryFailed` distinction).
-- Both creation paths must leave the screen able to immediately render *something*
-  useful (even a "starting" placeholder) rather than a loading spinner racing a cache
-  miss.
-
-## Implementation constraints
-
-- No change to `GET /api/agent-sessions/:sessionId`'s response shape or to any server
-  file (forbidden path) — reuse it as-is.
-- Do not widen `AgentSessionStatus` or any other shared type without flagging it back
-  as a new decision rather than deciding it unilaterally.
+- Re-run `npm --prefix tools/dashboard run test:ui-stable` and confirm all 4 cases in
+  `agent-session-screen-navigation.test.tsx` still pass against the current working
+  tree, with no code change required to make them pass.
+- Re-run the full dashboard suite (`npm --prefix tools/dashboard test`) and confirm no
+  regression (baseline: 1060/1060 pass, 1 pre-existing skip).
+- Read `agent-session-screen.tsx:89-117` and confirm, by direct inspection, that the
+  current code actually implements all of: (a) exactly one bounded retry per
+  `sessionId` when a session is missing from the cached list, (b) "Sesja nie
+  znaleziona" rendered only when that retry completes and the session is still absent,
+  (c) a failed/errored retry (not a confirmed absence) surfaces as a retryable error
+  state instead of a false "not found" (`missingSessionRetryFailed`).
+- If, and only if, this inspection finds a genuine gap (not merely a different
+  mechanism than D2 originally proposed), report it as a new finding rather than
+  silently patching it — this task's `allowed_paths` intentionally excludes
+  `queries.ts` and `create-agent-session-dialog.tsx` to keep it a confirmation, not a
+  reopened implementation task.
 
 ## Acceptance criteria
 
-- After `useCreateAgentSession`'s mutation resolves, the sessions-list cache contains
-  the new session without requiring any further network request.
+- `agent-session-screen-navigation.test.tsx`'s 4 existing cases pass unmodified.
   `automated: npm --prefix tools/dashboard run test:ui-stable`
-- After a successful `/turns` admission and navigation, `AgentSessionScreen` renders
-  session content (not "Sesja nie znaleziona" and not an indefinite loading state) even
-  when the list query has not yet been refetched.
-  `automated: npm --prefix tools/dashboard run test:ui-stable`
-- A sessionId that the server genuinely does not have still resolves to "Sesja nie
-  znaleziona" after the direct by-id fetch confirms 404 (no infinite retry, no false
-  positive from the removed list-retry alone).
-  `automated: npm --prefix tools/dashboard run test:ui-stable`
-- A network/5xx failure on the by-id fetch surfaces as a retryable error state, not
-  "Sesja nie znaleziona".
-  `automated: npm --prefix tools/dashboard run test:ui-stable`
+- Full dashboard suite has no regression versus the 1060/1060 (1 skip) baseline.
+  `automated: npm --prefix tools/dashboard test`
+- Direct inspection confirms the three behaviors listed under Requirements are present
+  in the current `agent-session-screen.tsx`.
+  `inspection: read agent-session-screen.tsx:89-117 and confirm each of the three behaviors`
 
 ## Verification
 
 ```bash
 npm --prefix tools/dashboard run test:ui-stable
+npm --prefix tools/dashboard test
 node tools/specs.mjs validate
 ```
 
 ## Out of scope
 
 Provider-quota UX (D1), the execution-policy provider selector bug (D3, task 02), and
-any change to `POST /api/agent-sessions/turns`'s response shape.
+rebuilding D2's originally-specified (now superseded, D6) optimistic-seed/fetch-by-id
+mechanism.

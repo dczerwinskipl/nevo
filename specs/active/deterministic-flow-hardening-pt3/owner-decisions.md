@@ -46,3 +46,30 @@
 - **Consequences:** This change's tasks use `node tools/specs.mjs approve/start/complete/verify` and `/nevo-ai:spec-approve`/`task-start`, not `workflow step start/finish`.
 - **Date:** 2026-10-03
 - **Affected artifacts:** `change.yaml` (no `workflow:` block).
+
+## D6: D2 is already implemented on `feature/ai-spec-history` — task 01 redefined from "build" to "confirm"
+
+- **Question:** After recovering the orphaned `feature/ai-spec-history` branch (216
+  commits never merged to `main`) and merging `main` into it, is D2's planned mechanism
+  (optimistic cache seed + `GET`-by-id fallback) still the right thing to build?
+- **Finding:** No build needed — `agent-session-screen.tsx` on this branch already
+  contains a working, tested, CI-gated fix for the exact "Sesja nie znaleziona" race
+  (commits `a9c121cf`, `2076672f`, authored in a prior session on this same branch
+  before it was orphaned). Its mechanism differs from what D2 originally specified: a
+  single bounded retry plus an explicit distinction between "retry failed" (shows a
+  retryable error) and "retry succeeded, still absent" (shows "Sesja nie znaleziona") —
+  not an optimistic cache seed from the creation response, and not a `GET`-by-id
+  fallback. Confirmed by running `npm --prefix tools/dashboard run test:ui-stable`
+  (4/4 pass) and the full suite `npm --prefix tools/dashboard test` (1060/1060 pass, 1
+  pre-existing skip) directly against this branch's current working tree.
+- **Decision:** Accept the existing mechanism as satisfying D2's actual goal (eliminate
+  the false-not-found race; distinguish a real failure from "not yet visible"). Do not
+  build the originally-specified optimistic-seed/fetch-by-id mechanism on top — that
+  would be solving an already-solved problem a second way. `tasks/01-session-visibility-on-creation.md`
+  is rewritten to describe confirming/locking in the existing fix, not building a new one.
+- **Consequences:** Task 01's requirements and acceptance criteria are rewritten to
+  match the shipped mechanism. Its `automated:` commands are unchanged
+  (`npm --prefix tools/dashboard run test:ui-stable`) since that test file already
+  covers the real behavior.
+- **Date:** 2026-10-03
+- **Affected artifacts:** `tasks/01-session-visibility-on-creation.md`.

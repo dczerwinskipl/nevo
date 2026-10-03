@@ -8,81 +8,85 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 53ac73c4773b76ee6e5e2c8b22cf85add67e78f2a3a984e0c43bb16567d1a07a
+spec_fingerprint: 48a381abd043677f6c52cca9497e8732fbd7a205f5300e7db4bad2b99266d02a
 task_fingerprints:
-  session-visibility-on-creation: c72f936e29645d8d611c1d5ae66059794c5ea66fbd4a82b17a9f584ea732778a
-  execution-policy-provider-selection-fix: 4dc308a597f961e180a8e8c351c56105c7e94c33f46102ac35f39d8f2f87287f
+  session-visibility-on-creation: eda7a1232ff56d0a98eea1ab2fc8f4ae42891241bf1965df19ec621064eafac5
+  execution-policy-provider-selection-fix: d93d8e6d157572960166fa5ad90bd6eb0188dcc35c645d2a5ea8ecd97ba83970
 ---
 
 # Review: deterministic-flow-hardening-pt3
 
-No reliable previous-file baseline is available. Performing a fresh review of the
-current specification.
+Re-review. Baseline is the previous `reviews/spec.md` content (read before this write):
+verdict `ready-for-approval`, zero findings. All of that baseline's findings were
+already resolved/noted-fixed at that time — none are repeated here as active.
 
 ## Verdict
 
 `ready-for-approval` — no unresolved `AUTO_FIX`/`OWNER_DECISION`/`NEEDS_CLARIFICATION`
-findings remain, but neither task is yet `status: approved` in `change.yaml` (both are
+findings remain, but neither task is yet `status: approved` in `change.yaml` (both
 `draft`), per decision-table row 4.
+
+## What changed since the baseline review
+
+- Recovered the orphaned `feature/ai-spec-history` branch and merged `main` into it;
+  this change's work now happens there, not on `main` (D6; see `owner-decisions.md`).
+- Discovered D2's actual goal is already satisfied on that branch by a pre-existing,
+  tested, CI-gated fix (commits `a9c121cf`, `2076672f`) using a different mechanism
+  than originally planned. Rewrote task 01 from a build task to a confirm-only task
+  (narrowed `allowed_paths`, dropped `queries.ts`/`create-agent-session-dialog.tsx`/
+  `specification-detail-content.tsx` from its scope entirely). Recorded as D6.
+- Updated `overview.md`'s Context/Goal/Constraints/Affected Areas/Implementation
+  Decomposition sections to match.
+- Re-ran `npm --prefix tools/dashboard run test:ui-stable` (4/4 pass) and the full
+  suite `npm --prefix tools/dashboard test` (1060/1060 pass, 1 pre-existing skip)
+  directly against the current working tree — both confirm D2's goal already holds
+  with zero code changes.
 
 ## Implementation readiness
 
 - May implementation start now? No (`implementation_allowed: false`).
-- Are the relevant tasks `approved` in `change.yaml`? No — both `session-visibility-on-creation`
-  and `execution-policy-provider-selection-fix` are currently `draft`.
+- Are the relevant tasks `approved` in `change.yaml`? No — both
+  `session-visibility-on-creation` and `execution-policy-provider-selection-fix` are
+  currently `draft`.
 - What has to happen first? Nothing but approval — no unresolved finding of any kind;
-  `/nevo-ai:spec-approve` is the next step.
+  `/nevo-ai:spec-approve` is the next step for each task.
 
 ## Findings
 
 No findings.
 
 Gating validation: passed (`node tools/specs.mjs validate` — 30 changes, no errors).
-Non-gating repository check: passed (`node tools/specs.mjs check`, `node tools/docs.mjs check` —
-indexes current after this change's own `specs/*.generated.*` regeneration).
-
-Notes from this review pass (already corrected in the artifacts, not left as open
-findings): the two task files initially lacked `semantic_references.decisions`
-entries for the owner decisions (D2, D3) their own prose names, and both tasks'
-`automated:`/`Verification` commands initially referenced a test command
-(`npm --prefix tools/dashboard test -- <pattern>`) that does not exist — that npm
-script only runs the `node --test` suite over `tests/*.test.mjs` and has no `--`
-pattern-filter behavior; the dashboard's `.tsx` UI tests run under `vitest` via
-dedicated `package.json` scripts (`test:ui-stable`, and a new `test:ui-provider-selector`
-task 02 must add). Both were fixed before this review ran, so they do not appear as
-active findings — verified directly against the current file contents, not asserted.
 
 ## Specification readiness criteria check
 
-- Every task intended to start next: neither is `approved` yet (expected pre-approval;
-  see verdict above) — not a blocking finding, just not yet actioned.
-- `depends_on`: neither task declares one; both are independent per D4 — `node tools/specs.mjs validate`
+- `depends_on`: neither task declares one; both independent per D4 — `validate`
   confirms no cyclic/unresolved reference.
-- `allowed_paths`/`forbidden_paths`: present and disjoint between the two tasks on both
-  dimensions — no overlap.
-- Acceptance criteria: each task's criteria carry an `automated:` tag pointing to a
-  real, verified-working command (confirmed by running `npm --prefix tools/dashboard run
-  test:ui-stable` directly during this review — passed, 4/4 tests).
-- Owner decisions: D1-D5 all recorded in `owner-decisions.md` with question, options,
-  decision, rationale, consequences — none open.
-- Documentation/ADR impact: checked `docs/development/` (including `ai-sessions.md`,
-  `agent-workflow-protocol.md`) and `docs/decisions/` for any described behavior this
-  change would contradict or need to update — found none; the specific client-side
-  retry/cache/provider-selector behavior being fixed is not documented architecture,
-  only implementation. No documentation update is required by this change.
-- Gated-decision option analysis: D2, D3, D5 each record ≥2 real options with
-  trade-offs and an explicit rationale for the one chosen (D1 recorded 3 options and
-  explicitly chose none). Satisfied.
-- Semantic-reference completeness: both tasks now declare `semantic_references.decisions`
-  for the one decision (D2 / D3 respectively) their own content relies on. No other
-  owner decision, shared constraint, or dependency contract is referenced in either
-  task's prose without being declared.
+- `allowed_paths`/`forbidden_paths`: present, and now even more clearly disjoint —
+  task 01 is scoped to exactly `agent-session-screen.tsx` (read/confirm) and its own
+  test file; task 02 owns `create-agent-session-dialog.tsx`, its new test file, and
+  `package.json`. No overlap.
+- Acceptance criteria: task 01's are now confirmation checks (two `automated:` test
+  runs plus one `inspection:` of already-shipped code, verified directly during this
+  review — both commands actually pass right now). Task 02's are unchanged from the
+  prior review (still real, unimplemented work; its target npm script
+  `test:ui-provider-selector` does not exist yet, which is expected — it's part of
+  task 02's own deliverable, not a defect in the spec).
+- Owner decisions: D1-D6 all recorded in `owner-decisions.md` with question, options
+  or finding, decision, rationale, consequences — none open.
+- Documentation/ADR impact: unchanged from the prior review — none required.
+- Gated-decision option analysis: D2, D3, D5 record ≥2 real options with trade-offs;
+  D6 is a finding-driven correction (not a gated architectural choice) and records its
+  rationale and consequences directly. Satisfied.
+- Semantic-reference completeness: task 01 now declares `[D2, D6]` (both decisions its
+  rewritten content actually relies on); task 02 still declares `[D3]`. No other owner
+  decision, shared constraint, or dependency contract is referenced in either task's
+  prose without being declared.
 
 ## Scope and task-decomposition quality
 
-Two tasks, no file overlap: task 01 touches `specification-detail-content.tsx`,
-`queries.ts`, `agent-session-screen.tsx`, `agent-session-screen-navigation.test.tsx`;
-task 02 touches `create-agent-session-dialog.tsx`, a new
-`execution-policy-selection-dialog.test.tsx`, and `package.json` (to add its own new
-test script). Neither task's `forbidden_paths` conflicts with the other's
-`allowed_paths`. Matches D4's decision to decompose into two independent tasks.
+Two tasks, no file overlap, narrower than before: task 01 touches only
+`agent-session-screen.tsx` (confirmation, no change expected) and
+`agent-session-screen-navigation.test.tsx`; task 02 touches
+`create-agent-session-dialog.tsx`, a new `execution-policy-selection-dialog.test.tsx`,
+and `package.json`. Matches D4's decomposition decision; task 01's scope reduction
+(D6) only tightens it further.
