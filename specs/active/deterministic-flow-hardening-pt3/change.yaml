@@ -15,10 +15,14 @@ tasks:
   - id: session-visibility-on-creation
     order: 1
     file: tasks/01-session-visibility-on-creation.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: 1e9e4dc1703af9c0df2061fb7c45800fcaedcc29
   - id: execution-policy-provider-selection-fix
     order: 2
     file: tasks/02-execution-policy-provider-selection-fix.md
-    status: approved
+    status: in-implementation
+    implementation:
+      baseline_revision: 1e9e4dc1703af9c0df2061fb7c45800fcaedcc29
 
 spec_id: e12bc9ff-69b7-45b5-9c67-cafaa6dd6d56

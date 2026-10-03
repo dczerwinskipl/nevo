@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-03T14:28:15.946Z",
+  "generated": "2026-10-03T14:31:18.194Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -199,13 +199,19 @@
           "id": "session-visibility-on-creation",
           "order": 1,
           "file": "tasks/01-session-visibility-on-creation.md",
-          "status": "approved"
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "1e9e4dc1703af9c0df2061fb7c45800fcaedcc29"
+          }
         },
         {
           "id": "execution-policy-provider-selection-fix",
           "order": 2,
           "file": "tasks/02-execution-policy-provider-selection-fix.md",
-          "status": "approved"
+          "status": "in-implementation",
+          "implementation": {
+            "baseline_revision": "1e9e4dc1703af9c0df2061fb7c45800fcaedcc29"
+          }
         }
       ]
     },
