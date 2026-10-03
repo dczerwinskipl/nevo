@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-03T18:07:08.643Z",
+  "generated": "2026-10-03T18:43:24.604Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -188,6 +188,15 @@
       ]
     },
     {
+      "id": "batch-execution-generalization",
+      "specId": "b5011a2e-1197-4fc4-97ea-19758c1891ea",
+      "title": "Generalize task-batch into the primary multi-task execution model",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-10-03",
+      "tasks": []
+    },
+    {
       "id": "deterministic-flow-hardening-pt3",
       "specId": "e12bc9ff-69b7-45b5-9c67-cafaa6dd6d56",
       "title": "Deterministic flow hardening pt3",
@@ -214,15 +223,6 @@
           }
         }
       ]
-    },
-    {
-      "id": "execution-run-simplification",
-      "specId": "b5011a2e-1197-4fc4-97ea-19758c1891ea",
-      "title": "Generalize task-batch into the primary multi-task execution model",
-      "status": "draft",
-      "priority": 10,
-      "created": "2026-10-03",
-      "tasks": []
     },
     {
       "id": "agent-workflow-protocol-and-flow-hardening",

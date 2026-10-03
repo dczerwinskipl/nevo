@@ -1,5 +1,5 @@
-# Specification manifest for execution-run-simplification
-id: execution-run-simplification
+# Specification manifest for batch-execution-generalization
+id: batch-execution-generalization
 title: "Generalize task-batch into the primary multi-task execution model"
 type: architectural
 status: draft
