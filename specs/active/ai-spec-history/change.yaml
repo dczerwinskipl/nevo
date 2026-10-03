@@ -154,3 +154,8 @@ tasks:
       - human-verification-activity-producer
 
 spec_id: fe63d2b5-a66a-4c88-b3cc-6d38b193b725
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 53
