@@ -1,35 +1,42 @@
 ---
 id: spec.execution-run-simplification
 type: discovery
-title: "Simplify sequential task execution: generic durable queue -> ExecutionRun"
+title: "Generalize task-batch into the primary multi-task execution model"
 status: draft
 change: execution-run-simplification
 ---
 
-# Discovery: replace the generic sequential task queue with `ExecutionRun`
+# Discovery: generalize `task-batch`/`ExecutionScope` into the primary execution model
+
+**Revision note:** this report's first draft proposed a scheduler-shaped
+`ExecutionRun { selectedTaskIds, state }` that chose and admitted one task at a time.
+The owner rejected that direction after further review: it is still a second scheduler
+competing with the workflow engine, just with a different name. This revision keeps
+the first draft's **facts about current code** (confirmed valuable) and replaces the
+proposed architecture entirely with the owner's corrected direction: generalize the
+*existing* `ExecutionScope: 'task' | 'task-batch'` + reservation/`BatchContext`/
+batch-finish machinery — built today only for homogeneous "review together" — into the
+primary model for implementation, review, and refinement, each as **one session per
+batch**, with the agent executing the whole dependency-ordered group inside that one
+session. No new `ExecutionRun` primitive. Still no implementation in this report.
 
 ## Scope
 
 Triggered by the runaway-session-creation incident on `ai-spec-history` (fixed in
-`81bcfe45`: a never-bootstrapped task's turn failure was misclassified as `completed`,
-letting the durable queue auto-readmit it indefinitely). While reviewing the fix, the
-owner audited the whole `tools/specs/workflow/queue/**` mechanism directly and
-concluded the generic durable sequential queue is bigger than the actual use case
-("user selects N tasks, system runs the available ones one at a time, respecting
-canonical workflow readiness") — and that this is a cause of the incident class, not
-just this one instance. This report is pure discovery: facts about current
-responsibilities, call sites, and coupling, so the owner can review a proposed target
-architecture and its blast radius before any implementation starts.
+`81bcfe45`). While reviewing that fix, the owner audited `tools/specs/workflow/queue/**`
+directly and the existing `task-batch` machinery, and concluded:
 
-Delegated the fact-gathering to two read-only researcher passes (queue call sites +
-`schedulingPriority`; and D33-D38 + `groupReservations` coupling) to keep this
-synthesis bounded. All citations below are grounded in those passes' verified
-file:line evidence, cross-checked against this session's own direct reads of
-`admission.mjs` and `execution-settlement.mjs`.
+> Nie chcę modelu `selected tasks → choose next runnable → admit one task → finish →
+> choose next → new execution/session`. Chcę `selected tasks → ONE batch execution →
+> ONE agent session → agent executes the whole dependency-ordered group → ONE batch
+> finish`.
+
+Session handover happens **between roles/phases** (implementation batch → review
+batch → optional refinement batch), never between tasks inside the same batch.
 
 ## Repository facts
 
-### The queue directory's actual contents
+### The queue directory's actual contents (unchanged from first draft, still accurate)
 
 `tools/specs/workflow/queue/` has exactly 4 files:
 
@@ -38,293 +45,337 @@ file:line evidence, cross-checked against this session's own direct reads of
 - **`reservation.mjs`** — `createGroupReservation`/`releaseGroupReservation`/`validateBatchCompatibility`/`isTaskBarriered`/`getTaskReservation`/`assessBatchReservationSettlement`/`reconcileCrashedReservation`. Imports `loadTaskQueue`/`saveTaskQueue` directly from `./store.mjs` (`reservation.mjs:8`) and mutates `queueRecord.groupReservations` **in the same file and the same top-level record** that `enqueueTasks`/`dequeueTask` mutate.
 - **`index.mjs`** — pure re-export barrel for both function sets.
 
-**Fact:** `evaluator.mjs:8` imports `isTaskBarriered` from `./reservation.mjs` and calls it (`evaluator.mjs:123`) to exclude barriered tasks before sorting — the plain queue's own evaluator already depends on the reservation module.
+**Fact:** `evaluator.mjs:8` imports `isTaskBarriered` from `./reservation.mjs` — the plain queue's own evaluator already depends on the reservation module.
 
-**Fact:** `groupReservations` and the plain queue's `taskIds`/`eligibleAt` are **not separable at the storage layer today**, even though they are separable as exported function sets — they live in one JSON record, written by one `saveTaskQueue`.
+**Fact:** `groupReservations` and the plain queue's `taskIds`/`eligibleAt` are **not separable at the storage layer today** — one JSON record, one `saveTaskQueue`.
 
-### Call sites of the five named functions
+### Call sites of enqueue/dequeue/load/evaluate/reconcileContinuation (unchanged from first draft)
 
 | Function | Call site | What triggers it | Scope |
 |---|---|---|---|
-| `enqueueTasks` | `turns/routes.mjs:369` | manual "Start" (new session), after plan resolution | single task (UI never sends >1 id here) |
+| `enqueueTasks` | `turns/routes.mjs:369` | manual "Start" (new session) | single task |
 | `enqueueTasks` | `turns/routes.mjs:573` | manual "Start" (existing session) | single task |
-| `enqueueTasks` | `reconciliation.mjs:102` | same-task auto-continuation, **gated** by `continuationPolicy === 'auto'` | single task |
-| `dequeueTask` | `admission.mjs:625` | turn settled `resumable`, scope `kind:'task'` only | single task, cleanup not scheduling |
-| `dequeueTask` | `reconciliation.mjs:502` | queue-wide maintenance: purge already-terminal ids | potentially multiple |
-| `loadTaskQueue` | `deterministic-execution-plan.mjs:58` | read-only, seeds `eligibleAt` for *this request's own* candidate set only (explicitly not merged with the stored file, `deterministic-execution-plan.mjs:50-56`) | single task (request-scoped) |
+| `enqueueTasks` | `reconciliation.mjs:102` | same-task auto-continuation, gated by `continuationPolicy === 'auto'` | single task |
+| `dequeueTask` | `admission.mjs:625` | turn settled `resumable`, scope `kind:'task'` only | single task cleanup |
+| `dequeueTask` | `reconciliation.mjs:502` | queue-wide maintenance: purge terminal ids | potentially multiple |
+| `loadTaskQueue` | `deterministic-execution-plan.mjs:58` | read-only, request-scoped | single task |
 | `loadTaskQueue` | `reconciliation.mjs:493,506` | queue-wide drain | multiple |
-| `evaluateTaskQueue` | `deterministic-execution-plan.mjs:79-84` | every manual Start/continue-session HTTP call | single task — sort is a structural no-op with 1 candidate |
-| `evaluateTaskQueue` | `reconciliation.mjs:105-110` | same-task auto-continuation (gated, see above) | single task |
-| `evaluateTaskQueue` | `reconciliation.mjs:519-525` | **queue-wide drain, no `continuationPolicy` gate at all** | `refreshedQueue.taskIds` — whatever is left in the durable file |
-| `reconcileContinuation` | `admission.mjs:579,586` (sole call site outside tests) | every turn that settles `outcome:'completed'` | — |
+| `evaluateTaskQueue` | `deterministic-execution-plan.mjs:79-84` | every manual Start/continue call | single task — sort is a no-op |
+| `evaluateTaskQueue` | `reconciliation.mjs:105-110` | same-task auto-continuation (gated) | single task |
+| `evaluateTaskQueue` | `reconciliation.mjs:519-525` | **queue-wide drain, no `continuationPolicy` gate** | whatever is in the durable file |
+| `reconcileContinuation` | `admission.mjs:579,586` (sole call site outside tests) | every turn settling `outcome:'completed'` | — |
 
-**Fact, directly answering "is single-task Start forced through the queue":** yes. Every
-manual Start/continue call — even with exactly one task id — goes through
-`loadTaskQueue` → `evaluateTaskQueue` (whose sort comparator has nothing to compare
-against) → `enqueueTasks` (persists that one id into the same durable file multi-task
-scenarios use) → `admitAgentExecution`. Confirmed at `turns/routes.mjs:325-412` (new
-session) and `:519-573` (existing session).
+**Fact:** every manual Start/continue — even one task — goes through
+`loadTaskQueue → evaluateTaskQueue (no-op sort) → enqueueTasks → admitAgentExecution`.
 
-**Fact, on `reconcileContinuation`'s two internal paths:**
-1. Single-task path (`reconcileWorkflowPosition`, `reconciliation.mjs:478-483`) —
-   gated: `if (continuationPolicy !== 'auto') return { action: 'noop', ... }`
-   (`reconciliation.mjs:93-97`). Only proceeds if the *matched workflow transition*
-   explicitly declares `continuation: auto` in the workflow YAML.
-2. Queue-wide drain path (`reconciliation.mjs:485-590`) — reached only if path 1
-   didn't return. **No `continuationPolicy` check anywhere in this path.**
-   Unconditionally re-evaluates the entire durable queue file and admits
-   `nextRunnable` if it isn't merely activation-only-blocked.
+**Fact, `reconcileContinuation`'s two internal paths:** the single-task path
+(`reconcileWorkflowPosition`) is gated on `continuationPolicy === 'auto'`
+(`reconciliation.mjs:93-97`); the queue-wide drain path (`reconciliation.mjs:485-590`)
+has **no such gate anywhere in its body** — this asymmetry is a second, latent bug
+class beyond the one already fixed (not independently confirmed as having fired, but
+structurally possible).
 
-This asymmetry is itself a second, latent bug class beyond the one already fixed: any
-task sitting in the durable queue (put there by an ordinary single-task Start) can in
-principle be auto-admitted by this path without its own transition ever having
-declared `continuation: auto`. This investigation found no evidence it has actually
-fired that way in production (no log/test evidence either way) — flagged as an open
-question, not an additional confirmed incident.
+### `schedulingPriority` (unchanged from first draft)
 
-### `schedulingPriority`
+Default `0`; only `review` sets `10` in all three workflow definition files. Its
+cross-task ordering is reachable **only** through the queue-wide drain path with no
+other caller (`evaluator.mjs:179-202` compared against every other call site, all
+single-task). Directly evidences — not merely assumes — that this semantic was never
+required by any currently-supported flow.
 
-**Fact:** default `0` (`definitions/schema.mjs:681`); only the `review` step sets it to
-`10` in all three workflow definition files
-(`.nevo-ai/workflows/standard-v1.yaml:41`, `standard.yaml:41`,
-`templates/standard.yaml:42`). Comparator: `evaluator.mjs:179-202`, ascending — an
-`implementation`-step task on a *different* task id is always preferred over a
-`review`-step task when both are simultaneously `eligible`.
+### NEW — `validateBatchCompatibility` assumes a homogeneous batch (confirmed, this is the core gap for generalizing to implementation)
 
-**Fact:** this comparison only ever has >1 *distinct* task id with *different* target
-steps to compare when `evaluateTaskQueue` is called with a multi-id selection. The only
-production call site that can do that is the queue-wide drain
-(`reconciliation.mjs:519-525`, `selectedTaskIds: refreshedQueue.taskIds`). Every other
-call site is scoped to exactly one task id. The UI never submits >1 task id to this
-code path either (`specification-detail-content.tsx:167`; a >1-length `taskIds` array
-only ever happens on the separate `reviewTogether`/batch-review branch, which never
-touches `evaluateTaskQueue` at all).
+Read directly, `tools/specs/workflow/queue/reservation.mjs:81-190`:
 
-**Conclusion of fact:** `schedulingPriority`'s cross-task-ordering semantics are reachable
-*only* through the same queue-wide drain path that has no `continuationPolicy` gate — the
-one mechanism the owner's target architecture removes entirely. No other call site can
-ever exercise it. This directly evidences (not merely assumes) the owner's suspicion
-that this semantic was never required by any real, currently-supported user flow.
+- Line 112-120: **every member must individually be `readiness.ready` (via
+  `evaluateBaseExecutionReadiness`) before the batch is even compatible.** For a
+  dependency-ordered implementation batch where `T2 depends_on T1` and both are
+  selected together, `T2`'s own `evaluateBaseExecutionReadiness` call returns
+  `ready: false, code: 'DEPENDENCY_UNSATISFIED'` (per `readiness-policy.mjs:44-54`,
+  `projection.state === 'blocked'`) **because `T1` hasn't finished yet** — this
+  rejects the whole batch today, exactly the gap the owner identified.
+- Line 122-131: **every member must resolve to the same `targetStepId`.** A batch
+  containing a fresh `T1` (targeting `implementation`) and a dependent `T2` that isn't
+  even ready yet cannot satisfy this either — today's compatibility check assumes
+  every member is already sitting at the identical step (true for "review together",
+  false for a mixed-readiness implementation batch).
+- Line 171-179: every member must also resolve to the same incoming-transition
+  **role** — same homogeneity assumption, one more dimension.
 
-### `groupReservations` / batch reservation vs. the plain queue
+**Fact — the dependency data needed to fix this already exists and requires no new
+primitive:** `readiness-policy.mjs:44-54` + `task-projection.mjs` already compute
+`projection.blockedBy: string[]` — the exact list of blocking dependency task ids —
+whenever a task is blocked. A batch-aware compatibility check can inspect
+`blockedBy` per member and classify each blocking id as either a member of the *same*
+selected batch (not a hard blocker — determines topological order instead) or outside
+it (genuine admission blocker) — exactly the semantic the owner specified. This is new
+logic, but it consumes data that is already computed today; it does not require
+inventing a new dependency representation.
 
-**Fact (storage coupling):** as above — same file, same record, same
-`loadTaskQueue`/`saveTaskQueue` functions.
+### NEW — `BatchContext` has no dependency-graph or per-member-step awareness today
 
-**Fact (call-graph independence):** batch-scope admission never calls
-`enqueueTasks`/`dequeueTask`/`evaluateTaskQueue` as a batch unit. The batch-review HTTP
-branch (`turns/routes.mjs:122-323`) calls `validateBatchCompatibility` →
-`createGroupReservation` → `admitAgentExecution` directly (`routes.mjs:134,259,269-294`)
-— the plain-queue functions are never invoked in that branch. Conversely, the
-single-task branch never calls `validateBatchCompatibility`/`createGroupReservation`.
-`admission.mjs`'s only `dequeueTask` call is explicitly gated
-`capturedScope.kind === 'task'` (`admission.mjs:622`) — never reached for batch scope.
+Read directly, `tools/specs/context/batch-context.mjs:151-240` (`buildBatchContext`):
 
-**Fact (per-member continuation after batch completion):**
-`batch-completion-settlement.mjs`'s `executeBatchCompletionSettlement` releases the
-batch's own barrier/reservation/claim first, then calls plain, single-task
-`reconcileContinuation(change, task, {...})` **once per freed member** — i.e., batch
-completion re-enters the *ordinary single-task* continuation path per member, after
-the batch mechanism's own job is done. It imports `getGroupReservation`/
-`releaseGroupReservation` directly from `reservation.mjs`, never via `index.mjs` or any
-plain-queue function.
+- Members are sorted only by `(order asc, id asc)` (`batch-context.mjs:167-172`) — no
+  topological/dependency ordering field anywhere in this function.
+- `targetStepName` is resolved as **one shared value for the whole batch**
+  (`batch-context.mjs:189-194`, taken from the first member's step context or the
+  workflow definition's entry step) — there is no per-member target-step field in the
+  returned context today.
+- `members[].stepContext` is populated per task (`batch-context.mjs:174-185`), so
+  per-member data already flows through — but nothing in this function represents
+  "member A must finish before member B starts."
 
-**Fact (decision grounding — `specs/archive/multi-task-agent-execution/owner-decisions.md`):**
-D31 — barrier must be a provider-neutral workflow-core primitive "reusing the existing
-durable queue reservation itself... as the canonical barrier state (per D36, avoiding a
-third membership copy)" — i.e., the original design **deliberately** layered the
-reservation on top of the plain queue's own storage, specifically to avoid a third
-copy of task-membership truth. D36 — "no duplicated canonical batch membership across
-barrier/reservation records": the reservation is the canonical queue/barrier answer,
-`AgentSession.executionScope.taskIds` is the canonical ownership answer — "two records
-with different jobs, not three copies of the same fact." D37 — the barrier must block
-ordinary callers but never the authenticated batch-start's own bootstrap of its own
-reserved members (base readiness vs. barrier-aware ordinary readiness, split by design,
-no `force`/`ignoreBarrier` escape hatch). D33/D34/D35/D38 cover the batch
-admission/bootstrap sequence, context-capacity preflight, Hook1 terminal ordering, and
-the frozen `executionConfigSnapshot` — all specifically about the *batch* admission/
-completion lifecycle, independent of the plain queue's own scheduling concerns.
+**Consequence:** generalizing to an implementation batch requires real, new additions
+to `buildBatchContext` (a dependency graph among members, and either a per-member
+target step or an explicit note that members may start at different steps) — not
+merely a relaxation of `validateBatchCompatibility`'s checks. Both changes are in the
+same conceptual place (`tools/specs/context/batch-context.mjs` and
+`tools/specs/workflow/queue/reservation.mjs`), not scattered.
 
-**Consequence for migration:** the reservation/barrier mechanism's *call graph* is
-already independent and should be kept exactly as designed (D31/D33/D36/D37's own
-rationale is sound and unaffected by removing the plain queue). Its *storage* is not
-independent today — re-homing it to its own file is real, scoped migration work, not a
-no-op.
+### NEW — today's per-member post-batch continuation is a fresh refiner per failed member, not a batch-level handover
 
-### ADR coverage
+Read directly, `tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs:648-689`
+(Stage 4, "Per-member continuation dispatch"):
 
-**Fact:** no ADR under `docs/decisions/` documents the sequential-queue or
-batch-reservation architecture — zero matches for `batch-queue-reservation`,
-`groupReservations`, `batchExecutionId`, or `multi-task-agent-execution`.
-`ADR-0009-agent-admission-and-execution-ownership-model.md` (from
-`deterministic-execution-follow-up-hardening`) mentions `evaluateTaskQueue` exactly
-once, in a code-location map, in a document otherwise entirely about single-task
-admission/ownership/settlement — it does not document the queue itself and does not
-need superseding for this change.
+```js
+for (const taskId of taskIds) {
+  ...
+  const dispatchResult = await reconcileContinuation(currentChange, task, {
+    ...options, repoRoot, activeDir,
+    parentSessionId: effectiveSessionId,
+  });
+  ...
+}
+```
 
-**Inconsistency found:** `D33`-`D38` are **not globally unique** — both
-`multi-task-agent-execution/owner-decisions.md` and
-`docs/decisions/ADR-0006-process-continuity-and-hardening.md` (sourced from a
-different, unnamed sibling change referenced in `batch-finish-operation.md:36` as
-"`deterministic-status-architecture`") use the same D-numbers for unrelated decisions.
-Anyone grepping ADRs for "D33"-"D38" without change-scoping will get false matches —
-confirmed directly in this investigation.
+Comment at the call site: "A fresh refiner gets `parentSessionId` equal to the batch
+reviewer session id (D8, D35)." Today, after a review batch completes, **each member
+that needs fixing gets its own, independent single-task refiner session** — N
+sessions, not one. This is precisely the model the owner wants replaced: after a batch
+completes, derive which members need another phase and admit **one** new batch
+execution for that subset (falling back to a single-task-shaped execution only when
+exactly one member needs it — see the "single-task as batch-of-one" question below),
+not N independent per-member continuations.
 
-**D45** (`specs/archive/deterministic-status-architecture/owner-decisions.md:1916-1945`,
-found and read after the two research passes, since `evaluator.mjs`'s own header cites
-it alongside D32-D34/D38): *"A pending human decision does not pause the rest of the
-spec's sequential queue."* A human-owned step awaiting a decision never occupies the
-spec's single-agent-execution slot — other **agent-owned** work among the same
-selection may continue, one at a time; several pending human decisions may accumulate
-across different tasks simultaneously, each surfaced independently.
+### `groupReservations` / batch reservation — call-graph independence, storage coupling, decision grounding (unchanged from first draft)
 
-**This is a real, still-needed requirement, and it is already compatible with the
-owner's proposed model below** — "a blocked or human-waiting task may be skipped, a
-different independent runnable selected task may run instead" is exactly D45's
-behavior, stated independently by the owner before this decision was even looked up.
-No re-scoping needed: whatever resolver replaces `evaluateTaskQueue`'s eligibility
-filtering must keep excluding only the *blocked* task, never the rest of
-`selectedTaskIds`, on the same basis D45 already established. Not a gap — carried
-forward as a stated requirement of the new resolver, not the old queue.
+Call-graph independent of the plain queue (batch-scope admission never calls
+`enqueueTasks`/`dequeueTask`/`evaluateTaskQueue`; `admission.mjs`'s only `dequeueTask`
+call is gated `capturedScope.kind === 'task'`, never reached for batch scope). Storage
+is **not** independent — `reservation.mjs:8` imports `loadTaskQueue`/`saveTaskQueue`
+from the same `store.mjs` the plain queue uses, and the same JSON record carries both.
+
+D31/D36 (`specs/archive/multi-task-agent-execution/owner-decisions.md`): this coupling
+was a **deliberate** original design choice — reusing the queue's own reservation
+record as the canonical barrier state specifically to avoid a third membership copy.
+D37: the barrier must block ordinary callers but never the authenticated batch-start's
+own bootstrap of its own reserved members (base readiness vs. barrier-aware ordinary
+readiness, no `force` escape hatch). D33/D34/D35/D38: batch admission/bootstrap
+sequence, context-capacity preflight, Hook1 terminal ordering, frozen
+`executionConfigSnapshot` — all already about the batch lifecycle specifically, and
+unaffected by removing the plain queue.
+
+**D45** (`specs/archive/deterministic-status-architecture/owner-decisions.md:1916-1945`):
+*"A pending human decision does not pause the rest of the spec's sequential queue."*
+Still a real, needed requirement — already compatible with the owner's model: a
+blocked-on-human member may be skipped while other independent, runnable selected work
+continues. Carried forward as a requirement of whatever replaces per-member
+eligibility filtering, not superseded.
+
+### ADR coverage (unchanged from first draft)
+
+No ADR under `docs/decisions/` documents the sequential-queue or batch-reservation
+architecture. `D33`-`D38` identifiers are **not globally unique** across specs — both
+`multi-task-agent-execution` and (unrelated) `deterministic-status-architecture` use
+the same numbers; confirmed directly by this investigation hitting false matches.
 
 ## Current behavior (narrative)
 
-A manual "Start" for one task, and a same-task auto-continuation after a settled turn,
-both get routed through the exact same machinery built for genuinely ambiguous
-multi-candidate scheduling: load a durable per-change JSON file, run a filter+sort
-pipeline whose sort key (`schedulingPriority`) can only ever matter when ≥2 distinct
-task ids with different target steps are being compared, and persist the single
-resolved id into that file before admission. The one path that *can* actually receive
-multiple distinct ids — `reconcileContinuation`'s queue-wide drain, reached whenever a
-turn settles `completed` and no single-task continuation applied — has no check on the
-destination transition's own declared `continuation` policy, unlike the single-task
-path which does. This is the exact mechanism that, combined with the (now-fixed)
-settlement-misclassification bug, produced the runaway session-creation incident: once
-a task is misclassified as "completed" with nothing to resume, this path treats
-whatever remains in the durable queue as fair game to auto-admit, repeatedly, with no
-cap.
+Two genuinely different batch concepts exist in the code today with the same name.
+`ExecutionScope: {kind: 'task-batch', taskIds}` plus `validateBatchCompatibility` plus
+`buildBatchContext` plus the reservation/barrier plus `batch-finish-operation` plus
+`batch-completion-settlement` together implement **"review together"**: N tasks,
+already individually ready, already at the identical step/role, reviewed in one
+session. Every homogeneity assumption in `validateBatchCompatibility` and
+`buildBatchContext` is correct *for that specific case* and nowhere else. Meanwhile,
+ordinary single-task Start/continuation (implementation, and same-task
+auto-continuation) is routed through a completely unrelated, generic FIFO queue
+(`tools/specs/workflow/queue/{store,evaluator}.mjs`) that was never actually needed for
+either case: single-task Start always had exactly one candidate (nothing to schedule
+among), and the one path that *can* receive multiple candidates — the queue-wide drain
+in `reconcileContinuation` — has no `continuationPolicy` gate and is the mechanism
+responsible for the runaway-session incident.
 
-Batch review (atomic multi-task takeover for one review execution) is architecturally
-independent of all of this in its call graph — it has its own reservation/barrier
-module and its own completion saga — but shares physical storage with the plain queue
-today, because the original design deliberately reused the queue's own record as the
-canonical reservation-membership source (D31/D36) rather than inventing a third
-membership copy.
+The owner's correction: these should not be two unrelated mechanisms (a real batch
+primitive for review, a scheduler-shaped queue for everything else). They should be
+**one** mechanism — the existing batch primitive, generalized to also cover
+dependency-ordered implementation batches and refinement batches — with ordinary
+single-task execution handled as the trivial case of a batch with one member, not as a
+separate code path.
 
 ## Affected areas
 
-- `tools/specs/workflow/queue/` (`store.mjs`, `evaluator.mjs` removed/replaced;
-  `reservation.mjs` re-homed to its own storage; `index.mjs` re-export surface changes)
-- `tools/dashboard/server/ai/orchestration/deterministic-execution-plan.mjs` (drops its
-  `loadTaskQueue`/`evaluateTaskQueue` dependency for single-task resolution)
-- `tools/dashboard/server/ai/orchestration/reconciliation.mjs` (`reconcileWorkflowPosition`
-  kept, re-targeted to call the new `ExecutionRun` resolver instead of
-  `enqueueTasks`/`evaluateTaskQueue`; the queue-wide drain section deleted outright)
-- `tools/dashboard/server/ai/orchestration/admission.mjs` (`dequeueTask` call site
-  removed; batch-scope branches unaffected)
-- `tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs` (its
-  per-member `reconcileContinuation` call needs to target whatever primitive replaces
-  same-task continuation — a direct swap, not new design)
-- `tools/specs/workflow/readiness-policy.mjs`, `cli.mjs`, `human-step/projection.mjs`,
-  `human-step/operations.mjs` (all import `isTaskBarriered` directly from
-  `queue/reservation.mjs` — **unaffected** by removing `evaluator.mjs`, since they don't
-  depend on it)
-- `tools/dashboard/ui/screens/specification-detail/specification-overview.tsx`
-  (separately-confirmed duplicated dependency-satisfaction logic — see Owner's own
-  finding, not re-litigated here; same area, different concern)
-- Tests: `tools/tests/deterministic-task-queue.test.mjs` (directly tests
-  `schedulingPriority` ordering — would need rewriting or deletion), plus every test
-  file listed under "blast radius" below
+- `tools/specs/workflow/queue/reservation.mjs` — `validateBatchCompatibility` gains
+  dependency-aware compatibility (inside-batch dependency ≠ blocker; outside-batch
+  unsatisfied dependency = blocker) and drops the same-target-step/same-role
+  requirement for implementation-phase batches.
+- `tools/specs/context/batch-context.mjs` — `buildBatchContext` gains a dependency
+  graph among members and per-member target-step awareness (no longer one shared
+  `targetStepName` for every member).
+- `tools/specs/workflow/batch-finish/` (`operation.mjs`, `preflight.mjs`) — becomes the
+  one finalization boundary for every batch phase, not just review: prevalidate the
+  whole batch, check each member's own result/gate/scope/source-control, then
+  idempotently apply every member's own workflow transition plus one shared
+  finalize/commit/push. (Per the existing area docs, `batch-finish-operation` already
+  "applies each task's own existing single-task finish identity" per member inside one
+  public operation — this part of the design is already close to right; what changes
+  is which phases route through it.)
+- `tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs` — Stage 4's
+  per-member `reconcileContinuation` loop (fresh refiner per failed member) replaced by
+  one batch-level handover: derive the subset of members needing another phase, admit
+  **one** new batch (or single-member) execution for that subset.
+- `tools/specs/workflow/queue/{store,evaluator}.mjs`, and every call site listed above
+  — candidates for deletion once single-task execution also routes through the
+  generalized batch primitive (see target flows below).
+- `tools/dashboard/server/ai/sessions/turns/routes.mjs` — the non-batch branch
+  (`:325-412`, `:519-573`) and the batch-review branch (`:122-323`) likely converge
+  into one admission path parameterized by member count, rather than two branches.
+- `tools/dashboard/ui/screens/specification-detail/specification-overview.tsx` — **in
+  scope for this change** (owner's decision, see below): the new batch/dependency
+  picker needs canonical dependency-satisfaction data; today's local `isSatisfied`
+  (`:98-101`) and `readyTaskIds` fallback (`:52-55`) are a second, inconsistent source
+  of truth that would otherwise need fixing twice.
 
 ## Constraints
 
-- Workspace-writer claims, admission's three-outcome settlement model
-  (`completed`/`resumable`/`recovery-required`, D1-D4/D59/D60), session fresh/reuse
-  policy, and execution policy resolution are explicitly **not** in scope for removal —
-  confirmed sound, independent invariants.
-- The barrier/reservation mechanism's own call-graph independence and design rationale
-  (D31/D33/D36/D37) are sound and should be preserved as-is; only its storage coupling
-  to the plain queue changes.
-- `batch-completion-settlement.mjs` must keep working during any migration — it calls
-  `reconcileContinuation` per freed member today.
-
-## Open questions
-
-1. Whether `reconcileContinuation`'s queue-wide drain path (no `continuationPolicy`
-   gate) has ever actually auto-admitted a task against its transition's own declared
-   policy in real usage — structurally possible per the code, not independently
-   observed.
-2. Full list of `.mjs` test files that import `reservation.mjs` only transitively
-   (via `queue/index.mjs` or fixtures) rather than directly — not individually
-   traced in this pass; needed for a complete blast-radius list before implementation.
-3. Whether any `specs/active/**` task (as opposed to the archived
-   `multi-task-agent-execution`) currently depends on `groupReservations` — only
-   `.mjs` source/test files were searched, not other active spec markdown.
-
-## Proposed architecture (per owner's brief — presented for review, not yet approved)
-
-```
-Ordinary flow:
-  user Start → ExecutionRun → canonical readiness → admission → workflow transition → advance run
-
-Batch review flow (unchanged, kept separate):
-  Review together → BatchReservation → batch execution → batch finish → release reservation
-```
-
-`ExecutionRun { id, specId/changeSlug, selectedTaskIds, state }` — persists only the
-user's selection intent. Task state is never copied onto the run; it is always
-recomputed live from canonical `TaskProjection`/`ExecutionReadiness`. Advancement
-happens only after an authoritative, persisted workflow transition — never merely
-because a provider turn reached a terminal event. Any provider error, quota, timeout,
-or crash without a genuine workflow advancement pauses the run; there is no automatic
-retry or re-admission of the same task (this is the existing `resumable` outcome's own
-contract, D2: "a resumable attempt requires its own fresh explicit admission to
-resume" — the run model just stops relying on a queue to (mis)decide this). The next
-task is picked from `selectedTaskIds` by canonical readiness plus stable `task.order`
-(no FIFO `eligibleAt`, no `schedulingPriority` — see evidence above that nothing
-currently reachable needs them). Same-task `continuation: auto` stays a declarative
-workflow property, resolved and admitted directly by the orchestrator, without
-requiring durable queue membership.
-
-### Responsibility table
-
-| Current responsibility | Still needed? | Target owner | Removable? | Migration impact |
-|---|---|---|---|---|
-| Durable `{taskIds, eligibleAt}` FIFO record | No — `eligibleAt`/FIFO ordering has no remaining caller once the queue-wide drain is gone | `ExecutionRun.selectedTaskIds` (plain field, no timestamps) | Yes, in full | Low — only 3 call sites (`routes.mjs:369,573`; `reconciliation.mjs:102`), all already single-task |
-| `evaluateTaskQueue`'s readiness/barrier filtering for one candidate | Yes, in spirit, but not as a "queue evaluator" — it's just "is this one task ready" | Direct call to `evaluateExecutionReadiness` (+ `isTaskBarriered`) from the `ExecutionRun` resolver | Yes (the wrapper), No (the underlying readiness check) | Low — same readiness function already exists and is already called today; only the queue-shaped wrapper around it goes away |
-| `schedulingPriority` cross-task tie-break | No — only reachable via the queue-wide drain path being removed; no other caller exists (evidenced above) | — | Yes, in full | Delete `evaluator.mjs`'s sort comparator and the `schedulingPriority` schema field; rewrite/delete `tools/tests/deterministic-task-queue.test.mjs`'s AC4 |
-| Single-task Start forced through enqueue+evaluate+persist | No | `ExecutionRun` resolves + admits directly | Yes, in full | Medium — touches both HTTP routes (`routes.mjs:325-412`, `:519-573`) and `deterministic-execution-plan.mjs` |
-| Same-task auto-continuation (`continuationPolicy==='auto'` gate) | Yes — this is the correct, already-safe invariant | `reconcileWorkflowPosition`, kept, re-targeted to admit directly instead of via `enqueueTasks`+`evaluateTaskQueue` | No (the gate), Yes (its queue plumbing) | Low — logic already isolated in one function |
-| Queue-wide durable drain, no continuation-policy gate | No — this is the mechanism responsible for the incident class | — | Yes, in full | High — `reconciliation.mjs:485-590` deleted outright; `batch-completion-settlement.mjs`'s per-member continuation call must be repointed at the new direct-admit primitive (clean swap, same call shape) |
-| `groupReservations`/barrier (`createGroupReservation`/`releaseGroupReservation`/`isTaskBarriered`/`validateBatchCompatibility`/settlement) | Yes, unchanged — real, distinct requirement (D31/D33/D36/D37) | Same module (`reservation.mjs`), re-homed to its own storage file | No (logic), partial (storage) | Real migration work: new storage file/shape independent of `task-queues/<change>.json`; `store.mjs`'s `loadTaskQueue`/`saveTaskQueue` either drop the `groupReservations` field or get replaced for this module specifically |
-| `isTaskBarriered` consumers outside the queue (`readiness-policy.mjs`, `cli.mjs`×2, `human-step/*.mjs`×2) | Yes, unchanged | Unchanged | No | None — these never depended on `evaluator.mjs` |
-| Batch-scope admission/settlement (`admission.mjs`'s `task-batch` branch, `batch-completion-settlement.mjs`) | Yes, unchanged | Unchanged | No | Low — already independent of the plain queue call graph; only the per-member continuation call target changes |
+- Workspace-writer claims, the three-outcome settlement model
+  (`completed`/`resumable`/`recovery-required`), session fresh/reuse policy, and
+  execution policy resolution are explicitly **not** in scope for removal.
+- `BatchContext`, the reservation/barrier mechanism, and `batch-finish-operation`'s own
+  idempotent per-task-transition-plus-shared-finalize shape are kept and generalized,
+  not replaced.
+- D45's "pending human decision doesn't block other independent selected work" must
+  keep holding once eligibility filtering is reimplemented.
 
 ## Inconsistencies
 
-- `evaluator.mjs:1-5` and `store.mjs`/`index.mjs` headers describe the queue module as
-  "Zero AI/session/dashboard awareness," yet `reservation.mjs`'s
+- `evaluator.mjs`/`store.mjs`/`index.mjs` headers describe the queue as "zero
+  AI/session/dashboard awareness," yet `reservation.mjs`'s
   `assessBatchReservationSettlement` reaches toward session/operation state via
-  `findInFlightStartOperation`/`findInFlightOperationRecord` (`reservation.mjs:12-13`)
-  — it avoids importing dashboard code directly but is not fully "zero awareness" in
-  spirit. Not blocking, but worth naming if `reservation.mjs` gets a new home.
-- D-number collisions across specs (noted above under ADR coverage) — a
-  repo-hygiene issue independent of this change, surfaced here because it directly
-  affected this discovery's own research (false ADR-0006 matches).
+  `findInFlightStartOperation`/`findInFlightOperationRecord`. Worth naming if/when
+  `reservation.mjs` gets a new home as part of this change.
+- D-number collisions across specs (`D33`-`D38` reused by unrelated changes) —
+  repo-hygiene issue, not blocking, surfaced because it affected this investigation's
+  own research.
 
-## Owner decisions required
+## Open questions
 
-1. **Confirm the target architecture above** (`ExecutionRun` + unchanged batch
-   reservation flow, with D45's multi-task/pending-human behavior carried forward as
-   stated) as the direction to spec and implement — or redirect.
-2. **`groupReservations` storage migration**: do it in the same change as the queue
-   removal, or as a separate, later follow-up? (The reservation logic itself doesn't
-   need to move for the queue removal to work — `reservation.mjs` would simply keep
-   importing `loadTaskQueue`/`saveTaskQueue` from whatever replaces `store.mjs`, or a
-   thin compatibility shim, until a dedicated follow-up re-homes it. Not doing it now
-   shrinks this change's blast radius; doing it now avoids a second migration later.)
-3. **Scope of this change vs. the separately-confirmed UI dependency-satisfaction
-   duplication** (`specification-overview.tsx`'s local `isSatisfied` and
-   `readyTaskIds` fallback logic) — same architecture area, different concern. Fix it
-   as part of this change's `ExecutionRun`/canonical-readiness work, or as an
-   independent, smaller follow-up?
+1. Whether `reconcileContinuation`'s queue-wide drain (no `continuationPolicy` gate)
+   has ever actually auto-admitted a task against its own transition's declared
+   policy in real usage — structurally possible, not independently observed.
+2. For a **review batch** specifically: does generalizing introduce any need for
+   dependency-ordering there too, or does review genuinely stay homogeneous
+   (same step, no intra-batch dependency ordering, as today)? This report assumes the
+   latter (review's existing homogeneity assumption is correct for review, wrong only
+   for implementation) but that should be confirmed, not assumed, before implementation.
+3. Exact shape of the dependency graph to add to `BatchContext` — a flat
+   `dependsOn`-per-member map (mirroring `change.yaml`'s own `depends_on`) is the
+   simplest option and requires no new source of truth, but hasn't been reviewed
+   against what the agent-facing contract actually needs to execute in order.
+4. Full list of `.mjs` test files importing `reservation.mjs` only transitively — not
+   individually traced.
+5. Whether any `specs/active/**` task (as opposed to archived
+   `multi-task-agent-execution`) depends on `groupReservations` — only `.mjs`
+   source/test files were searched.
+
+## Proposed architecture (revised per owner's correction — presented for review)
+
+```
+Implementation batch:
+  user selects T1, T2(depends_on T1), T3(depends_on T1)
+    → validateBatchCompatibility (dependency-aware: T2/T3's block-on-T1 is intra-batch, not a blocker)
+    → ONE admission, ONE workspace-writer claim, ONE AgentSession, ONE provider turn
+    → agent receives BatchContext with dependency graph + per-member step/context
+    → agent implements T1, then T2/T3, in dependency order, inside the one session
+    → ONE workflow batch finish: prevalidate whole batch, per-member transitions, ONE commit/push
+    → batch-level handover: if any member needs review, admit ONE fresh review batch for that subset
+
+Review batch (existing shape, unchanged):
+  user selects "review together" → validateBatchCompatibility (homogeneous, as today)
+    → ONE admission → ONE session → agent reviews all members → ONE batch finish
+    → batch-level handover: members needing refinement become ONE refinement batch
+      (not N independent refiner sessions)
+
+Refinement batch:
+  same shape as implementation batch, scoped to the subset of members a review batch
+  flagged — one session, dependency-ordered if the flagged members depend on each
+  other, one batch finish.
+
+Single-task execution:
+  the degenerate case of a batch with exactly one member. Open question (below): does
+  it reuse the exact same admission/BatchContext/batch-finish path unmodified, or does
+  that force an unnatural contract (e.g. a "dependency graph" of one node, a "batch
+  finish" of one task) that's simpler to keep as a thin single-task-shaped wrapper
+  calling the same underlying primitives? Needs a concrete comparison before deciding,
+  not assumed either way here.
+```
+
+### Responsibility table (revised columns per owner's request)
+
+| Current responsibility | Needed in one-session batch model? | Target owner | Remove / generalize |
+|---|---|---|---|
+| Durable `{taskIds, eligibleAt}` FIFO record, `enqueueTasks`/`dequeueTask`/`loadTaskQueue` | No | — | **Remove.** Nothing in the batch model needs a durable multi-task selection queue — the batch's own members are the selection, carried on the reservation/`BatchContext`, not a separate FIFO file. |
+| `evaluateTaskQueue`'s cross-task `nextRunnable` selection | No | — | **Remove.** Replaced by dependency-aware batch compatibility + in-session agent-driven ordering, not a server-side "pick next" scheduler. |
+| `schedulingPriority` | No | — | **Remove** (schema field, comparator, `deterministic-task-queue.test.mjs`'s AC4) — only ever reachable via the drain path being removed. |
+| Same-task `continuation: auto` gate | **Generalize**, not remove — but its *purpose* changes: within a batch, member ordering is the agent's job inside one session, not a continuation between separate admissions. The gate's underlying idea (declarative, transition-level "does the next thing happen automatically") maps onto the **batch-level handover** decision (implementation batch -> review batch, review batch -> refinement batch), not onto per-task continuation. | `batch-completion-settlement.mjs`'s new one-shot handover step | Generalize: one handover decision per batch completion, not N |
+| Per-member fresh-refiner dispatch (`batch-completion-settlement.mjs` Stage 4) | No, in its current N-sessions shape | Same file, rewritten | **Remove the per-member loop**, replace with: derive subset needing another phase -> admit one batch (or single-member) execution for that subset |
+| `validateBatchCompatibility`'s same-step/same-role/individually-ready requirement | **Generalize** — correct for review, wrong for implementation. Needs an inside-batch-dependency exception. | `reservation.mjs` | Generalize, don't remove |
+| `buildBatchContext`'s single shared `targetStepName`, order-only member sort | **Generalize** — add dependency graph, per-member step awareness | `batch-context.mjs` | Generalize, don't remove |
+| `batch-finish-operation`'s per-task-transition-plus-shared-finalize shape | Yes, largely as-is — already the right shape (one public boundary, N internal per-task transitions, one commit/push) | Unchanged | Keep; extend to be reachable from every phase, not just review |
+| `groupReservations`/barrier (`createGroupReservation`/`releaseGroupReservation`/`isTaskBarriered`/settlement) | Yes, unchanged — real, distinct, D31/D33/D36/D37-grounded requirement | Same module, **re-homed to its own storage** (owner's decision: do this now, no compatibility shim perpetuating the old queue file) | Keep logic, migrate storage |
+| `isTaskBarriered` consumers outside the queue (`readiness-policy.mjs`, `cli.mjs`, `human-step/*.mjs`) | Yes, unchanged | Unchanged | None — never depended on `evaluator.mjs` |
+| Workspace-writer claims, 3-outcome settlement, session fresh/reuse, execution policy | Yes, unchanged | Unchanged | None |
+| UI dependency-satisfaction logic (`specification-overview.tsx`'s local `isSatisfied`/`readyTaskIds`) | No, in its current duplicated form | Canonical batch/dependency projection, consumed by the UI picker | **In scope for this change** (owner's decision) — replace, don't generalize; there is nothing worth keeping in the local heuristic once a canonical projection exists |
+
+## Self-review: any remaining "one task = one session/execution" assumption?
+
+Checked every section above against the rule the owner stated this correction exists
+to enforce. Two places still implicitly carry it, flagged rather than silently fixed,
+since fixing them is implementation, not discovery:
+
+- The **single-task execution** target flow (above) is explicitly left as an open
+  question rather than asserted to "obviously" reuse the batch path — asserting an
+  answer here would smuggle a one-task-shaped special case back in without owner
+  review, which is exactly the thing being corrected.
+- `batch-finish-operation`'s description ("already the right shape... per-task
+  finish identity") is a claim about the *existing, review-only* implementation. It
+  has not been verified against what happens when batch finish must also run for a
+  dependency-ordered implementation batch where members might reach *different*
+  per-member outcomes in one finish call (e.g., two implemented cleanly, one needs
+  rework) — this needs its own dedicated check before implementation, not assumed
+  from the review case alone.
+
+No other section describes or assumes a per-task admission, per-task session, or
+per-task continuation as the primary path; every such mechanism found is explicitly
+marked for removal or generalization above.
+
+## Owner decisions
+
+Recorded from the owner's direct correction (not re-opened as questions):
+
+1. **Target architecture is generalized `BatchExecution`/`ExecutionScope`, not
+   `ExecutionRun`.** One session per batch (implementation/review/refinement); the
+   agent executes the whole dependency-ordered group inside that session; handover is
+   between phases/roles, never between tasks inside the same batch.
+2. **`groupReservations` storage migration happens in this same change**, once the
+   generalized design is settled — no compatibility shim that perpetuates the old
+   `task-queues` file as a dependency.
+3. **UI dependency-satisfaction duplication is in scope for this change** — the new
+   batch/dependency picker must consume the canonical projection; the existing local
+   heuristic is not worth preserving even temporarily.
+
+Still open (see "Open questions" above): review-batch dependency semantics (#2),
+exact `BatchContext` dependency-graph shape (#3), and the single-task-as-batch-of-one
+question — these need answers before a concrete implementation plan, not before this
+discovery is accepted as the correct direction.

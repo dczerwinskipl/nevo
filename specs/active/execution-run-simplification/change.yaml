@@ -1,6 +1,6 @@
 # Specification manifest for execution-run-simplification
 id: execution-run-simplification
-title: "Simplify sequential task execution: generic durable queue -> ExecutionRun"
+title: "Generalize task-batch into the primary multi-task execution model"
 type: architectural
 status: draft
 priority: 10
