@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-03T14:22:08.095Z",
+  "generated": "2026-10-03T14:22:36.193Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -184,6 +184,26 @@
             "workflow-step-activity-producer",
             "human-verification-activity-producer"
           ]
+        }
+      ]
+    },
+    {
+      "id": "deterministic-flow-hardening-pt3",
+      "specId": "e12bc9ff-69b7-45b5-9c67-cafaa6dd6d56",
+      "title": "Deterministic flow hardening pt3",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-10-03",
+      "tasks": [
+        {
+          "id": "session-visibility-on-creation",
+          "order": 1,
+          "file": "tasks/01-session-visibility-on-creation.md"
+        },
+        {
+          "id": "execution-policy-provider-selection-fix",
+          "order": 2,
+          "file": "tasks/02-execution-policy-provider-selection-fix.md"
         }
       ]
     },
