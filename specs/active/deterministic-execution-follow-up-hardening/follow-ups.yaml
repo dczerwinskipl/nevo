@@ -78,3 +78,48 @@ follow_ups:
       uses) now gets identical activation-only settlement semantics to the
       new-session route. All previously-skipped Scenario A tests are enabled and
       passing."
+  - id: admission-settlement-diagnostics-not-propagated
+    source_task: acceptance-scenario-b-and-c
+    kind: implementation-gap
+    severity: non-blocking
+    reason: "Affected area: tools/dashboard/server/ai/orchestration/admission.mjs's
+      reconcileHook1 (task 06, terminal-reconciliation-adopts-outcome),
+      specifically the hookOutcome returned by releaseAdmittedExecution for the
+      'resumable' (and 'completed') branches. Observed behavior:
+      tools/specs/workflow/execution-settlement.mjs's assessExecutionSettlement
+      already computes outOfScopeDirty/outOfScopeDirtyPaths/forbiddenDirtyPaths
+      diagnostics correctly (confirmed directly, and unit-tested by
+      tools/tests/execution-settlement.test.mjs), but reconcileHook1 discards
+      them -- the hookOutcome it builds and returns is only { settled, outcome,
+      released[, markedRecovery] }, never copying settlement's diagnostic fields
+      through. Confirmed via
+      tools/tests/scenario-bc-resume-active-attempt.test.mjs's
+      out-of-scope-dirty test: releaseAdmittedExecution's return for a resumable
+      release with a genuine out-of-scope dirty file left behind is exactly {
+      settled: false, outcome: 'resumable', released: true } -- no diagnostic
+      fields at all. Expected behavior per overview.md's Proposed architecture
+      ('Dirty files outside the task's scope are surfaced as a non-blocking
+      diagnostic on the classification result ... visible to whichever execution
+      resumes next'): the orchestration-level release result (and/or the next
+      admission's bootstrap context) should surface
+      outOfScopeDirty/outOfScopeDirtyPaths/forbiddenDirtyPaths so a resuming
+      agent can see what was left outside its own scope. Why non-blocking: the
+      substantive safety guarantee already holds -- out-of-scope dirty files
+      never escalate a safely-ending turn to recovery-required and never prevent
+      the next execution from being admitted (verified by the same test); only
+      the diagnostic-visibility half of the documented behavior is missing,
+      which is an observability gap, not a correctness or safety regression, and
+      no acceptance criterion of any verified task in this change required it to
+      be fixed (acceptance-scenario-b-and-c's own forbidden_paths excludes
+      tools/dashboard/server/ai/** entirely, so fixing it was out of that task's
+      allowed scope). Likely implementation boundary: reconcileHook1's
+      'resumable' branch (and plausibly the 'completed' branch, for parity) in
+      admission.mjs should copy
+      settlement.outOfScopeDirty/outOfScopeDirtyPaths/forbiddenDirtyPaths onto
+      the hookOutcome it builds; a resolver task would need write access to
+      tools/dashboard/server/ai/orchestration/admission.mjs (forbidden to every
+      acceptance-scenario-* test task in this change) plus a regression test
+      asserting the diagnostic survives on releaseAdmittedExecution's return."
+    resolver_task: null
+    status: open
+    resolution: null
