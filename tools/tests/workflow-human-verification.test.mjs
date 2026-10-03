@@ -160,6 +160,7 @@ steps:
       - value: fail
         to: implementation
   human-verification:
+    executor: human
     status:
       active: awaiting-human-verification
       completed: completed
@@ -170,8 +171,15 @@ steps:
     transitions:
       - value: pass
         to: verified
+        action:
+          label: Approve
+        outcome: success
       - value: fail
         to: implementation
+        action:
+          label: Request changes
+          feedback:
+            required: true
 `;
 
 describe('workflow verify-human direct decisions (AC5)', () => {
@@ -207,6 +215,7 @@ describe('workflow verify-human direct decisions (AC5)', () => {
 
   test('transitions task directly to verified on --approve', async () => {
     const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic
@@ -254,6 +263,7 @@ tasks:
 
   test('transitions task directly to implementation attempt 2 with feedback on --request-changes', async () => {
     const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic
@@ -329,6 +339,7 @@ tasks:
 
   test('Finding 1: review completed (phase=completed, nextStep=human-verification) -> verify-human --approve activates and finishes to verified', async () => {
     const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic
@@ -377,6 +388,7 @@ tasks:
 
   test('Finding 1: review completed (phase=completed, nextStep=human-verification) -> verify-human --request-changes activates and finishes to implementation attempt 2', async () => {
     const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic
@@ -426,6 +438,7 @@ tasks:
 
   test('Finding 2: rejects human decision when active step is review (INVALID_HUMAN_DECISION_STEP)', async () => {
     const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic
@@ -452,12 +465,13 @@ tasks:
         repoRoot: fx.repo,
         silent: true,
       }),
-      (err) => err instanceof WorkflowError && err.code === 'INVALID_HUMAN_DECISION_STEP'
+      (err) => err instanceof WorkflowError && (err.code === 'INVALID_HUMAN_DECISION_STEP' || err.code === 'WORKFLOW_STEP_EXECUTOR_MISMATCH')
     );
   });
 
   test('Finding 2: rejects human decision when active step is implementation (INVALID_HUMAN_DECISION_STEP)', async () => {
     const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic
@@ -485,7 +499,7 @@ tasks:
         repoRoot: fx.repo,
         silent: true,
       }),
-      (err) => err instanceof WorkflowError && err.code === 'INVALID_HUMAN_DECISION_STEP'
+      (err) => err instanceof WorkflowError && (err.code === 'INVALID_HUMAN_DECISION_STEP' || err.code === 'WORKFLOW_STEP_EXECUTOR_MISMATCH')
     );
   });
 });

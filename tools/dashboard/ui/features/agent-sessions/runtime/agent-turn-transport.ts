@@ -14,8 +14,22 @@ import type { AgentExecutionMode } from '../types';
 
 export async function postStartTurn(
   sessionId: string,
-  body: { message: string; idempotencyKey: string; mode?: AgentExecutionMode; userMessage?: string },
-): Promise<{ turnId: string | undefined }> {
+  body: {
+    message: string;
+    idempotencyKey: string;
+    mode?: AgentExecutionMode;
+    model?: string | null;
+    userMessage?: string;
+    /**
+     * Structured deterministic execution intent (owner-decisions.md ADR-0009). Only an
+     * explicit task action (e.g. "Start agent step") may set this — never inferred from
+     * the prompt text or from session metadata. Omitted entirely for ordinary chat, which
+     * must always resolve as a generic turn server-side.
+     */
+    purpose?: 'execution';
+    taskId?: string;
+  },
+): Promise<{ turnId: string | undefined; sessionId: string | undefined; isNewSession?: boolean }> {
   const res = await fetch(`/api/agent-sessions/${encodeURIComponent(sessionId)}/turns`, {
     method: 'POST',
     headers: {
@@ -26,7 +40,10 @@ export async function postStartTurn(
       message: body.message,
       idempotencyKey: body.idempotencyKey,
       ...(body.mode ? { mode: body.mode } : {}),
+      ...(body.model === null ? { model: null } : body.model?.trim() ? { model: body.model.trim() } : {}),
       ...(body.userMessage ? { userMessage: body.userMessage } : {}),
+      ...(body.purpose ? { purpose: body.purpose } : {}),
+      ...(body.taskId ? { taskId: body.taskId } : {}),
     }),
   });
 
@@ -36,7 +53,12 @@ export async function postStartTurn(
   }
 
   const data = await res.json();
-  return { turnId: data.turnId };
+  // For structured execution intent, the admitted session can differ from the one this
+  // request targeted — the workflow's own declared session policy (fresh vs. reuse)
+  // always wins over which session the explicit action was invoked from (ADR-0009).
+  // Callers must follow data.sessionId, never assume continuity with the session they
+  // posted to.
+  return { turnId: data.turnId, sessionId: data.sessionId, isNewSession: data.isNewSession };
 }
 
 export async function postCancelTurn(

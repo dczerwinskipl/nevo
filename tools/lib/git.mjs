@@ -24,11 +24,14 @@ export async function runGitAsync(root, args, options = {}) {
 }
 
 export function getWorkingTreeStatus(root) {
-  return run(root, ['status', '--porcelain']);
+  return execFileSync('git', ['-C', root, 'status', '--porcelain'], { encoding: 'utf8' }).trimEnd();
 }
 
 export async function getWorkingTreeStatusAsync(root, options = {}) {
-  return await runGitAsync(root, ['status', '--porcelain'], options);
+  const execOptions = { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024, ...options };
+  if (!execOptions.signal) delete execOptions.signal;
+  const result = await execFileAsync('git', ['-C', root, 'status', '--porcelain'], execOptions);
+  return result.stdout.trimEnd();
 }
 
 export function isWorkingTreeClean(root) {
@@ -225,6 +228,27 @@ export function pullFastForward(root) {
 
 export async function getCurrentRevisionAsync(root, options = {}) {
   return await runGitAsync(root, ['rev-parse', 'HEAD'], options);
+}
+
+// Local git identity (`user.name`/`user.email`) for actor resolution (activity
+// history's `user` actor, D4) — each key is read independently since either may be
+// configured without the other, and neither being configured is a normal, expected
+// outcome (e.g. a fresh clone with no global config), not a fatal error: `git config`
+// exits non-zero when a key is unset, so each read is individually caught and
+// reported as an empty string rather than throwing.
+function readGitConfigValue(root, key) {
+  try {
+    return run(root, ['config', key]);
+  } catch {
+    return '';
+  }
+}
+
+export function getLocalUserIdentity(root) {
+  return {
+    name: readGitConfigValue(root, 'user.name'),
+    email: readGitConfigValue(root, 'user.email'),
+  };
 }
 
 // Asks the remote directly (PR review packet 03, Problem 2) rather than a

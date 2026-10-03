@@ -93,6 +93,9 @@ export function CreateSpecificationDialog({ onClose, onCreated }: CreateSpecific
             supportedModes={form.supportedModes}
             selectedMode={form.mode}
             onModeChange={form.setMode}
+            models={form.providerModels}
+            selectedModel={form.model}
+            onModelChange={form.setModel}
             initialPrompt={form.initialPrompt}
             onPromptChange={form.setInitialPrompt}
             disabled={Boolean(form.createdSpec)}

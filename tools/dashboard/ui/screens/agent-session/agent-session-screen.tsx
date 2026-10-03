@@ -6,7 +6,7 @@ import { StatusCard } from '@/shared/ui/status-card';
 import { LoadingScreen } from '@/shared/ui/loading-screen';
 import { useSpecificationIndex } from '@/features/specifications/queries';
 import { isSpecificationSource, type SpecificationSummary } from '@/features/specifications/types';
-import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
+import type { TaskNavigationTarget } from '@/features/agent-sessions/types';
 import { useAgentSessions } from '@/features/agent-sessions/queries';
 import { AgentSessionPage } from '@/features/agent-sessions/agent-session-page';
 import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
@@ -90,6 +90,32 @@ export function AgentSessionScreen({ source: rawSource, slug, sessionId }: Agent
     return sessionsQuery.sessions.find((s) => s.sessionId === sessionId) ?? null;
   }, [sessionsQuery.sessions, sessionId]);
 
+  // A session can legitimately be missing from the cached sessions list the first time
+  // this screen renders for it: an explicit deterministic execution action (e.g. "Start
+  // agent step") can admit a brand-new session whose id this screen is navigated to
+  // immediately, before any mutation ever invalidated the sessions query (the admission
+  // request is a plain fetch, not a React Query mutation). Rather than declaring the
+  // session missing on the stale cache, refetch exactly once per sessionId and only
+  // render "not found" if the session is still absent afterward — the server stays
+  // authoritative, and a genuinely invalid sessionId still resolves to "not found" after
+  // that one refetch, never an infinite loop.
+  const sessionMissing = Boolean(sessionsQuery.data && !session);
+  const [missingSessionRetriedFor, setMissingSessionRetriedFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (sessionMissing && missingSessionRetriedFor !== sessionId) {
+      setMissingSessionRetriedFor(sessionId);
+      void sessionsQuery.refresh();
+    }
+  }, [sessionMissing, sessionId, missingSessionRetriedFor, sessionsQuery.refresh]);
+  const hasRetriedForCurrentSession = missingSessionRetriedFor === sessionId;
+  const awaitingMissingSessionRetry = sessionMissing && (!hasRetriedForCurrentSession || sessionsQuery.refreshing);
+  // React Query keeps the previous (stale) data on a failed refetch while also exposing
+  // the new error — so a failed one-shot retry still leaves sessionMissing true. That is
+  // NOT an authoritative "the server confirmed this session does not exist"; it's a
+  // failed refetch and must surface as a retryable error instead.
+  const missingSessionRetryFailed =
+    sessionMissing && hasRetriedForCurrentSession && !sessionsQuery.refreshing && Boolean(sessionsQuery.error);
+
   const router = useRouter();
 
   const handleBack = useCallback(() => {
@@ -108,13 +134,13 @@ export function AgentSessionScreen({ source: rawSource, slug, sessionId }: Agent
   }, [navigate, router, slug, effectiveSource]);
 
   const handleSwitchSession = useCallback(
-    (targetSession: AgentSession) => {
+    (target: { sessionId: string }) => {
       navigate({
         to: '/specs/$source/$slug/sessions/$sessionId',
         params: {
           source: effectiveSource,
           slug,
-          sessionId: targetSession.sessionId,
+          sessionId: target.sessionId,
         },
         replace: true,
       });
@@ -145,7 +171,7 @@ export function AgentSessionScreen({ source: rawSource, slug, sessionId }: Agent
 
   if (sessionsQuery.loading && !sessionsQuery.data) return <LoadingScreen />;
 
-  if (sessionsQuery.error && !sessionsQuery.data) {
+  if (sessionsQuery.error && (!sessionsQuery.data || missingSessionRetryFailed)) {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
         <StatusCard
@@ -170,6 +196,8 @@ export function AgentSessionScreen({ source: rawSource, slug, sessionId }: Agent
       </div>
     );
   }
+
+  if (awaitingMissingSessionRetry) return <LoadingScreen />;
 
   if (sessionsQuery.data && !session) {
     return (

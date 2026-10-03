@@ -1,7 +1,7 @@
 import { LoaderCircle, Sparkles } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import { ProviderBadge } from '@/features/agent-sessions/agent-session-list';
-import type { AgentExecutionMode, AgentProviderDescriptor } from '@/features/agent-sessions/types';
+import type { AgentExecutionMode, AgentModelDescriptor, AgentProviderDescriptor } from '@/features/agent-sessions/types';
 import { AI_PROVIDERS_ENABLE_MESSAGE } from '@/features/agent-sessions/provider-config';
 
 export interface SpecificationAiPlanningSectionProps {
@@ -14,6 +14,9 @@ export interface SpecificationAiPlanningSectionProps {
   supportedModes: AgentExecutionMode[];
   selectedMode: AgentExecutionMode;
   onModeChange: (mode: AgentExecutionMode) => void;
+  models: AgentModelDescriptor[];
+  selectedModel: string;
+  onModelChange: (model: string) => void;
   initialPrompt: string;
   onPromptChange: (prompt: string) => void;
   disabled: boolean;
@@ -29,6 +32,9 @@ export function SpecificationAiPlanningSection({
   supportedModes,
   selectedMode,
   onModeChange,
+  models,
+  selectedModel,
+  onModelChange,
   initialPrompt,
   onPromptChange,
   disabled,
@@ -101,6 +107,29 @@ export function SpecificationAiPlanningSection({
               </div>
             )}
           </div>
+
+          {models.length > 0 && (
+            <div>
+              <label htmlFor="planning-model" className="block text-xs font-semibold">
+                Model
+              </label>
+              <select
+                id="planning-model"
+                aria-label="Model"
+                value={selectedModel}
+                onChange={(event) => onModelChange(event.target.value)}
+                disabled={disabled}
+                className="mt-2 h-10 w-full rounded-xl border border-border bg-surface px-3 text-xs text-fg-primary outline-none focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <option value="">Default</option>
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Execution Mode */}
           <div>

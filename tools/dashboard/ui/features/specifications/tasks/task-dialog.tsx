@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { MessagesSquare, LoaderCircle, X, AlertCircle } from 'lucide-react';
-import type { SpecificationSummary, SpecificationTaskDocument } from '../types';
-import { formatStatus } from '@/shared/lib/utils';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { MessagesSquare, LoaderCircle, X, AlertCircle, ChevronDown } from 'lucide-react';
+import type { SpecificationSummary, SpecificationTask, SpecificationTaskDocument, WorkflowStepDescriptor } from '../types';
+import { formatStatus, cn } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { TaskActionFooter } from '../actions/spec-actions';
 import { useSpecificationDocument, useSpecificationActions } from '../detail/spec-detail-queries';
+import { HumanStepSurface } from '@/shared/workflow/human-step-surface';
+import { useSpecificationHumanStepMutation } from './human-step-mutations';
+import { useSpecificationPublishMutation } from './publish-task-mutation';
 
 export interface TaskDialogProps {
   specification: SpecificationSummary;
@@ -14,12 +17,19 @@ export interface TaskDialogProps {
   onClose: () => void;
   onOperationStarted?: (operationId: string, label: string) => void;
   sessionsContent?: React.ReactNode;
+  onStartStep?: (
+    task: SpecificationTask,
+    stepDescriptor: WorkflowStepDescriptor,
+    taskIds?: string[],
+    options?: { oneOff?: boolean },
+  ) => void;
 }
 
-export function TaskDialog({ specification, taskId, onClose, onOperationStarted, sessionsContent }: TaskDialogProps) {
+export function TaskDialog({ specification, taskId, onClose, onOperationStarted, sessionsContent, onStartStep }: TaskDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
+  const [sessionsExpanded, setSessionsExpanded] = useState(false);
   const task = specification.tasks.find((t) => t.id === taskId);
   const taskDocId = taskId ? `task:${taskId}` : null;
   const taskDocumentQuery = useSpecificationDocument(specification, taskDocId, Boolean(taskId));
@@ -27,6 +37,31 @@ export function TaskDialog({ specification, taskId, onClose, onOperationStarted,
 
   const actionsQuery = useSpecificationActions(specification, specification.source === 'active');
   const actionGate = taskId && actionsQuery.data?.tasks ? (actionsQuery.data.tasks[taskId] ?? null) : null;
+
+  const isDeterministic =
+    actionsQuery.data?.workflowMode === 'deterministic' ||
+    (specification as any).workflowMode === 'deterministic';
+
+  const canPublish = Boolean(actionGate?.canPublish ?? (actionGate?.state === 'draft' || task?.status === 'draft'));
+
+  const humanStepMutation = useSpecificationHumanStepMutation({
+    source: specification.source,
+    slug: specification.slug,
+    taskId: task?.id ?? '',
+    onSuccess: async () => {
+      await actionsQuery.refresh();
+      onClose();
+    },
+  });
+
+  const publishMutation = useSpecificationPublishMutation({
+    source: specification.source,
+    slug: specification.slug,
+    taskId: task?.id ?? '',
+    onSuccess: async () => {
+      await actionsQuery.refresh();
+    },
+  });
 
   const executeTaskAction = useCallback(async () => {
     if (!actionGate || !task) return;
@@ -132,11 +167,25 @@ export function TaskDialog({ specification, taskId, onClose, onOperationStarted,
 
           {sessionsContent && (
             <section className="mb-7" aria-label="Sesje powiązane z zadaniem">
-              <div className="mb-3 flex items-center gap-2">
-                <MessagesSquare className="size-4 text-accent" />
-                <h3 className="text-sm font-semibold text-fg-primary">Powiązane sesje</h3>
-              </div>
-              {sessionsContent}
+              <button
+                type="button"
+                onClick={() => setSessionsExpanded((prev) => !prev)}
+                className="group mb-3 flex w-full cursor-pointer items-center justify-between gap-2 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                aria-expanded={sessionsExpanded}
+                aria-label={sessionsExpanded ? 'Zwiń powiązane sesje' : 'Rozwiń powiązane sesje'}
+              >
+                <div className="flex items-center gap-2">
+                  <MessagesSquare className="size-4 text-accent" />
+                  <h3 className="text-sm font-semibold text-fg-primary">Powiązane sesje</h3>
+                </div>
+                <ChevronDown
+                  className={cn(
+                    'size-4 text-fg-muted transition-transform duration-200 group-hover:text-fg-primary',
+                    !sessionsExpanded && '-rotate-90',
+                  )}
+                />
+              </button>
+              {sessionsExpanded && sessionsContent}
             </section>
           )}
 
@@ -165,13 +214,108 @@ export function TaskDialog({ specification, taskId, onClose, onOperationStarted,
           )}
         </div>
 
-        <TaskActionFooter
-          gate={actionGate}
-          loading={actionsQuery.loading}
-          executing={actionsQuery.executing}
-          error={actionsQuery.executionError}
-          onExecute={() => void executeTaskAction()}
-        />
+        {!isDeterministic && (
+          <TaskActionFooter
+            gate={actionGate}
+            loading={actionsQuery.loading}
+            executing={actionsQuery.executing}
+            error={actionsQuery.executionError}
+            onExecute={() => void executeTaskAction()}
+          />
+        )}
+
+        {isDeterministic && actionGate?.humanInteraction && (
+          <div className="border-t border-border bg-surface px-5 py-4 sm:px-7">
+            <HumanStepSurface
+              interaction={actionGate.humanInteraction}
+              loading={humanStepMutation.loading}
+              error={humanStepMutation.error}
+              onSubmit={async (result, feedback, artifacts) => {
+                await humanStepMutation.submit(result, feedback, artifacts);
+              }}
+            />
+          </div>
+        )}
+
+        {isDeterministic && !actionGate?.humanInteraction && actionGate?.availableActions?.includes('start-step') && (
+          <div className="border-t border-border bg-surface px-5 py-4 sm:px-7">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                {(() => {
+                  const stepDescriptor = actionGate.stepDescriptor || actionGate.currentStepDescriptor || actionGate.nextStepDescriptor;
+                  return (
+                    <span className="text-xs font-medium text-fg-secondary">
+                      {stepDescriptor?.purpose || stepDescriptor?.id || 'Kolejny krok oczekuje na rozpoczęcie'}
+                    </span>
+                  );
+                })()}
+              </div>
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const stepDescriptor = actionGate.stepDescriptor || actionGate.currentStepDescriptor || actionGate.nextStepDescriptor;
+                  return stepDescriptor?.executor === 'agent' ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        if (stepDescriptor && task) onStartStep?.(task, stepDescriptor, undefined, { oneOff: true });
+                      }}
+                      className="h-8 cursor-pointer px-3 text-xs font-semibold"
+                      aria-label="Start with..."
+                    >
+                      Uruchom z...
+                    </Button>
+                  ) : null;
+                })()}
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const stepDescriptor = actionGate.stepDescriptor || actionGate.currentStepDescriptor || actionGate.nextStepDescriptor;
+                    if (stepDescriptor && task) onStartStep?.(task, stepDescriptor);
+                  }}
+                  className="h-8 cursor-pointer px-4 text-xs font-semibold"
+                  aria-label="Start"
+                >
+                  Start
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isDeterministic && !actionGate?.humanInteraction && !actionGate?.availableActions?.includes('start-step') && canPublish && (
+          <div className="border-t border-border bg-surface px-5 py-4 sm:px-7">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <span className="text-xs font-medium text-fg-secondary">
+                  Zadanie w wersji roboczej oczekuje na publikację
+                </span>
+                {publishMutation.error && (
+                  <p className="mt-1 text-[11px] text-status-error">{publishMutation.error}</p>
+                )}
+              </div>
+              <Button
+                size="sm"
+                disabled={publishMutation.loading}
+                onClick={async () => {
+                  if (task) {
+                    await publishMutation.publish(task.id);
+                  }
+                }}
+                className="h-8 cursor-pointer px-4 text-xs font-semibold"
+                aria-label="Publish"
+              >
+                {publishMutation.loading ? (
+                  <>
+                    <LoaderCircle className="mr-1.5 size-3.5 animate-spin" /> Publikowanie…
+                  </>
+                ) : (
+                  'Publish'
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

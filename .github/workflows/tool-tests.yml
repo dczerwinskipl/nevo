@@ -73,6 +73,14 @@ jobs:
           path: test-results.tap
       - name: Run dashboard server/UI test suite
         run: npm --prefix tools/dashboard test
+      - name: Run stable dashboard UI (Vitest) regression tests
+        # The full Vitest suite (npm run test:storybook) currently includes
+        # pre-existing, unrelated failures (Task 23) and is not CI-gated. This
+        # script is an explicit, deliberately-maintained allowlist of stable
+        # behavioral UI tests (currently: agent-session-screen-navigation) that
+        # must still fail CI if they regress — add new files to the script only
+        # once confirmed stable, never widen it to a broad glob.
+        run: npm --prefix tools/dashboard run test:ui-stable
       - name: Check generated specs indexes are current
         run: npm run specs:check
       - name: Check generated docs indexes are current

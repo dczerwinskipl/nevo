@@ -5,6 +5,7 @@ import {
   setTaskStatus,
   ROOT,
 } from '../store.mjs';
+import { resolveWorkflowMode } from '../workflow/compatibility.mjs';
 import {
   guardAgainstUnsafeManual,
   setTaskSuspension,
@@ -50,6 +51,15 @@ export async function approveTask(options = {}) {
 
   const change = requireChange(changeSlug, activeDir);
   const task = requireTask(change, taskId);
+
+  const workflowMode = resolveWorkflowMode(change, options);
+  if (workflowMode.mode === 'deterministic') {
+    throw new CliError(
+      `Cannot run legacy 'approve' against deterministic specification '${changeSlug || change.id}'. ` +
+      `Use deterministic command surface instead: workflow task publish, workflow step start, workflow step finish, startHumanStep, submitHumanStepResult (or workflow verify-human).`
+    );
+  }
+
   guardAgainstUnsafeManual(task, taskId, 'approve');
 
   const { eligible: mechanicalExempt } = computeMechanicalExemption(change, task);

@@ -49,6 +49,9 @@ import {
   handleWorkflowStepStart,
   handleWorkflowStepFinish,
   handleWorkflowVerifyHuman,
+  handleWorkflowTaskPublish,
+  handleWorkflowBatchStart,
+  handleWorkflowBatchFinish,
 } from './specs/workflow/cli.mjs';
 
 import { requireChange } from './specs/store.mjs';
@@ -89,12 +92,34 @@ export function autoBindAgentSession(change, taskId, purpose, options = {}) {
       const bindingService = createAgentSessionBindingService({
         storageDir: resolve(repoRoot, '.nevo-ai-local/sessions'),
       });
+
+      const existingSession = context.sessionId ? bindingService.getSessionSync(context.sessionId) : null;
+      let activeTaskIdToSet;
+      if (options.clearActiveTask === true || purpose === 'finish') {
+        activeTaskIdToSet = null;
+      } else if (existingSession) {
+        // If existing session was generic (no activeTaskId), keep it generic unless explicitly promoted.
+        if (!existingSession.activeTaskId && options.promoteToActive !== true) {
+          activeTaskIdToSet = null;
+        } else {
+          activeTaskIdToSet = options.activeTaskId !== undefined
+            ? options.activeTaskId
+            : (taskId || existingSession.activeTaskId);
+        }
+      } else {
+        // New session created by/for workflow execution: establish activeTaskId from taskId or explicit options
+        activeTaskIdToSet = options.activeTaskId !== undefined
+          ? options.activeTaskId
+          : (taskId || process.env.NEVO_TASK_ID?.trim() || null);
+      }
+
       bindingService.bindSessionSync({
         sessionId: context.sessionId || undefined,
         provider: context.provider,
         providerSessionId: context.providerSessionId,
         specId,
         taskId: taskId || undefined,
+        activeTaskId: activeTaskIdToSet,
         step: options.step || undefined,
         attempt: options.attempt != null ? options.attempt : undefined,
         purpose,
@@ -284,7 +309,7 @@ export function buildProgram() {
     .action((changeSlug, opts) => handleFinalizeRepairBranch(changeSlug, opts));
 
   const workflow = program.command('workflow')
-    .description('Deterministic workflow engine (D9): agent-facing step start/finish, operator-facing human verification');
+    .description('Deterministic workflow engine (D9): agent-facing step start/finish, task publish, operator-facing human verification');
 
   const step = workflow.command('step')
     .description('Agent-facing step lifecycle calls — StepContext at start, non-mutating/durable finish');
@@ -310,6 +335,32 @@ export function buildProgram() {
     .option('--artifact <path>', '(Obsolete) Use --input or --input-file instead')
     .option('--artifacts <paths>', '(Obsolete) Use --input or --input-file instead')
     .action((changeSlug, taskId, opts) => handleWorkflowStepFinish(changeSlug, taskId, opts));
+
+  const batch = workflow.command('batch')
+    .description('Deterministic batch operations (D33, D21)');
+
+  batch.command('start')
+    .description('Bootstrap and activate a reserved batch of tasks (D33)')
+    .argument('<change>')
+    .requiredOption('--batch <batchExecutionId>', 'Batch execution ID')
+    .action((changeSlug, opts) => handleWorkflowBatchStart(changeSlug, opts.batch, opts));
+
+  batch.command('finish')
+    .description('Finish batch execution with structured input (D21)')
+    .argument('<change>')
+    .requiredOption('--batch <batchExecutionId>', 'Batch execution ID')
+    .option('--input <json>', 'Structured JSON input payload defined by finishContract.parameters')
+    .option('--input-file <path>', 'Path to file containing structured JSON input payload')
+    .action((changeSlug, opts) => handleWorkflowBatchFinish(changeSlug, opts.batch, opts));
+
+  const task = workflow.command('task')
+    .description('Deterministic task operations');
+
+  task.command('publish')
+    .description('Publish a draft, valid, dependency-clean task in a deterministic spec for execution')
+    .argument('<change>')
+    .argument('<task>')
+    .action((changeSlug, taskId) => handleWorkflowTaskPublish(changeSlug, taskId));
 
   workflow.command('verify-human')
     .description('Operator-only: satisfy a HumanVerificationGate or execute human decision transition')

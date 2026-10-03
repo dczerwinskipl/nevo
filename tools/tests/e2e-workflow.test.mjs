@@ -13,7 +13,7 @@ import { join } from 'node:path';
 
 import { readFileSync, writeFileSync as writeFileSyncNode } from 'node:fs';
 import {
-  loadChange, ACTIVE_INDEX_MD, ARCHIVE_INDEX_MD, INDEX_JSON,
+  loadChange,
 } from '../specs/store.mjs';
 import {
   computeChangeFingerprint, computeTaskFingerprint, parseOwnerDecisions,
@@ -265,18 +265,11 @@ describe('Recovery', () => {
       const activeIndexMd = join(tempDir, 'active.generated.md');
       const archiveIndexMd = join(tempDir, 'archive.generated.md');
       const indexJson = join(tempDir, 'index.generated.json');
-
-      const originalActive = readFileSync(ACTIVE_INDEX_MD, 'utf8');
-      const originalArchive = readFileSync(ARCHIVE_INDEX_MD, 'utf8');
-      const originalJson = readFileSync(INDEX_JSON, 'utf8');
-
-      writeFileSyncNode(activeIndexMd, originalActive);
-      writeFileSyncNode(archiveIndexMd, originalArchive);
-      writeFileSyncNode(indexJson, originalJson);
-
       const paths = { activeIndexMd, archiveIndexMd, indexJson };
-      assert.deepEqual(checkSpecsIndexes(paths), [], 'precondition: repo indexes must already be current before this test corrupts them');
+      writeSpecsIndexes(buildSpecsIndexes(), paths);
+      assert.deepEqual(checkSpecsIndexes(paths), [], 'isolated indexes must be clean before this test corrupts them');
 
+      const originalActive = readFileSync(activeIndexMd, 'utf8');
       writeFileSyncNode(activeIndexMd, `${originalActive}\n<!-- REC-03 test: deliberately stale -->\n`);
       const stale = checkSpecsIndexes(paths);
       assert.ok(stale.includes('stale: specs/active.generated.md'), 'corrupting the file must be detected as stale (REC-03 precondition)');

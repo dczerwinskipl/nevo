@@ -60,7 +60,7 @@ const RAW_DEFINITION = {
       // fixtures no longer reference it either, since aggregateFinalizeCheck now fails
       // closed on any unregistered finalize action.
       finalize: [{ id: 'commit-and-push' }],
-      transitions: [{ to: 'verified' }],
+      transitions: [{ to: 'verified', outcome: 'success' }],
     },
   },
 };
@@ -227,7 +227,7 @@ describe('Multi-step position resolution (D37, task 10 AC2/AC4/AC9)', () => {
       stepB: {
         status: { active: 'b-active', completed: 'b-completed' },
         actions: [{ id: 'a' }],
-        transitions: [{ to: 'verified' }],
+        transitions: [{ to: 'verified', outcome: 'success' }],
       },
     },
   };
@@ -285,7 +285,7 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
     entryStep: 'stepA',
     steps: {
       stepA: { status: { active: 'a-active', completed: 'a-completed' }, transitions: [{ to: 'stepB' }] },
-      stepB: { status: { active: 'b-active', completed: 'b-completed' }, transitions: [{ to: 'verified' }] },
+      stepB: { status: { active: 'b-active', completed: 'b-completed' }, transitions: [{ to: 'verified', outcome: 'success' }] },
     },
   });
 
@@ -761,7 +761,7 @@ describe('Fail-closed action/gate resolution (D20, task 09 AC1/AC2)', () => {
         'id: custom-v1', 'steps:', '  implementation:',
         '    status:', '      active: implementing', '      completed: implemented',
         '    finalize:',
-        '      - id: not-a-real-action', '    transitions:', '      - to: verified', '',
+        '      - id: not-a-real-action', '    transitions:', '      - to: verified', '        outcome: success', '',
       ].join('\n'));
 
       assert.throws(
@@ -786,7 +786,7 @@ describe('Fail-closed action/gate resolution (D20, task 09 AC1/AC2)', () => {
         'id: custom-v1', 'steps:', '  implementation:',
         '    status:', '      active: implementing', '      completed: implemented',
         '    finalize:',
-        '      - id: commit-and-push', '    transitions:', '      - to: verified', '',
+        '      - id: commit-and-push', '    transitions:', '      - to: verified', '        outcome: success', '',
       ].join('\n'));
 
       const definition = loadWorkflowDefinition('custom', { repoRoot });
@@ -1001,7 +1001,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
           ],
           entryGates: [],
           finalize: [{ id: 'commit-and-push' }],
-          transitions: [{ to: 'verified' }],
+          transitions: [{ to: 'verified', outcome: 'success' }],
         },
       },
     };
@@ -1036,7 +1036,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
           purpose: 'Purpose only.',
           entryGates: [],
           finalize: [{ id: 'commit-and-push' }],
-          transitions: [{ to: 'verified' }],
+          transitions: [{ to: 'verified', outcome: 'success' }],
         },
       },
     };
@@ -1067,7 +1067,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
           hints: [{ type: 'skill', ref: 'code-review' }],
           entryGates: [],
           finalize: [{ id: 'commit-and-push' }],
-          transitions: [{ to: 'verified' }],
+          transitions: [{ to: 'verified', outcome: 'success' }],
         },
       },
     };

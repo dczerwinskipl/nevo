@@ -94,11 +94,13 @@ export const AI_ERROR_HTTP_STATUS = Object.freeze({
   AI_UNSUPPORTED_OPERATION: 409,
   AI_OPERATION_LOST: 500,
   AI_PROVIDER_EXECUTION_ERROR: 502,
+  AI_POLICY_CONFLICT: 409,
 });
 
 export const DEFAULT_RECOVERY_HINTS = Object.freeze({
   AI_AUTH_FAILED: 'operator-action',
   AI_POLICY_DENIED: 'operator-action',
+  AI_POLICY_CONFLICT: 'operator-action',
   AI_RATE_LIMITED: 'retry-after-delay',
   AI_QUOTA_EXHAUSTED: 'alternate-provider',
   AI_PROVIDER_UNAVAILABLE: 'retry-after-delay',
@@ -198,6 +200,20 @@ export class AiTurnConflictError extends AiError {
   }
 }
 
+export class AiPolicyConflictError extends AiError {
+  constructor(
+    message = 'Selected tasks have conflicting execution policy overrides. An explicit provider and mode must be selected for the batch.',
+    details,
+  ) {
+    super('AI_POLICY_CONFLICT', message, {
+      status: 409,
+      recoveryHint: 'operator-action',
+      details,
+    });
+    this.name = 'AiPolicyConflictError';
+  }
+}
+
 /**
  * A spec has explicitly opted into `workflow.mode: deterministic`, but the authoritative
  * workflow position governing this turn could not be resolved (missing/broken workflow
@@ -214,6 +230,10 @@ export class AiDeterministicWorkflowUnavailableError extends AiError {
       details,
     });
     this.name = 'AiDeterministicWorkflowUnavailableError';
+    this.details = details;
+    if (details?.readiness) {
+      this.readiness = details.readiness;
+    }
   }
 }
 

@@ -493,6 +493,16 @@ proven: the direct `git.commitAll`/`git.push` calls inside `handleFinalize`/`han
 in `tools/specs.mjs`, and — much later — the legacy lifecycle handlers themselves once no
 active/future specification depends on `mode: legacy`.
 
+## Sequential Task Queue and Group Reservation
+
+The workflow engine includes a deterministic sequential queue (`tools/specs/workflow/queue/`) for evaluating eligible tasks and selecting the next runnable task across a specification:
+- **Sequential Invariant**: At any time, `evaluateTaskQueue` selects at most one `nextRunnable` item ordered deterministically by `(schedulingPriority asc, task.order asc, eligibleAt asc)`.
+- **Durable Queue Store**: Persisted at `.nevo-ai-local/task-queues/<changeSlug>.json`, tracking queue membership (`taskIds`), arrival timestamps (`eligibleAt`), and batch reservations (`groupReservations`).
+- **Group Reservation**: A compatible set of tasks (size ≥ 2, same change, same target step, same incoming transition role, individually eligible, `session: fresh`) can be durably claimed under a single canonical `batchExecutionId`.
+- **Action Barrier**: While reserved, all member tasks are barriered (`isTaskBarriered(change, taskId)`). Barriered tasks are excluded from `evaluateTaskQueue`'s `eligible` and `nextRunnable`, and rejected by ordinary `assertExecutionReadiness`, raw `workflow step start`, and human-step operations (`startHumanStep`, `submitHumanStepResult`, `activateAndSubmitHumanStep`).
+- **Base Readiness vs. Ordinary Readiness**: `readiness-policy.mjs` splits readiness evaluation into `evaluateBaseExecutionReadiness` (underlying workflow, dependency, suspension, and worktree eligibility) and `evaluateExecutionReadiness` (composes base with the action barrier). An authenticated batch execution consumes base readiness for its owned members while ordinary callers are blocked.
+- **Scope-Aware Settlement and Rollback**: Crashed reservations are reconciled via scope-aware settlement checks across all member tasks, and failed admissions trigger synchronous reservation rollback.
+
 ## Deferred extension point: progress checkpoint
 
 Not implemented in this foundation. Because the source-control action and the durable

@@ -102,3 +102,41 @@ export function findInFlightOperationRecord(repoRoot, changeSlug, taskId) {
     { code: 'MULTIPLE_IN_FLIGHT_OPERATIONS', change: changeSlug, task: taskId, count: uncompleted.length }
   );
 }
+
+/**
+ * Classifies whether a finish-operation record's current durable state proves the operation
+ * is safely and deterministically replayable through the normal `workflow step finish` path
+ * (D2 semantic rule).
+ *
+ * Contract:
+ * - Returns `true` only when the record's current state proves safe replay is deterministic.
+ * - Returns `false` (fails closed) for missing/malformed records, for records requiring
+ *   crash reconciliation or manual intervention, and for any unrecognized status.
+ *
+ * Current representation:
+ * Maps `record.status === 'running'` to `true`.
+ * Maps `record.status === 'blocked'` and `record.status === 'unknown'` (as well as
+ * any missing, malformed, completed, or unrecognized status) to `false`.
+ * Note: this mapping represents today's status vocabulary; callers depend on the semantic
+ * contract ("proven safely replayable"), not on status literals.
+ *
+ * @param {object|null|undefined} record - A loaded finish-operation record
+ * @returns {boolean} Whether the record is proven safely replayable
+ */
+export function isFinishOperationReplayable(record) {
+  if (!record || typeof record !== 'object') {
+    return false;
+  }
+  if (typeof record.status !== 'string' || record.status !== 'running') {
+    return false;
+  }
+  if (Array.isArray(record.operations)) {
+    for (const op of record.operations) {
+      if (op && (op.status === 'unknown' || op.status === 'blocked' || op.status === 'failed')) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+

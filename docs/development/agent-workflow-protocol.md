@@ -52,6 +52,15 @@ Specification: <change-slug>
 Task: <task-id>
 Step: <current-step> (attempt <attempt>)
 
+[Activation Precondition Open]           # (Present only when admitted at an activation-only blocker)
+Status: workflow attempt not yet activated
+Code: DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT  # (or FINISH_OPERATION_UNRESOLVED)
+Reason: <reason>
+Dirty Files: <file1, file2>              # (if DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT)
+Signal: <replay-signal>                  # (if replayable FINISH_OPERATION_UNRESOLVED)
+Remediation: You may remediate this activation precondition under user instruction before step start.
+Action: <remediation-action>
+
 You are executing a deterministic Nevo workflow task.
 Before modifying any files or running tests, run:
   node tools/specs.mjs workflow step start <change-slug> <task-id>
@@ -70,6 +79,25 @@ node tools/specs.mjs workflow step start <change-slug> <task-id>
 ```
 The CLI automatically associates the session with the task via ambient environment variables, activates the step (verifying a clean workspace baseline if starting a new attempt), and returns `StepContext` as structured JSON.
 
+### Remediation Protocol Exception (Activation-Only Blockers)
+The general rule requiring `workflow step start` before modifying any files or running tests has a narrow, explicit exception: when an agent session is admitted with an open **activation-only blocker** (`[Activation Precondition Open]`), the agent holds a valid `agent` workspace-writer claim and may perform scoped remediation before `workflow step start` succeeds, **strictly under explicit user instruction**:
+
+1. **`DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT`**:
+   - The workspace contains uncommitted changes outside `.nevo-ai-local/` before starting a new attempt.
+   - The agent may inspect working tree status (`git status`, `git diff`) and remediate files on the user's explicit instruction.
+   - **No automatic discard:** The agent must **never** autonomously run destructive git operations (`git reset --hard`, `git checkout --`, `git clean -fd`, `git stash`) without explicit user direction.
+   - Once the working tree is clean, the agent must invoke `workflow step start` to activate the attempt.
+
+2. **`FINISH_OPERATION_UNRESOLVED` (Replayable Finish)**:
+   - A prior finish operation crashed or remained unresolved mid-flight, but its durable record is proven safely replayable.
+   - **Retry finish only:** The *only* legal remediation action is retrying `workflow step finish` for the prior step:
+     ```bash
+     node tools/specs.mjs workflow step finish <change-slug> <task-id> --input '<json>'
+     ```
+   - The agent must **never** perform ad hoc manual git commits/pushes, must never bypass finish reconciliation, and must never fabricate having started the new step before the prior finish completes.
+
+For all other readiness failures (admission-blocking failures such as unpublished drafts, unsatisfied dependencies, terminal tasks, suspensions, executor mismatches, or non-replayable finish operations), no session is admitted and no exception applies.
+
 ### Stage 3: StepContext Authority
 The agent treats the JSON payload returned by `workflow step start` as absolute law:
 - **`currentStep` and `attempt`:** The immutable identity of the active unit of work.
@@ -85,7 +113,7 @@ The agent treats the JSON payload returned by `workflow step start` as absolute 
 ### Stage 4: Step Execution
 During execution:
 - The agent performs only the work required for the current step (e.g., implementing code and tests during `implementation`, or auditing code and running tests during `review`).
-- All edits must stay within `allowed_paths`. Touching `forbidden_paths` fails closed.
+- All edits must stay within `allowed_paths`. (Note: `forbidden_paths` violations are detected during task review via `classifyScopeFinding`, not enforced by a runtime write barrier).
 - The agent must never attempt manual Git operations (`git add`, `git commit`, `git push`).
 - The agent must never manually edit `change.yaml` or fabricate workflow state.
 
@@ -110,6 +138,20 @@ Inputs must conform to `finishContract.parameters`:
 
 Upon receiving a successful completion response (`status: 'completed'`), the agent prints a brief completion summary and **STOPS**. It must not autonomously start the next step or attempt.
 
+### Batch-Finish Envelope (Multi-Task Execution)
+For batch review execution (`workflow.mode: deterministic`), member task results are submitted together via:
+```bash
+node tools/specs.mjs workflow batch finish <change-slug> --batch <batch-execution-id> --input '<json>'
+```
+The batch-finish operation follows the D21 durable saga envelope:
+1. **Prevalidate (pure in-memory):** Verify ambient trusted session identity, live workspace-writer claim, persisted `AgentSession.executionScope`, queue reservation, member task results against individual `finishContract` transitions, and read-only Git provenance against the post-bootstrap baseline (`HEAD == baseRevision` and delta fingerprint matches baseline excluding only the canonical report). Zero durable writes occur if prevalidation fails.
+2. **Persist as `validated`:** Create the durable batch-finish record (`.nevo-ai-local/batch-finishes/<changeSlug>/<batchExecutionId>.json`) in state `validated`.
+3. **Report commit:** Commit the shared canonical report (`reviews/review-batch-<batchExecutionId>.md`) with an explicit report-path-only include list. Once recorded complete, crash recovery reuses this SHA without re-running `HEAD == baseRevision`.
+4. **Apply member finishes:** Sequentially apply each member task using its own single-task `finishStep` identity, recording individual completion and task history.
+5. **Durable `completed`:** The batch reaches `completed` once all members complete.
+
+**Continuation Dispatch Boundary:** The batch-finish operation stops at durably exposing `completed`. Continuation dispatch, claim release, and reservation release are explicitly **not** this operation's responsibility; they belong to `batch-completion-orchestration`.
+
 ## Explicit Behavior Matrix
 
 | Engine Status / Response | Meaning | Agent Required Action |
@@ -119,7 +161,8 @@ Upon receiving a successful completion response (`status: 'completed'`), the age
 | `status: 'blocked'` | One or more entry or exit gates failed (e.g. test gate). | Remain in the same `(step, attempt)`. Fix tests or code within `allowed_paths` and retry `finish`. |
 | `status: 'already-completed'` | This step/attempt was already finished previously. | Do not edit files; report completion and **STOP**. |
 | `status: 'reconciliation-required'` | Repository HEAD drifted during commit or push. | Stop execution immediately; notify operator for manual reconciliation without attempting git repairs. |
-| Exit code non-zero (`DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT`) | Working tree was dirty when allocating a new attempt. | Do not proceed; inform operator to clean or stash uncommitted changes before starting a new attempt. |
+| Exit code non-zero (`DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT`) | Working tree was dirty when allocating a new attempt. | If admitted with open activation precondition, remediate on user instruction (no auto-discard) and retry `workflow step start`. |
+| Exit code non-zero (`FINISH_OPERATION_UNRESOLVED`) | Prior finish operation was unresolved. | If safely replayable, retry `workflow step finish` for the prior step; if not replayable, stop and request operator assistance. |
 | Transition to `human-verification` | Step requires human approval or request-changes decision. | Summarize readiness for human review and **STOP**. No agent turn is dispatched for human decisions. |
 | Terminal transition (`verified`) | Task has achieved terminal verification. | Inform the user that the task is verified and **STOP**. |
 
@@ -159,3 +202,37 @@ Specifications implementing workflow infrastructure (such as `agent-workflow-pro
 3. Merge the foundational pull request.
 4. Create a dedicated new specification explicitly configured for deterministic mode (e.g. `spec-history-and-timeline`).
 5. Run the first controlled end-to-end deterministic smoke/dogfood flow there, exercising full multi-attempt review and human verification loops.
+
+### 5. Architectural Module Trees & Mutation Ownership
+Lifecycle and status mutations are strictly partitioned into two non-overlapping module trees within the codebase:
+- **Legacy mutation tree:** `tools/specs/{approve,start,complete,verify}/**` (and associated legacy CLI commands). These modules govern specifications operating under standard legacy status lifecycles (`status: draft | in-implementation | review | completed | verified`).
+- **Deterministic mutation tree:** `tools/specs/workflow/**` mutation entry points (`workflow task publish`, `workflow step start`, `workflow step finish`, and human step operations `startHumanStep`, `submitHumanStepResult`). These modules govern specifications declared with `workflow.mode: deterministic`.
+
+#### Hard Mode-Guard & Fail-Closed Routing
+The CLI implements strict, fail-closed guards preventing cross-mode mutation:
+- Invoking deterministic commands on a legacy specification throws `CliError` with code `LEGACY_WORKFLOW_MODE`.
+- Invoking legacy lifecycle commands (`start`, `complete`, `verify`, `approve`) on a deterministic specification throws `CliError` with code `WORKFLOW_MODE_MISMATCH`.
+- The CLI never silently falls back or executes legacy logic against a deterministic specification or vice-versa.
+- For complete operational guidance and normative command allow/forbid sets per mode, agents must reference [.claude/skills/nevo-ai-spec-workflow/references/lifecycle-instructions.md](../../.claude/skills/nevo-ai-spec-workflow/references/lifecycle-instructions.md).
+
+#### No-Cross-Import Boundary & Neutral Status Vocabulary (D8)
+To prevent coupling between the two lifecycle architectures:
+- No file under `tools/specs/workflow/**` may import `tools/specs/lifecycle-primitives.mjs`.
+- Shared persistence vocabulary (`TERMINAL_STATUSES`) is extracted to `tools/specs/status-vocabulary.mjs`, providing a neutral contract without dragging legacy state transition machinery into the deterministic engine.
+- This boundary is structurally enforced by automated architecture guard tests (`tools/specs/tests/lifecycle-boundary-guards.test.mjs`).
+
+### 6. Step Executor Invariants
+Deterministic workflow steps define an explicit `executor` (`agent` vs. `human`) in their step descriptors. The engine enforces strict executor separation via `assertStepExecutor`:
+- **AI Agent Prohibition on Human Steps:** An AI agent must **never** attempt to start or finish human-owned steps (`executor: human`, such as verification, review sign-off, or manual checks). Any agent invocation of `workflow step start` or `workflow step finish` targeting a human step fails immediately with `WORKFLOW_STEP_EXECUTOR_MISMATCH`.
+- **Human Endpoint Separation:** Conversely, human step operations (`startHumanStep`, `submitHumanStepResult`) can only be executed against human-owned steps and will reject agent-owned steps with `WORKFLOW_STEP_EXECUTOR_MISMATCH`.
+
+### 7. Three-Way Source-Control Ownership Taxonomy (D30)
+To prevent uncommitted state leaks and preserve deterministic Git finalization integrity, all operations modifying repository or manifest state are partitioned into three explicit categories:
+1. **Standalone user-originated Git-tracked mutation** (e.g. `workflow task publish`, Batch Publish):
+   Must finalize its own Git state (commit and push) under the git-finalize lease and workspace-writer claim (D29). It claims the shared workspace-writer slot (`kind: 'publish'` or `'batch-publish'`) for the entire operation through push, nesting the git-finalize lease around the mutate-then-commit critical section specifically.
+2. **Technical activation that is part of an execution attempt** (e.g. `workflow step start`, human-step auto-activation, D27):
+   Does not perform an immediate standalone Git commit. It rides along with the execution attempt it belongs to, finalized by that attempt's own eventual completion (`workflow step finish` or `submitHumanStepResult`).
+3. **Completed lifecycle mutation** (e.g. `submitHumanStepResult`, `workflow step finish`):
+   Already owns its deterministic finalize/commit/push lifecycle sequence, protected under git-finalize lease and workspace-writer ownership.
+
+

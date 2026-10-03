@@ -11,6 +11,7 @@ steps:
     status:
       active: implementing
       completed: implemented
+    consumesDependencies: true
     purpose: "Perform the approved implementation work for the task within declared scope."
     expectedWork:
       summary: "Modify code, tests, and documentation within allowed_paths to satisfy task acceptance criteria."
@@ -27,11 +28,17 @@ steps:
       - id: commit-and-push
     transitions:
       - to: review
+        continuation: auto
+        releasesDependencies: true
+        execution:
+          session: fresh
+          role: reviewer
 
   review:
     status:
       active: reviewing
       completed: reviewed
+    schedulingPriority: 10
     purpose: "Perform an independent quality review of the implementation against task acceptance criteria, applying corrective fixes if gaps are found."
     expectedWork:
       summary: "Audit implementation and test coverage, apply corrective edits within allowed_paths, and confirm automated verification passes."
@@ -49,10 +56,17 @@ steps:
     transitions:
       - value: pass
         to: human-verification
+        continuation: auto
       - value: fail
         to: implementation
+        continuation: auto
+        invalidatesDependencyRelease: true
+        execution:
+          session: fresh
+          role: refiner
 
   human-verification:
+    executor: human
     status:
       active: awaiting-human-verification
       completed: completed
@@ -71,5 +85,17 @@ steps:
     transitions:
       - value: pass
         to: verified
+        action:
+          label: Approve
+        outcome: success
       - value: fail
         to: implementation
+        action:
+          label: Request changes
+          feedback:
+            required: true
+        continuation: auto
+        invalidatesDependencyRelease: true
+        execution:
+          session: fresh
+          role: refiner

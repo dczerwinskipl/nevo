@@ -6,7 +6,8 @@ import { useAgentProviders, useCreateAgentSession } from './queries';
 import { initialPromptWithTaskContext } from './create-agent-session-helpers';
 import { AI_MODES } from './mode-meta';
 import { AI_PROVIDERS_ENABLE_MESSAGE } from './provider-config';
-import type { AgentSession, AgentExecutionMode, AgentSessionTaskRef } from './types';
+import type { AgentSession, AgentExecutionMode, AgentSessionTaskRef, AgentProviderDescriptor } from './types';
+import type { ExecutionPolicy, RoleExecutionOverride, TaskExecutionOverride } from './execution-policy';
 import { cn } from '@/shared/lib/utils';
 
 export interface CreateAgentSessionTarget {
@@ -40,6 +41,7 @@ export function CreateAgentSessionDialog({ specification, onClose, onCreated }: 
 
   const [provider, setProvider] = useState('');
   const [mode, setMode] = useState<AgentExecutionMode>('agent');
+  const [model, setModel] = useState('');
   const [taskIds, setTaskIds] = useState<string[]>([]);
   const [title, setTitle] = useState('');
   const [initialMessage, setInitialMessage] = useState('');
@@ -88,6 +90,7 @@ export function CreateAgentSessionDialog({ specification, onClose, onCreated }: 
       specId: specification.specId,
       taskIds,
       mode,
+      ...(model ? { model } : {}),
       ...(title.trim() ? { title: title.trim() } : {}),
     });
     const promptToSend = initialPromptWithTaskContext(initialMessage, taskIds, {
@@ -141,79 +144,28 @@ export function CreateAgentSessionDialog({ specification, onClose, onCreated }: 
           </p>
         )}
 
-        {providers.loading ? (
-          <div className="mt-6 flex items-center gap-2 text-sm text-fg-muted">
-            <LoaderCircle className="size-4 animate-spin text-accent" />
-            Wczytywanie providerów…
-          </div>
-        ) : providers.error ? (
-          <div className="mt-6 rounded-xl border border-status-error/25 bg-status-error/10 p-4 text-sm text-status-error">
-            Providerzy są niedostępni.
-          </div>
-        ) : !enabledProviders.length ? (
-          <div className="mt-6 rounded-xl border border-status-warning/25 bg-status-warning/10 p-4 text-sm text-status-warning">
-            {AI_PROVIDERS_ENABLE_MESSAGE}
-          </div>
-        ) : (
-          <>
-            <fieldset className="mt-6">
-              <legend className="text-xs font-semibold text-fg-primary">Provider</legend>
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {enabledProviders.map((p) => {
-                  const selected = provider === p.id;
-                  const isAvail = p.available !== false;
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() => setProvider(p.id)}
-                      title={!isAvail ? p.unavailableReason || 'Brak CLI w systemie' : undefined}
-                      className={cn(
-                        'flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-all',
-                        selected && 'border-accent bg-accent/8 ring-1 ring-accent',
-                        !selected &&
-                          !isAvail &&
-                          'border-dashed border-border bg-surface-raised/40 opacity-60 hover:border-status-warning/35 hover:opacity-100',
-                        !selected && isAvail && 'border-border bg-surface hover:border-border-strong',
-                      )}
-                    >
-                      <div className="flex w-full items-center justify-between gap-1">
-                        <ProviderBadge provider={p.id} />
-                        {!isAvail && (
-                          <span className="py-0.2 rounded bg-status-warning/10 px-1 text-[8px] font-bold tracking-wider text-status-warning uppercase">
-                            Brak CLI
-                          </span>
-                        )}
-                      </div>
-                      <span className="mt-1 text-xs font-semibold text-fg-primary">{p.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </fieldset>
+        <ProviderAndModePicker
+          providers={enabledProviders}
+          selectedProvider={provider}
+          onSelectProvider={(pId) => {
+            setProvider(pId);
+            setModel('');
+            const pObj = enabledProviders.find((p) => p.id === pId);
+            const supported = pObj?.supportedModes || ['ask', 'edit', 'agent'];
+            if (!supported.includes(mode)) {
+              setMode(supported.includes('agent') ? 'agent' : (pObj?.defaultMode || 'edit'));
+            }
+          }}
+          selectedMode={mode}
+          onSelectMode={setMode}
+          selectedModel={model}
+          onSelectModel={setModel}
+          loading={providers.loading}
+          error={providers.error}
+        />
 
-            <fieldset className="mt-4">
-              <legend className="text-xs font-semibold text-fg-primary">Tryb wykonania</legend>
-              <div className="mt-2 grid grid-cols-3 gap-2">
-                {AI_MODES.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    aria-pressed={mode === item.id}
-                    onClick={() => setMode(item.id)}
-                    className={cn(
-                      'flex flex-col items-start rounded-xl border p-2.5 text-left transition-all',
-                      mode === item.id && 'border-accent bg-accent/8 ring-1 ring-accent',
-                      mode !== item.id && 'border-border bg-surface hover:border-border-strong',
-                    )}
-                  >
-                    <span className="text-xs font-semibold text-fg-primary">{item.label}</span>
-                    <span className="mt-0.5 text-[10px] text-fg-muted">{item.description}</span>
-                  </button>
-                ))}
-              </div>
-            </fieldset>
+        {enabledProviders.length > 0 && !providers.loading && !providers.error && (
+          <>
 
             <label className="mt-4 block text-xs font-semibold">
               Tytuł <span className="font-normal text-fg-muted">(opcjonalnie)</span>
@@ -303,6 +255,571 @@ export function CreateAgentSessionDialog({ specification, onClose, onCreated }: 
             </Button>
           </>
         )}
+      </form>
+    </div>
+  );
+}
+
+export function computeInitialProviderAndMode(providers: AgentProviderDescriptor[]): {
+  provider: string;
+  mode: AgentExecutionMode;
+} {
+  const enabled = providers.filter((p) => p.enabled);
+  const available = enabled.filter((p) => p.available !== false);
+  const target = available[0] || enabled[0];
+  if (!target) {
+    return { provider: '', mode: 'agent' };
+  }
+  const supported = target.supportedModes || ['ask', 'edit', 'agent'];
+  const mode: AgentExecutionMode = supported.includes('agent') ? 'agent' : (target.defaultMode || 'edit');
+  return { provider: target.id, mode };
+}
+
+export interface ProviderAndModePickerProps {
+  providers: AgentProviderDescriptor[];
+  selectedProvider: string;
+  onSelectProvider: (providerId: string) => void;
+  selectedMode: AgentExecutionMode;
+  onSelectMode: (mode: AgentExecutionMode) => void;
+  selectedModel?: string;
+  onSelectModel?: (model: string) => void;
+  loading?: boolean;
+  error?: string | null;
+}
+
+export function ProviderAndModePicker({
+  providers,
+  selectedProvider,
+  onSelectProvider,
+  selectedMode,
+  onSelectMode,
+  selectedModel = '',
+  onSelectModel,
+  loading = false,
+  error = null,
+}: ProviderAndModePickerProps) {
+  const enabledProviders = providers.filter((p) => p.enabled);
+  const selectedProviderObj = enabledProviders.find((p) => p.id === selectedProvider);
+  const models = selectedProviderObj?.models ?? [];
+
+  if (loading) {
+    return (
+      <div className="mt-6 flex items-center gap-2 text-sm text-fg-muted">
+        <LoaderCircle className="size-4 animate-spin text-accent" />
+        Wczytywanie providerów…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mt-6 rounded-xl border border-status-error/25 bg-status-error/10 p-4 text-sm text-status-error">
+        Providerzy są niedostępni.
+      </div>
+    );
+  }
+
+  if (!enabledProviders.length) {
+    return (
+      <div className="mt-6 rounded-xl border border-status-warning/25 bg-status-warning/10 p-4 text-sm text-status-warning">
+        {AI_PROVIDERS_ENABLE_MESSAGE}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <fieldset className="mt-6">
+        <legend className="text-xs font-semibold text-fg-primary">Provider</legend>
+        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {enabledProviders.map((p) => {
+            const selected = selectedProvider === p.id;
+            const isAvail = p.available !== false;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => onSelectProvider(p.id)}
+                title={!isAvail ? p.unavailableReason || 'Brak CLI w systemie' : undefined}
+                className={cn(
+                  'flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-all',
+                  selected && 'border-accent bg-accent/8 ring-1 ring-accent',
+                  !selected &&
+                    !isAvail &&
+                    'border-dashed border-border bg-surface-raised/40 opacity-60 hover:border-status-warning/35 hover:opacity-100',
+                  !selected && isAvail && 'border-border bg-surface hover:border-border-strong',
+                )}
+              >
+                <div className="flex w-full items-center justify-between gap-1">
+                  <ProviderBadge provider={p.id} />
+                  {!isAvail && (
+                    <span className="py-0.2 rounded bg-status-warning/10 px-1 text-[8px] font-bold tracking-wider text-status-warning uppercase">
+                      Brak CLI
+                    </span>
+                  )}
+                </div>
+                <span className="mt-1 text-xs font-semibold text-fg-primary">{p.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </fieldset>
+
+      {onSelectModel && (models.length > 0 || Boolean(selectedModel)) && (
+        <fieldset className="mt-4">
+          <legend className="text-xs font-semibold text-fg-primary">Model</legend>
+          <select
+            aria-label="Model"
+            value={selectedModel}
+            onChange={(event) => onSelectModel(event.target.value)}
+            className="mt-2 h-10 w-full rounded-xl border border-border bg-surface px-3 text-xs text-fg-primary outline-none focus:border-accent"
+          >
+            <option value="">Default</option>
+            {selectedModel && !models.some((item) => item.id === selectedModel) && (
+              <option value={selectedModel}>
+                {selectedModel} (custom / unavailable)
+              </option>
+            )}
+            {models.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </fieldset>
+      )}
+
+      <fieldset className="mt-4">
+        <legend className="text-xs font-semibold text-fg-primary">Tryb wykonania</legend>
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          {AI_MODES.map((item) => {
+            const mode = selectedMode;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={mode === item.id}
+                onClick={() => onSelectMode(item.id)}
+                className={cn(
+                  'flex flex-col items-start rounded-xl border p-2.5 text-left transition-all',
+                  selectedMode === item.id && 'border-accent bg-accent/8 ring-1 ring-accent',
+                  selectedMode !== item.id && 'border-border bg-surface hover:border-border-strong',
+                )}
+              >
+                <span className="text-xs font-semibold text-fg-primary">{item.label}</span>
+                <span className="mt-0.5 text-[10px] text-fg-muted">{item.description}</span>
+              </button>
+            );
+          })}
+        </div>
+      </fieldset>
+    </>
+  );
+}
+
+export interface ExecutionPolicySelectionDialogProps {
+  specificationTitle: string;
+  onClose: () => void;
+  onConfirm: (policy: {
+    provider: string;
+    mode: AgentExecutionMode;
+    model?: string | null;
+    default?: { provider: string; mode: AgentExecutionMode; model?: string };
+    roles?: Record<string, RoleExecutionOverride>;
+    taskOverrides?: Record<string, TaskExecutionOverride>;
+    [key: string]: any;
+  }) => void;
+  confirming?: boolean;
+  initialPolicy?: ExecutionPolicy | null;
+  initialConfig?: { provider: string; mode?: AgentExecutionMode; model?: string | null } | null;
+  isOneOff?: boolean;
+}
+
+export function ExecutionPolicySelectionDialog({
+  specificationTitle,
+  onClose,
+  onConfirm,
+  confirming = false,
+  initialPolicy = null,
+  initialConfig = null,
+  isOneOff = false,
+}: ExecutionPolicySelectionDialogProps) {
+  const providers = useAgentProviders();
+  const rawProviders = providers.data?.providers ?? [];
+  const [provider, setProvider] = useState(
+    initialConfig?.provider || initialPolicy?.default?.provider || initialPolicy?.provider || ''
+  );
+  const [mode, setMode] = useState<AgentExecutionMode>(
+    initialConfig?.mode || initialPolicy?.default?.mode || initialPolicy?.mode || 'agent'
+  );
+  const [model, setModel] = useState<string>(
+    initialConfig?.model || initialPolicy?.default?.model || initialPolicy?.model || ''
+  );
+  const [implementerProvider, setImplementerProvider] = useState(initialPolicy?.roles?.implementer?.provider || '');
+  const [implementerModel, setImplementerModel] = useState(initialPolicy?.roles?.implementer?.model || '');
+  const [reviewerProvider, setReviewerProvider] = useState(initialPolicy?.roles?.reviewer?.provider || '');
+  const [reviewerModel, setReviewerModel] = useState(initialPolicy?.roles?.reviewer?.model || '');
+  const [refinerProvider, setRefinerProvider] = useState(initialPolicy?.roles?.refiner?.provider || '');
+  const [refinerModel, setRefinerModel] = useState(initialPolicy?.roles?.refiner?.model || '');
+
+  useEffect(() => {
+    if (initialConfig?.provider) {
+      setProvider(initialConfig.provider);
+      if (initialConfig.mode) {
+        setMode(initialConfig.mode);
+      }
+      if (initialConfig.model !== undefined) {
+        setModel(initialConfig.model || '');
+      }
+    } else if (initialPolicy) {
+      if (initialPolicy.default?.provider || initialPolicy.provider) {
+        setProvider(initialPolicy.default?.provider || initialPolicy.provider);
+      }
+      if (initialPolicy.default?.mode || initialPolicy.mode) {
+        setMode(initialPolicy.default?.mode || initialPolicy.mode);
+      }
+      const initModel = initialPolicy.default?.model || initialPolicy.model || '';
+      setModel(initModel);
+
+      if (initialPolicy.roles?.implementer?.provider !== undefined) {
+        setImplementerProvider(initialPolicy.roles.implementer.provider);
+        setImplementerModel(initialPolicy.roles.implementer.model || '');
+      } else {
+        setImplementerProvider('');
+        setImplementerModel('');
+      }
+      if (initialPolicy.roles?.reviewer?.provider !== undefined) {
+        setReviewerProvider(initialPolicy.roles.reviewer.provider);
+        setReviewerModel(initialPolicy.roles.reviewer.model || '');
+      } else {
+        setReviewerProvider('');
+        setReviewerModel('');
+      }
+      if (initialPolicy.roles?.refiner?.provider !== undefined) {
+        setRefinerProvider(initialPolicy.roles.refiner.provider);
+        setRefinerModel(initialPolicy.roles.refiner.model || '');
+      } else {
+        setRefinerProvider('');
+        setRefinerModel('');
+      }
+    } else if (!provider && rawProviders.length > 0) {
+      const initial = computeInitialProviderAndMode(rawProviders);
+      if (initial.provider) {
+        setProvider(initial.provider);
+        setMode(initial.mode);
+      }
+    }
+  }, [initialConfig, initialPolicy, provider, rawProviders]);
+
+  const handleRoleProviderChange = (
+    role: 'implementer' | 'reviewer' | 'refiner',
+    newProvider: string,
+  ) => {
+    if (role === 'implementer') {
+      setImplementerProvider(newProvider);
+      const persisted = initialPolicy?.roles?.implementer;
+      const nextModel = newProvider && newProvider === persisted?.provider ? (persisted?.model || '') : '';
+      setImplementerModel(nextModel);
+    } else if (role === 'reviewer') {
+      setReviewerProvider(newProvider);
+      const persisted = initialPolicy?.roles?.reviewer;
+      const nextModel = newProvider && newProvider === persisted?.provider ? (persisted?.model || '') : '';
+      setReviewerModel(nextModel);
+    } else if (role === 'refiner') {
+      setRefinerProvider(newProvider);
+      const persisted = initialPolicy?.roles?.refiner;
+      const nextModel = newProvider && newProvider === persisted?.provider ? (persisted?.model || '') : '';
+      setRefinerModel(nextModel);
+    }
+  };
+
+  const selectedProviderObj = rawProviders.find((p) => p.id === provider);
+  const isSelectedProviderAvailable = selectedProviderObj?.available !== false;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!provider || !isSelectedProviderAvailable) return;
+
+    const baseRoles: Record<string, RoleExecutionOverride> = {
+      ...(initialPolicy?.roles || {}),
+    };
+
+    if (implementerProvider) {
+      baseRoles.implementer = {
+        ...(baseRoles.implementer || {}),
+        provider: implementerProvider,
+        ...(implementerModel ? { model: implementerModel } : {}),
+        mode: baseRoles.implementer?.mode || 'agent',
+      };
+      if (!implementerModel) {
+        delete baseRoles.implementer.model;
+      }
+    } else {
+      delete baseRoles.implementer;
+    }
+
+    if (reviewerProvider) {
+      baseRoles.reviewer = {
+        ...(baseRoles.reviewer || {}),
+        provider: reviewerProvider,
+        ...(reviewerModel ? { model: reviewerModel } : {}),
+        mode: baseRoles.reviewer?.mode || 'agent',
+      };
+      if (!reviewerModel) {
+        delete baseRoles.reviewer.model;
+      }
+    } else {
+      delete baseRoles.reviewer;
+    }
+
+    if (refinerProvider) {
+      baseRoles.refiner = {
+        ...(baseRoles.refiner || {}),
+        provider: refinerProvider,
+        ...(refinerModel ? { model: refinerModel } : {}),
+        mode: baseRoles.refiner?.mode || 'agent',
+      };
+      if (!refinerModel) {
+        delete baseRoles.refiner.model;
+      }
+    } else {
+      delete baseRoles.refiner;
+    }
+
+    if (isOneOff) {
+      onConfirm({
+        provider,
+        mode,
+        model: model ? model : null,
+        oneOff: true,
+      });
+      return;
+    }
+
+    const newDefault: { provider: string; mode: AgentExecutionMode; model?: string } = {
+      ...(initialPolicy?.default || {}),
+      provider,
+      mode,
+    };
+    if (model) {
+      newDefault.model = model;
+    } else {
+      delete newDefault.model;
+    }
+
+    const payload: ExecutionPolicy = {
+      ...(initialPolicy || {}),
+      provider,
+      mode,
+      default: newDefault,
+      ...(Object.keys(baseRoles).length > 0 ? { roles: baseRoles } : {}),
+      ...(initialPolicy?.taskOverrides ? { taskOverrides: initialPolicy.taskOverrides } : {}),
+    };
+    if (model) {
+      payload.model = model;
+    } else {
+      delete payload.model;
+    }
+
+    onConfirm(payload);
+  };
+
+  const eligibleRoleProviders = rawProviders.filter((p) => {
+    if (p.enabled === false) return false;
+    if (p.available === false) return false;
+    const supported = p.supportedModes || ['ask', 'edit', 'agent'];
+    return supported.includes('agent');
+  });
+
+  const implementerProviderObj = rawProviders.find((p) => p.id === implementerProvider);
+  const implementerModels = implementerProviderObj?.models ?? [];
+  const reviewerProviderObj = rawProviders.find((p) => p.id === reviewerProvider);
+  const reviewerModels = reviewerProviderObj?.models ?? [];
+  const refinerProviderObj = rawProviders.find((p) => p.id === refinerProvider);
+  const refinerModels = refinerProviderObj?.models ?? [];
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-backdrop backdrop-blur-sm sm:items-center sm:p-6"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !confirming) onClose();
+      }}
+    >
+      <form
+        onSubmit={handleSubmit}
+        className="max-h-[94dvh] w-full max-w-xl overflow-y-auto rounded-t-2xl border border-border bg-background p-5 shadow-2xl sm:rounded-2xl sm:p-7"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-bold tracking-[0.18em] text-accent uppercase">{specificationTitle}</p>
+            <h2 className="mt-2 text-xl font-semibold">
+              {isOneOff ? 'Jednorazowy wybór wykonawcy' : 'Wybór wykonawcy (Execution Policy)'}
+            </h2>
+            <p className="mt-1 text-xs text-fg-muted">
+              {isOneOff
+                ? 'Wybierz wykonawcę dla tego uruchomienia. Wybór nie zmieni zapisanej polityki specyfikacji.'
+                : 'Wybierz domyślnego providera i tryb wykonania dla tej specyfikacji. Wybór zostanie zapamiętany dla wszystkich zadań.'}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            disabled={confirming}
+            aria-label="Zamknij"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+
+        <ProviderAndModePicker
+          providers={rawProviders}
+          selectedProvider={provider}
+          onSelectProvider={(pId) => {
+            setProvider(pId);
+            const persistedDefaultProvider = initialPolicy?.default?.provider || initialPolicy?.provider;
+            const persistedDefaultModel = initialPolicy?.default?.model || initialPolicy?.model || '';
+            const nextModel = pId === persistedDefaultProvider ? persistedDefaultModel : '';
+            setModel(nextModel);
+            const pObj = rawProviders.find((p) => p.id === pId);
+            const supported = pObj?.supportedModes || ['ask', 'edit', 'agent'];
+            if (!supported.includes(mode)) {
+              setMode(supported.includes('agent') ? 'agent' : (pObj?.defaultMode || 'edit'));
+            }
+          }}
+          selectedMode={mode}
+          onSelectMode={setMode}
+          selectedModel={model}
+          onSelectModel={setModel}
+          loading={providers.loading}
+          error={providers.error}
+        />
+
+        {provider && isSelectedProviderAvailable && (!selectedProviderObj?.models?.find((m) => m.id === model)?.traits?.maxContextTokens) && (
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 p-3 text-xs text-status-warning" role="alert">
+            <span className="font-semibold">Ostrzeżenie o pojemności:</span>
+            <span>Pojemność kontekstu dla tego modelu nie jest znana w katalogu providera. Batch może przekroczyć limit tokenów.</span>
+          </div>
+        )}
+
+        {!isOneOff && (
+          <div className="mt-5 space-y-3 rounded-xl border border-border/70 bg-surface-muted/30 p-4">
+            <div>
+              <h3 className="text-xs font-semibold text-fg-primary">Nadpisania dla ról (Role Execution Overrides)</h3>
+              <p className="mt-0.5 text-[11px] text-fg-muted">
+                Opcjonalnie wybierz wykonawców dla konkretnych ról procesu automatycznego.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium text-fg-secondary">Implementer</label>
+                <select
+                  aria-label="Implementer Provider"
+                  value={implementerProvider}
+                  onChange={(e) => handleRoleProviderChange('implementer', e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                >
+                  <option value="">(Domyślny: {provider || 'brak'})</option>
+                  {eligibleRoleProviders.map((p) => (
+                    <option key={p.id} value={p.id}>{p.label || p.id}</option>
+                  ))}
+                </select>
+                {implementerProvider && (implementerModels.length > 0 || Boolean(implementerModel)) && (
+                  <select
+                    aria-label="Implementer Model"
+                    value={implementerModel}
+                    onChange={(e) => setImplementerModel(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                  >
+                    <option value="">(Domyślny model)</option>
+                    {implementerModel && !implementerModels.some((m) => m.id === implementerModel) && (
+                      <option value={implementerModel}>{implementerModel} (custom / unavailable)</option>
+                    )}
+                    {implementerModels.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium text-fg-secondary">Reviewer</label>
+                <select
+                  aria-label="Reviewer Provider"
+                  value={reviewerProvider}
+                  onChange={(e) => handleRoleProviderChange('reviewer', e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                >
+                  <option value="">(Domyślny: {provider || 'brak'})</option>
+                  {eligibleRoleProviders.map((p) => (
+                    <option key={p.id} value={p.id}>{p.label || p.id}</option>
+                  ))}
+                </select>
+                {reviewerProvider && (reviewerModels.length > 0 || Boolean(reviewerModel)) && (
+                  <select
+                    aria-label="Reviewer Model"
+                    value={reviewerModel}
+                    onChange={(e) => setReviewerModel(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                  >
+                    <option value="">(Domyślny model)</option>
+                    {reviewerModel && !reviewerModels.some((m) => m.id === reviewerModel) && (
+                      <option value={reviewerModel}>{reviewerModel} (custom / unavailable)</option>
+                    )}
+                    {reviewerModels.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium text-fg-secondary">Refiner</label>
+                <select
+                  aria-label="Refiner Provider"
+                  value={refinerProvider}
+                  onChange={(e) => handleRoleProviderChange('refiner', e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                >
+                  <option value="">(Domyślny: {provider || 'brak'})</option>
+                  {eligibleRoleProviders.map((p) => (
+                    <option key={p.id} value={p.id}>{p.label || p.id}</option>
+                  ))}
+                </select>
+                {refinerProvider && (refinerModels.length > 0 || Boolean(refinerModel)) && (
+                  <select
+                    aria-label="Refiner Model"
+                    value={refinerModel}
+                    onChange={(e) => setRefinerModel(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                  >
+                    <option value="">(Domyślny model)</option>
+                    {refinerModel && !refinerModels.some((m) => m.id === refinerModel) && (
+                      <option value={refinerModel}>{refinerModel} (custom / unavailable)</option>
+                    )}
+                    {refinerModels.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-6 flex items-center justify-end gap-3 border-t border-border pt-4">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={confirming}>
+            Anuluj
+          </Button>
+          <Button
+            type="submit"
+            disabled={!provider || !isSelectedProviderAvailable || confirming}
+            className="gap-2"
+          >
+            {confirming && <LoaderCircle className="size-4 animate-spin" />}
+            {isOneOff ? 'Uruchom jednorazowo' : 'Zatwierdź i rozpocznij'}
+          </Button>
+        </div>
       </form>
     </div>
   );

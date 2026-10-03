@@ -70,6 +70,17 @@ test('Requirement 2 & 16: AgentSessionPage uses single unified session runtime a
   assert.match(pageSource, /await assistant\.sendTurn\(trimmed/);
 });
 
+test('Model override is routed through the canonical session runtime and turn transport', () => {
+  const pageSource = readPageSource();
+  const runtimeSource = readRuntimeSource();
+
+  assert.match(pageSource, /selectedModelOverride/);
+  assert.match(pageSource, /selectedModelOverride !== undefined/);
+  assert.match(pageSource, /model: selectedModelOverride/);
+  assert.match(pageSource, /canOverrideTurnModel=\{canOverrideTurnModel\}/);
+  assert.match(runtimeSource, /model: options\?\.model/);
+});
+
 
 // ── 4. Snapshot-First Hydration ────────────────────────────────────────────────────
 

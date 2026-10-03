@@ -18,8 +18,16 @@ import {
   normalizeTimestamp,
   validateAgentExecutionMode,
 } from '../contracts.mjs';
+import {
+  assertExecutionScope,
+  createTaskScope,
+  createBatchScope,
+  normalizeExecutionScope,
+  validateExecutionScope,
+} from '../../../../specs/workflow/execution-scope.mjs';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
 /**
  * Deterministic comparison for ranking session bindings to determine current association (D10 Option C).
@@ -193,77 +201,11 @@ export async function removeCodexExecutionContextBridge(repoRoot, threadId, { sp
   } catch {}
 }
 
-export function readCodexExecutionContextBridgeSync(repoRoot, { specId, taskId, threadId } = {}) {
-  if (!repoRoot) return null;
-  const bridgeDir = resolve(repoRoot, '.nevo-ai-local', 'codex-context');
-  let filePath = null;
-  if (threadId) {
-    filePath = join(bridgeDir, `${threadId}.json`);
-  } else if (specId && taskId) {
-    filePath = join(bridgeDir, `${specId}-${taskId}.json`);
-  }
-  if (!filePath || !existsSync(filePath)) return null;
-  try {
-    const raw = readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+export {
+  readCodexExecutionContextBridgeSync,
+  readAgentExecutionContext,
+} from '../../../../specs/workflow/execution-identity.mjs';
 
-export function readAgentExecutionContext(envOrOpts = process.env, opts = {}) {
-  let env = envOrOpts;
-  let repoRoot = opts?.repoRoot;
-  let specId = opts?.specId;
-  let taskId = opts?.taskId;
-
-  if (envOrOpts && typeof envOrOpts === 'object' && ('env' in envOrOpts || 'repoRoot' in envOrOpts)) {
-    env = envOrOpts.env || process.env;
-    repoRoot = envOrOpts.repoRoot ?? repoRoot;
-    specId = envOrOpts.specId ?? specId;
-    taskId = envOrOpts.taskId ?? taskId;
-  }
-  if (!env) {
-    env = process.env;
-  }
-
-  const provider = env.NEVO_AGENT_PROVIDER?.trim();
-  const sessionId = env.NEVO_SESSION_ID?.trim();
-  const providerSessionId = env.NEVO_AGENT_PROVIDER_SESSION_ID?.trim();
-
-  if (sessionId) {
-    return {
-      provider: provider || 'unknown',
-      sessionId,
-      ...(providerSessionId ? { providerSessionId } : {}),
-    };
-  }
-
-  if (provider && providerSessionId) {
-    return {
-      provider,
-      providerSessionId,
-    };
-  }
-
-  // Codex bridge fallback: when NEVO_AGENT_PROVIDER === 'codex' and persistent app-server has no per-thread env
-  if (provider === 'codex' && repoRoot) {
-    const bridge = readCodexExecutionContextBridgeSync(repoRoot, { specId, taskId, threadId: providerSessionId });
-    if (bridge?.sessionId) {
-      return {
-        provider: 'codex',
-        sessionId: bridge.sessionId,
-        ...(bridge.threadId ? { providerSessionId: bridge.threadId } : {}),
-      };
-    }
-  }
-
-  return null;
-}
 
 /**
  * Normalizes raw storage content into `{ sessions: AgentSession[], bindings: SessionTaskBinding[] }`.
@@ -293,6 +235,9 @@ function normalizeStorageContent(parsed) {
         // `row.providerSessionId`, so comparing them would always match trivially.
         const isPlaceholder = row.established === false;
         const provSessionId = isPlaceholder ? undefined : (row.providerSessionId || undefined);
+        const executionScope = row.executionScope
+          ? normalizeExecutionScope(row.executionScope)
+          : (row.activeTaskId ? { kind: 'task', taskId: row.activeTaskId } : null);
         session = {
           sessionId: sId,
           provider: row.provider,
@@ -301,19 +246,26 @@ function normalizeStorageContent(parsed) {
           ...(row.mode ? { mode: row.mode } : {}),
           ...(row.model ? { model: row.model } : {}),
           ...(row.purpose ? { purpose: row.purpose } : {}),
-          ...(row.activeTaskId || row.taskId ? { activeTaskId: row.activeTaskId || row.taskId } : {}),
-          taskIds: Array.isArray(row.taskIds) ? [...row.taskIds] : (row.taskId ? [row.taskId] : []),
+          ...(row.role ? { role: row.role } : {}),
+          ...(row.parentSessionId ? { parentSessionId: row.parentSessionId } : {}),
+          ...(executionScope ? { executionScope } : {}),
+          ...(executionScope?.kind === 'task' ? { activeTaskId: executionScope.taskId } : (row.activeTaskId && executionScope?.kind !== 'task-batch' ? { activeTaskId: row.activeTaskId } : {})),
+          taskIds: executionScope ? (executionScope.kind === 'task' ? [executionScope.taskId] : [...executionScope.taskIds]) : (Array.isArray(row.taskIds) ? [...row.taskIds] : (row.taskId ? [row.taskId] : [])),
           createdAt: row.createdAt || new Date().toISOString(),
           lastSeenAt: row.lastSeenAt || new Date().toISOString(),
+          ...(row.batchExecutionId ? { batchExecutionId: row.batchExecutionId } : {}),
           ...(row.lastBootstrapTaskId ? { lastBootstrapTaskId: row.lastBootstrapTaskId } : {}),
           ...(row.lastBootstrapStep ? { lastBootstrapStep: row.lastBootstrapStep } : {}),
           ...(row.lastBootstrapAttempt !== undefined ? { lastBootstrapAttempt: row.lastBootstrapAttempt } : {}),
         };
         sessionsMap.set(sId, session);
       } else {
+        if (row.batchExecutionId && !session.batchExecutionId) session.batchExecutionId = row.batchExecutionId;
         if (row.mode && !session.mode) session.mode = row.mode;
         if (row.model && !session.model) session.model = row.model;
-        if (row.activeTaskId) session.activeTaskId = row.activeTaskId;
+        if (row.role && !session.role) session.role = row.role;
+        if (row.parentSessionId && !session.parentSessionId) session.parentSessionId = row.parentSessionId;
+        if (row.activeTaskId && session.executionScope?.kind !== 'task-batch') session.activeTaskId = row.activeTaskId;
         if (row.taskId && !session.taskIds.includes(row.taskId)) session.taskIds.push(row.taskId);
         if (Array.isArray(row.taskIds)) {
           for (const t of row.taskIds) {
@@ -345,7 +297,24 @@ function normalizeStorageContent(parsed) {
     };
   }
 
-  const sessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
+  const sessions = (Array.isArray(parsed.sessions) ? parsed.sessions : []).map((s) => {
+    let executionScope = s.executionScope ? normalizeExecutionScope(s.executionScope) : null;
+    if (!executionScope) {
+      if (s.activeTaskId) executionScope = { kind: 'task', taskId: s.activeTaskId };
+      else if (s.taskId) executionScope = { kind: 'task', taskId: s.taskId };
+    }
+    const res = {
+      ...s,
+      ...(executionScope ? { executionScope } : {}),
+      ...(Array.isArray(s.predecessorSessions) ? { predecessorSessions: s.predecessorSessions } : {}),
+    };
+    if (executionScope?.kind === 'task-batch') {
+      delete res.activeTaskId;
+    } else if (executionScope?.kind === 'task' && !res.activeTaskId) {
+      res.activeTaskId = executionScope.taskId;
+    }
+    return res;
+  });
   const bindings = Array.isArray(parsed.bindings) ? parsed.bindings : [];
   return { sessions, bindings };
 }
@@ -567,6 +536,9 @@ export class AgentSessionBindingService {
               purpose: s.purpose,
               mode: s.mode,
               model: s.model,
+              ...(s.role ? { role: s.role } : {}),
+              ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
+              ...(s.executionScope ? { executionScope: s.executionScope } : {}),
               activeTaskId: s.activeTaskId,
               taskIds: s.taskIds,
               createdAt: b.createdAt || s.createdAt,
@@ -582,6 +554,9 @@ export class AgentSessionBindingService {
             purpose: s.purpose,
             mode: s.mode,
             model: s.model,
+            ...(s.role ? { role: s.role } : {}),
+            ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
+            ...(s.executionScope ? { executionScope: s.executionScope } : {}),
             activeTaskId: s.activeTaskId,
             taskIds: s.taskIds,
             createdAt: s.createdAt,
@@ -618,6 +593,10 @@ export class AgentSessionBindingService {
               purpose: s.purpose,
               mode: s.mode,
               model: s.model,
+              ...(s.role ? { role: s.role } : {}),
+              ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
+              ...(s.executionScope ? { executionScope: s.executionScope } : {}),
+              ...(s.batchExecutionId ? { batchExecutionId: s.batchExecutionId } : {}),
               activeTaskId: s.activeTaskId,
               taskIds: s.taskIds,
               createdAt: b.createdAt || s.createdAt,
@@ -633,6 +612,10 @@ export class AgentSessionBindingService {
             purpose: s.purpose,
             mode: s.mode,
             model: s.model,
+            ...(s.role ? { role: s.role } : {}),
+            ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
+            ...(s.executionScope ? { executionScope: s.executionScope } : {}),
+            ...(s.batchExecutionId ? { batchExecutionId: s.batchExecutionId } : {}),
             activeTaskId: s.activeTaskId,
             taskIds: s.taskIds,
             createdAt: s.createdAt,
@@ -848,18 +831,25 @@ export class AgentSessionBindingService {
     purpose,
     mode,
     model,
+    role,
+    parentSessionId,
     createdAt,
     lastSeenAt,
     activeTaskId,
     taskIds,
+    executionScope,
+    perTaskStep,
+    perTaskAttempt,
     established, // Ignored in target model (presence of providerSessionId dictates establishment)
+    predecessorSessions,
+    batchExecutionId,
   } = {}) {
     if (!provider || typeof provider !== 'string') {
       throw new AiValidationError("'provider' must be a valid string.", { field: 'provider' });
     }
     if (specId !== undefined && specId !== null) {
-      if (typeof specId !== 'string' || !UUID_RE.test(specId)) {
-        throw new AiValidationError("'specId' must be a valid canonical UUID.", { field: 'specId' });
+      if (typeof specId !== 'string' || (!UUID_RE.test(specId) && !IDENTIFIER_PATTERN.test(specId))) {
+        throw new AiValidationError("'specId' must be a valid canonical identifier or UUID.", { field: 'specId' });
       }
     }
     if (taskId !== undefined && (typeof taskId !== 'string' || taskId.trim().length === 0)) {
@@ -884,22 +874,57 @@ export class AgentSessionBindingService {
           (cleanProvSessionId && s.provider === provider && s.providerSessionId === cleanProvSessionId),
       );
 
-      const accumulatedTaskIds = Array.from(
-        new Set([
-          ...(session?.taskIds || []),
-          ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : []),
-        ]),
-      );
+      let resolvedScope = null;
+      if (executionScope) {
+        resolvedScope = assertExecutionScope(executionScope);
+      } else if (activeTaskId) {
+        resolvedScope = createTaskScope(activeTaskId);
+      } else if (activeTaskId === null) {
+        // Explicit sentinel: caller explicitly requested NO active task.
+      } else if (taskId) {
+        resolvedScope = createTaskScope(taskId);
+      } else if (Array.isArray(taskIds) && taskIds.length >= 2) {
+        resolvedScope = createBatchScope(taskIds);
+      }
 
-      const resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || session?.activeTaskId || undefined);
+      let accumulatedTaskIds;
+      let resolvedActiveTaskId;
+      if (resolvedScope?.kind === 'task-batch') {
+        resolvedActiveTaskId = undefined;
+        accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), ...resolvedScope.taskIds]));
+      } else if (resolvedScope?.kind === 'task') {
+        resolvedActiveTaskId = resolvedScope.taskId;
+        accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), resolvedScope.taskId, ...(Array.isArray(taskIds) ? taskIds : [])]));
+      } else {
+        resolvedActiveTaskId = (activeTaskId !== undefined && activeTaskId !== null) ? activeTaskId : undefined;
+        accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : [])]));
+      }
 
       if (session) {
         session.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+        if (batchExecutionId !== undefined) session.batchExecutionId = batchExecutionId;
         if (purpose !== undefined) session.purpose = purpose;
         if (mode !== undefined) session.mode = mode;
         if (model !== undefined) session.model = model.trim();
+        if (role !== undefined) session.role = role;
+        if (parentSessionId !== undefined) session.parentSessionId = parentSessionId;
+        if (Array.isArray(predecessorSessions)) session.predecessorSessions = [...predecessorSessions];
         if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
-        if (resolvedActiveTaskId !== undefined) session.activeTaskId = resolvedActiveTaskId;
+        if (resolvedScope) {
+          session.executionScope = resolvedScope;
+          if (resolvedScope.kind === 'task') {
+            session.activeTaskId = resolvedScope.taskId;
+          } else {
+            delete session.activeTaskId;
+          }
+        } else if (activeTaskId === null) {
+          delete session.activeTaskId;
+          if (session.executionScope?.kind === 'task') {
+            delete session.executionScope;
+          }
+        } else if (resolvedActiveTaskId !== undefined) {
+          session.activeTaskId = resolvedActiveTaskId;
+        }
         session.taskIds = accumulatedTaskIds;
       } else {
         session = {
@@ -910,7 +935,12 @@ export class AgentSessionBindingService {
           ...(mode ? { mode } : {}),
           ...(model ? { model: model.trim() } : {}),
           ...(purpose ? { purpose } : {}),
-          ...(resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {}),
+          ...(role ? { role } : {}),
+          ...(parentSessionId ? { parentSessionId } : {}),
+          ...(Array.isArray(predecessorSessions) ? { predecessorSessions: [...predecessorSessions] } : {}),
+          ...(resolvedScope ? { executionScope: resolvedScope } : {}),
+          ...(batchExecutionId ? { batchExecutionId } : (resolvedScope?.batchExecutionId ? { batchExecutionId: resolvedScope.batchExecutionId } : {})),
+          ...(resolvedScope?.kind === 'task' ? { activeTaskId: resolvedScope.taskId } : (resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {})),
           taskIds: accumulatedTaskIds,
           createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
           lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
@@ -918,11 +948,35 @@ export class AgentSessionBindingService {
         data.sessions.push(session);
       }
 
-      // 2. Update or create task binding if taskId is present
+      // 2. Update or create task bindings
       let binding = null;
-      if (taskId) {
+      if (resolvedScope?.kind === 'task-batch') {
+        for (const tId of resolvedScope.taskIds) {
+          const taskStep = perTaskStep?.[tId] ?? step;
+          const taskAttempt = perTaskAttempt?.[tId] ?? attempt;
+          let b = data.bindings.find((x) => x.sessionId === session.sessionId && x.taskId === tId);
+          if (b) {
+            b.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+            if (taskStep !== undefined) b.step = taskStep;
+            if (taskAttempt !== undefined) b.attempt = taskAttempt;
+          } else {
+            b = {
+              sessionId: session.sessionId,
+              taskId: tId,
+              ...(taskStep ? { step: taskStep } : {}),
+              ...(taskAttempt !== undefined ? { attempt: taskAttempt } : {}),
+              specId,
+              provider,
+              createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
+              lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
+            };
+            data.bindings.push(b);
+          }
+        }
+      } else if (taskId || resolvedScope?.kind === 'task') {
+        const effectiveTaskId = taskId || resolvedScope.taskId;
         binding = data.bindings.find(
-          (b) => b.sessionId === session.sessionId && b.taskId === taskId,
+          (b) => b.sessionId === session.sessionId && b.taskId === effectiveTaskId,
         );
         if (binding) {
           binding.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
@@ -931,7 +985,7 @@ export class AgentSessionBindingService {
         } else {
           binding = {
             sessionId: session.sessionId,
-            taskId,
+            taskId: effectiveTaskId,
             ...(step ? { step } : {}),
             ...(attempt !== undefined ? { attempt } : {}),
             specId,
@@ -950,12 +1004,16 @@ export class AgentSessionBindingService {
         provider: session.provider,
         providerSessionId: session.providerSessionId,
         specId: session.specId,
-        ...(taskId ? { taskId } : {}),
+        ...(resolvedScope?.kind === 'task' ? { taskId: resolvedScope.taskId } : (activeTaskId !== null && taskId ? { taskId } : {})),
+        ...(session.executionScope ? { executionScope: session.executionScope } : {}),
         ...(binding?.step ? { step: binding.step } : {}),
         ...(binding?.attempt !== undefined ? { attempt: binding.attempt } : {}),
         ...(session.purpose ? { purpose: session.purpose } : {}),
         ...(session.mode ? { mode: session.mode } : {}),
         ...(session.model ? { model: session.model } : {}),
+        ...(session.role ? { role: session.role } : {}),
+        ...(session.parentSessionId ? { parentSessionId: session.parentSessionId } : {}),
+        ...(session.predecessorSessions ? { predecessorSessions: session.predecessorSessions } : {}),
         activeTaskId: session.activeTaskId,
         taskIds: session.taskIds,
         createdAt: session.createdAt,
@@ -975,18 +1033,25 @@ export class AgentSessionBindingService {
     purpose,
     mode,
     model,
+    role,
+    parentSessionId,
     createdAt,
     lastSeenAt,
     activeTaskId,
     taskIds,
+    executionScope,
+    perTaskStep,
+    perTaskAttempt,
     established,
+    predecessorSessions,
+    batchExecutionId,
   } = {}) {
     if (!provider || typeof provider !== 'string') {
       throw new AiValidationError("'provider' must be a valid string.", { field: 'provider' });
     }
     if (specId !== undefined && specId !== null) {
-      if (typeof specId !== 'string' || !UUID_RE.test(specId)) {
-        throw new AiValidationError("'specId' must be a valid canonical UUID.", { field: 'specId' });
+      if (typeof specId !== 'string' || (!UUID_RE.test(specId) && !IDENTIFIER_PATTERN.test(specId))) {
+        throw new AiValidationError("'specId' must be a valid canonical identifier or UUID.", { field: 'specId' });
       }
     }
     if (taskId !== undefined && (typeof taskId !== 'string' || taskId.trim().length === 0)) {
@@ -1010,22 +1075,57 @@ export class AgentSessionBindingService {
           (cleanProvSessionId && s.provider === provider && s.providerSessionId === cleanProvSessionId),
       );
 
-      const accumulatedTaskIds = Array.from(
-        new Set([
-          ...(session?.taskIds || []),
-          ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : []),
-        ]),
-      );
+      let resolvedScope = null;
+      if (executionScope) {
+        resolvedScope = assertExecutionScope(executionScope);
+      } else if (activeTaskId) {
+        resolvedScope = createTaskScope(activeTaskId);
+      } else if (activeTaskId === null) {
+        // Explicit sentinel: caller explicitly requested NO active task.
+      } else if (taskId) {
+        resolvedScope = createTaskScope(taskId);
+      } else if (Array.isArray(taskIds) && taskIds.length >= 2) {
+        resolvedScope = createBatchScope(taskIds);
+      }
 
-      const resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || session?.activeTaskId || undefined);
+      let accumulatedTaskIds;
+      let resolvedActiveTaskId;
+      if (resolvedScope?.kind === 'task-batch') {
+        resolvedActiveTaskId = undefined;
+        accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), ...resolvedScope.taskIds]));
+      } else if (resolvedScope?.kind === 'task') {
+        resolvedActiveTaskId = resolvedScope.taskId;
+        accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), resolvedScope.taskId, ...(Array.isArray(taskIds) ? taskIds : [])]));
+      } else {
+        resolvedActiveTaskId = (activeTaskId !== undefined && activeTaskId !== null) ? activeTaskId : undefined;
+        accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : [])]));
+      }
 
       if (session) {
         session.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+        if (batchExecutionId !== undefined) session.batchExecutionId = batchExecutionId;
         if (purpose !== undefined) session.purpose = purpose;
         if (mode !== undefined) session.mode = mode;
         if (model !== undefined) session.model = model.trim();
+        if (role !== undefined) session.role = role;
+        if (parentSessionId !== undefined) session.parentSessionId = parentSessionId;
+        if (Array.isArray(predecessorSessions)) session.predecessorSessions = [...predecessorSessions];
         if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
-        if (resolvedActiveTaskId !== undefined) session.activeTaskId = resolvedActiveTaskId;
+        if (resolvedScope) {
+          session.executionScope = resolvedScope;
+          if (resolvedScope.kind === 'task') {
+            session.activeTaskId = resolvedScope.taskId;
+          } else {
+            delete session.activeTaskId;
+          }
+        } else if (activeTaskId === null) {
+          delete session.activeTaskId;
+          if (session.executionScope?.kind === 'task') {
+            delete session.executionScope;
+          }
+        } else if (resolvedActiveTaskId !== undefined) {
+          session.activeTaskId = resolvedActiveTaskId;
+        }
         session.taskIds = accumulatedTaskIds;
       } else {
         session = {
@@ -1036,7 +1136,12 @@ export class AgentSessionBindingService {
           ...(mode ? { mode } : {}),
           ...(model ? { model: model.trim() } : {}),
           ...(purpose ? { purpose } : {}),
-          ...(resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {}),
+          ...(role ? { role } : {}),
+          ...(parentSessionId ? { parentSessionId } : {}),
+          ...(Array.isArray(predecessorSessions) ? { predecessorSessions: [...predecessorSessions] } : {}),
+          ...(resolvedScope ? { executionScope: resolvedScope } : {}),
+          ...(batchExecutionId ? { batchExecutionId } : (resolvedScope?.batchExecutionId ? { batchExecutionId: resolvedScope.batchExecutionId } : {})),
+          ...(resolvedScope?.kind === 'task' ? { activeTaskId: resolvedScope.taskId } : (resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {})),
           taskIds: accumulatedTaskIds,
           createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
           lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
@@ -1045,9 +1150,33 @@ export class AgentSessionBindingService {
       }
 
       let binding = null;
-      if (taskId) {
+      if (resolvedScope?.kind === 'task-batch') {
+        for (const tId of resolvedScope.taskIds) {
+          const taskStep = perTaskStep?.[tId] ?? step;
+          const taskAttempt = perTaskAttempt?.[tId] ?? attempt;
+          let b = data.bindings.find((x) => x.sessionId === session.sessionId && x.taskId === tId);
+          if (b) {
+            b.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+            if (taskStep !== undefined) b.step = taskStep;
+            if (taskAttempt !== undefined) b.attempt = taskAttempt;
+          } else {
+            b = {
+              sessionId: session.sessionId,
+              taskId: tId,
+              ...(taskStep ? { step: taskStep } : {}),
+              ...(taskAttempt !== undefined ? { attempt: taskAttempt } : {}),
+              specId,
+              provider,
+              createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
+              lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
+            };
+            data.bindings.push(b);
+          }
+        }
+      } else if (taskId || resolvedScope?.kind === 'task') {
+        const effectiveTaskId = taskId || resolvedScope.taskId;
         binding = data.bindings.find(
-          (b) => b.sessionId === session.sessionId && b.taskId === taskId,
+          (b) => b.sessionId === session.sessionId && b.taskId === effectiveTaskId,
         );
         if (binding) {
           binding.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
@@ -1056,7 +1185,7 @@ export class AgentSessionBindingService {
         } else {
           binding = {
             sessionId: session.sessionId,
-            taskId,
+            taskId: effectiveTaskId,
             ...(step ? { step } : {}),
             ...(attempt !== undefined ? { attempt } : {}),
             specId,
@@ -1073,12 +1202,16 @@ export class AgentSessionBindingService {
         provider: session.provider,
         providerSessionId: session.providerSessionId,
         specId: session.specId,
-        ...(taskId ? { taskId } : {}),
+        ...(resolvedScope?.kind === 'task' ? { taskId: resolvedScope.taskId } : (activeTaskId !== null && taskId ? { taskId } : {})),
+        ...(session.executionScope ? { executionScope: session.executionScope } : {}),
         ...(binding?.step ? { step: binding.step } : {}),
         ...(binding?.attempt !== undefined ? { attempt: binding.attempt } : {}),
         ...(session.purpose ? { purpose: session.purpose } : {}),
         ...(session.mode ? { mode: session.mode } : {}),
         ...(session.model ? { model: session.model } : {}),
+        ...(session.role ? { role: session.role } : {}),
+        ...(session.parentSessionId ? { parentSessionId: session.parentSessionId } : {}),
+        ...(session.predecessorSessions ? { predecessorSessions: session.predecessorSessions } : {}),
         activeTaskId: session.activeTaskId,
         taskIds: session.taskIds,
         createdAt: session.createdAt,
@@ -1182,6 +1315,67 @@ export class AgentSessionBindingService {
     };
   }
 
+  /**
+   * Scope-aware binding projection resolving all bindings belonging to a session's executionScope (D24).
+   *
+   * @param {string|object} providerOrSessionId
+   * @param {string} [sessionIdOrNull]
+   * @returns {Promise<Array<object>>}
+   */
+  async resolveScopeBindings(providerOrSessionId, sessionIdOrNull) {
+    const all = await this.#loadForSpec();
+    return this.#resolveScopeBindingsFromData(all, providerOrSessionId, sessionIdOrNull);
+  }
+
+  /**
+   * Synchronous scope-aware binding projection resolving all bindings belonging to a session's executionScope (D24).
+   *
+   * @param {string|object} providerOrSessionId
+   * @param {string} [sessionIdOrNull]
+   * @returns {Array<object>}
+   */
+  resolveScopeBindingsSync(providerOrSessionId, sessionIdOrNull) {
+    const all = this.#loadForSpecSync();
+    return this.#resolveScopeBindingsFromData(all, providerOrSessionId, sessionIdOrNull);
+  }
+
+  #resolveScopeBindingsFromData(all, providerOrSessionId, sessionIdOrNull) {
+    let session = null;
+    if (typeof providerOrSessionId === 'object' && providerOrSessionId !== null && providerOrSessionId.sessionId) {
+      session = providerOrSessionId;
+    } else {
+      const id = sessionIdOrNull || providerOrSessionId;
+      const provider = sessionIdOrNull ? providerOrSessionId : null;
+      if (!id) return [];
+      const matches = all.sessions
+        .filter(
+          (s) =>
+            s.sessionId === id ||
+            (provider && s.provider === provider && s.providerSessionId === id) ||
+            (s.providerSessionId === id),
+        )
+        .sort(compareBindingRecency);
+      session = matches.find((s) => s.sessionId === id) || matches[0];
+    }
+    if (!session) return [];
+
+    const scope = session.executionScope;
+    let relevantTaskIds = [];
+    if (scope?.kind === 'task-batch') {
+      relevantTaskIds = scope.taskIds || [];
+    } else if (scope?.kind === 'task') {
+      relevantTaskIds = [scope.taskId];
+    } else if (session.activeTaskId) {
+      relevantTaskIds = [session.activeTaskId];
+    } else if (Array.isArray(session.taskIds)) {
+      relevantTaskIds = session.taskIds;
+    }
+
+    return all.bindings.filter(
+      (b) => b.sessionId === session.sessionId && relevantTaskIds.includes(b.taskId),
+    );
+  }
+
   async updateSessionMode(provider, sessionIdOrProviderSessionId, mode) {
     const validatedMode = validateAgentExecutionMode(mode, 'mode');
     const current = await this.resolveCurrentBinding(provider, sessionIdOrProviderSessionId);
@@ -1230,9 +1424,38 @@ export class AgentSessionBindingService {
     });
   }
 
+  async updateSessionLineage(sessionId, { predecessorSessions, parentSessionId = null } = {}, { specId } = {}) {
+    if (!sessionId) return null;
+    return this.#mutateSpec(specId !== undefined ? specId : null, (data) => {
+      const session = data.sessions.find((s) => s.sessionId === sessionId);
+      if (!session) return null;
+      if (Array.isArray(predecessorSessions)) {
+        session.predecessorSessions = [...predecessorSessions];
+      }
+      session.parentSessionId = parentSessionId;
+      session.lastSeenAt = new Date().toISOString();
+      return structuredClone(session);
+    });
+  }
+
+  updateSessionLineageSync(sessionId, { predecessorSessions, parentSessionId = null } = {}, { specId } = {}) {
+    if (!sessionId) return null;
+    return this.#mutateSpecSync(specId !== undefined ? specId : null, (data) => {
+      const session = data.sessions.find((s) => s.sessionId === sessionId);
+      if (!session) return null;
+      if (Array.isArray(predecessorSessions)) {
+        session.predecessorSessions = [...predecessorSessions];
+      }
+      session.parentSessionId = parentSessionId;
+      session.lastSeenAt = new Date().toISOString();
+      return structuredClone(session);
+    });
+  }
+
   async updateSessionModel(provider, sessionIdOrProviderSessionId, model) {
-    if (typeof model !== 'string' || !model.trim()) {
-      throw new AiValidationError("'model' must be a non-empty string.", { field: 'model' });
+    const clearModel = model === null;
+    if (!clearModel && (typeof model !== 'string' || !model.trim())) {
+      throw new AiValidationError("'model' must be a non-empty string or null.", { field: 'model' });
     }
     const current = await this.resolveCurrentBinding(provider, sessionIdOrProviderSessionId);
     if (!current) return null;
@@ -1241,7 +1464,8 @@ export class AgentSessionBindingService {
       const session = data.sessions.find((s) => s.sessionId === current.sessionId);
       if (!session) return null;
       const now = new Date().toISOString();
-      session.model = model.trim();
+      if (clearModel) delete session.model;
+      else session.model = model.trim();
       session.lastSeenAt = now;
       for (const b of data.bindings) {
         if (b.sessionId === current.sessionId) {
@@ -1257,8 +1481,9 @@ export class AgentSessionBindingService {
   }
 
   updateSessionModelSync(provider, sessionIdOrProviderSessionId, model) {
-    if (typeof model !== 'string' || !model.trim()) {
-      throw new AiValidationError("'model' must be a non-empty string.", { field: 'model' });
+    const clearModel = model === null;
+    if (!clearModel && (typeof model !== 'string' || !model.trim())) {
+      throw new AiValidationError("'model' must be a non-empty string or null.", { field: 'model' });
     }
     const current = this.resolveCurrentBindingSync(provider, sessionIdOrProviderSessionId);
     if (!current) return null;
@@ -1267,7 +1492,8 @@ export class AgentSessionBindingService {
       const session = data.sessions.find((s) => s.sessionId === current.sessionId);
       if (!session) return null;
       const now = new Date().toISOString();
-      session.model = model.trim();
+      if (clearModel) delete session.model;
+      else session.model = model.trim();
       session.lastSeenAt = now;
       for (const b of data.bindings) {
         if (b.sessionId === current.sessionId) {
@@ -1325,6 +1551,8 @@ export class AgentSessionBindingService {
       if (query.specId && b.specId !== query.specId) continue;
       if (query.taskId && b.taskId !== query.taskId) continue;
       if (query.sessionId && b.sessionId !== query.sessionId) continue;
+      if (query.step && b.step !== query.step) continue;
+      if (query.attempt !== undefined && b.attempt !== query.attempt) continue;
       const session = sessionsMap.get(b.sessionId);
       if (query.provider && session?.provider !== query.provider && b.provider !== query.provider) continue;
       if (query.providerSessionId && session?.providerSessionId !== query.providerSessionId && b.sessionId !== query.providerSessionId) continue;
@@ -1381,6 +1609,8 @@ export class AgentSessionBindingService {
       if (query.specId && b.specId !== query.specId) continue;
       if (query.taskId && b.taskId !== query.taskId) continue;
       if (query.sessionId && b.sessionId !== query.sessionId) continue;
+      if (query.step && b.step !== query.step) continue;
+      if (query.attempt !== undefined && b.attempt !== query.attempt) continue;
       const session = sessionsMap.get(b.sessionId);
       if (query.provider && session?.provider !== query.provider && b.provider !== query.provider) continue;
       if (query.providerSessionId && session?.providerSessionId !== query.providerSessionId && b.sessionId !== query.providerSessionId) continue;
@@ -1757,6 +1987,11 @@ export class AgentSessionBindingService {
   }
 }
 
-export function createAgentSessionBindingService(options) {
-  return new AgentSessionBindingService(options);
+export function createAgentSessionBindingService(optionsOrRepoRoot) {
+  if (typeof optionsOrRepoRoot === 'string') {
+    return new AgentSessionBindingService({
+      storageDir: resolve(optionsOrRepoRoot, '.nevo-ai-local', 'sessions'),
+    });
+  }
+  return new AgentSessionBindingService(optionsOrRepoRoot);
 }

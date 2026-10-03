@@ -10,7 +10,9 @@ import { createHash } from 'node:crypto';
 
 import { ACTIVE_DIR, ARCHIVE_DIR, loadChange, listChanges, listChangesAsync } from '../../../specs/store.mjs';
 import { isTaskReady } from '../../../specs/lifecycle-primitives.mjs';
-import { SPEC_STAGES, isCompletedStatus, isTerminalStatus, stageForStatus } from './status-stages.mjs';
+import { resolveWorkflowMode } from '../../../specs/workflow/compatibility.mjs';
+import { projectTask } from '../../../specs/workflow/task-projection.mjs';
+import { SPEC_STAGES, isCompletedStatus, isTerminalStatus, stageForStatus, stageForDeterministicState } from './status-stages.mjs';
 import { DEFAULT_SPEC_SECTIONS } from './spec-sections.mjs';
 import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 
@@ -548,7 +550,28 @@ export async function loadSpecificationDocument({
 // ── Task statuses (small, fast-pollable — sourced entirely from change.yaml,
 // never a per-task file read) ───────────────────────────────────────────────
 
-function taskStatusProjection(task, change) {
+function taskStatusProjection(task, change, workflowMode, repoRoot) {
+  if (workflowMode?.mode === 'deterministic') {
+    let projection = null;
+    try {
+      projection = projectTask(task, change, { root: repoRoot, repoRoot });
+    } catch {
+      // Graceful fallback
+    }
+    if (projection) {
+      return {
+        id: task.id,
+        status: task.status || 'draft',
+        stage: stageForDeterministicState(projection.state, projection.executor),
+        order: task.order ?? null,
+        dependsOn: task.depends_on || [],
+        blockedBy: projection.blockedBy || [],
+        ready: projection.state === 'ready',
+        terminal: projection.state === 'terminal',
+      };
+    }
+  }
+
   const dependencyStatuses = new Map(change.tasks.map((item) => [item.id, item.status]));
   const blockedBy = (task.depends_on || []).filter((id) => {
     const status = dependencyStatuses.get(id);
@@ -567,7 +590,7 @@ function taskStatusProjection(task, change) {
   };
 }
 
-export function loadTaskStatuses({ source, slug, activeDir = ACTIVE_DIR, archiveDir = ARCHIVE_DIR } = {}) {
+export function loadTaskStatuses({ source, slug, activeDir = ACTIVE_DIR, archiveDir = ARCHIVE_DIR, repoRoot = REPOSITORY_ROOT } = {}) {
   let baseDir = sourceDirectory(source, activeDir, archiveDir);
   if (!baseDir || typeof slug !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) return null;
 
@@ -587,8 +610,9 @@ export function loadTaskStatuses({ source, slug, activeDir = ACTIVE_DIR, archive
   }
   if (!change) return null;
 
+  const workflowMode = resolveWorkflowMode(change, { activeDir: baseDir, repoRoot });
   const tasks = change.tasks
-    .map((task) => taskStatusProjection(task, change))
+    .map((task) => taskStatusProjection(task, change, workflowMode, repoRoot))
     .sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER));
   const revision = createHash('sha1').update(JSON.stringify(tasks)).digest('hex');
 
@@ -601,15 +625,38 @@ export function loadTaskStatuses({ source, slug, activeDir = ACTIVE_DIR, archive
   };
 }
 
-async function taskProjectionAsync(change, task, repoRoot) {
+async function taskProjectionAsync(change, task, repoRoot, workflowMode) {
   const filePath = safeChildPath(change._dir, task.file);
+  const content = await readOptionalAsync(filePath);
+
+  if (workflowMode?.mode === 'deterministic') {
+    let projection = null;
+    try {
+      projection = projectTask(task, change, { root: repoRoot, repoRoot });
+    } catch {
+      // Graceful fallback
+    }
+    if (projection) {
+      return {
+        id: task.id,
+        title: extractTaskTitle(content, task.id),
+        status: task.status || 'draft',
+        stage: stageForDeterministicState(projection.state, projection.executor),
+        order: task.order ?? null,
+        dependsOn: task.depends_on || [],
+        blockedBy: projection.blockedBy || [],
+        ready: projection.state === 'ready',
+        terminal: projection.state === 'terminal',
+        file: filePath ? repositoryPath(repoRoot, filePath) : null,
+      };
+    }
+  }
+
   const dependencyStatuses = new Map(change.tasks.map((item) => [item.id, item.status]));
   const blockedBy = (task.depends_on || []).filter((id) => {
     const status = dependencyStatuses.get(id);
     return !['implemented', 'verified', 'archived'].includes(status);
   });
-
-  const content = await readOptionalAsync(filePath);
 
   return {
     id: task.id,
@@ -625,10 +672,12 @@ async function taskProjectionAsync(change, task, repoRoot) {
   };
 }
 
-async function changeProjectionAsync(change, source, repoRoot) {
+async function changeProjectionAsync(change, source, repoRoot, baseDir) {
   const overviewPath = safeChildPath(change._dir, 'overview.md');
+  const workflowMode = resolveWorkflowMode(change, { activeDir: baseDir, repoRoot });
+  const isDeterministic = workflowMode.mode === 'deterministic';
   const [tasks, overviewContent, updatedAt] = await Promise.all([
-    Promise.all(change.tasks.map((task) => taskProjectionAsync(change, task, repoRoot))).then((list) =>
+    Promise.all(change.tasks.map((task) => taskProjectionAsync(change, task, repoRoot, workflowMode))).then((list) =>
       list.sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER)),
     ),
     readOptionalAsync(overviewPath),
@@ -637,11 +686,15 @@ async function changeProjectionAsync(change, source, repoRoot) {
 
   const actionableTasks = tasks.filter((task) => task.status !== 'abandoned');
   const actionableCount = actionableTasks.length;
-  const completedCount = tasks.filter((task) => isCompletedStatus(task.status)).length;
+  const completedCount = isDeterministic
+    ? tasks.filter((task) => task.terminal && task.status !== 'abandoned').length
+    : tasks.filter((task) => isCompletedStatus(task.status)).length;
   const stageCounts = Object.fromEntries(
     SPEC_STAGES.map((stage) => [stage.id, actionableTasks.filter((task) => task.stage === stage.id).length]),
   );
-  const activeTask = tasks.find((task) => task.status === 'in-implementation');
+  const activeTask = isDeterministic
+    ? tasks.find((task) => task.stage === 'implementation' || task.stage === 'review')
+    : tasks.find((task) => task.status === 'in-implementation');
   const readyTask = tasks.find((task) => task.ready);
   const lanes = SPEC_STAGES.map((stage) => ({
     ...stage,
@@ -669,8 +722,12 @@ async function changeProjectionAsync(change, source, repoRoot) {
       actionable: actionableCount,
       completed: completedCount,
       abandoned: tasks.filter((task) => task.status === 'abandoned').length,
-      inImplementation: tasks.filter((task) => task.status === 'in-implementation').length,
-      inReview: tasks.filter((task) => task.status === 'implemented').length,
+      inImplementation: isDeterministic
+        ? tasks.filter((task) => task.stage === 'implementation').length
+        : tasks.filter((task) => task.status === 'in-implementation').length,
+      inReview: isDeterministic
+        ? tasks.filter((task) => task.stage === 'review').length
+        : tasks.filter((task) => task.status === 'implemented').length,
       ready: tasks.filter((task) => task.ready).length,
       stageCounts,
       progress: actionableCount ? Math.round((completedCount / actionableCount) * 100) : 0,
@@ -702,10 +759,10 @@ export async function loadDashboardData({
   ]);
 
   const [active, archive] = await Promise.all([
-    Promise.all(activeChanges.map((change) => changeProjectionAsync(change, 'active', repoRoot))).then((list) =>
+    Promise.all(activeChanges.map((change) => changeProjectionAsync(change, 'active', repoRoot, activeDir))).then((list) =>
       list.sort(activeSort),
     ),
-    Promise.all(archiveChanges.map((change) => changeProjectionAsync(change, 'archive', repoRoot))).then((list) =>
+    Promise.all(archiveChanges.map((change) => changeProjectionAsync(change, 'archive', repoRoot, archiveDir))).then((list) =>
       list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     ),
   ]);

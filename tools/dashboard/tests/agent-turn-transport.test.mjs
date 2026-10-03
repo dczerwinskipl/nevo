@@ -30,7 +30,7 @@ test('postStartTurn posts message/idempotencyKey/mode to the canonical sessionId
     mode: 'agent',
   });
 
-  assert.deepEqual(result, { turnId: 'turn-abc' });
+  assert.deepEqual(result, { turnId: 'turn-abc', sessionId: undefined, isNewSession: undefined });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, '/api/agent-sessions/sess-1/turns', 'must use the canonical sessionId route, not /:provider/:providerSessionId/turns');
   assert.equal(calls[0].init.method, 'POST');
@@ -50,6 +50,65 @@ test('postStartTurn omits mode entirely when not provided (no mode: undefined le
   };
 
   await postStartTurn('sess-1', { message: 'Hi', idempotencyKey: 'idem-2' });
+});
+
+test('postStartTurn includes a trimmed model override when provided and omits it otherwise', async () => {
+  const bodies = [];
+  globalThis.fetch = async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return { ok: true, status: 200, json: async () => ({ turnId: 't-model' }) };
+  };
+
+  await postStartTurn('sess-1', {
+    message: 'Use the selected model',
+    idempotencyKey: 'idem-model-1',
+    model: '  claude-sonnet-5  ',
+  });
+  await postStartTurn('sess-1', {
+    message: 'Keep the persisted session model',
+    idempotencyKey: 'idem-model-2',
+  });
+
+  assert.equal(bodies[0].model, 'claude-sonnet-5');
+  assert.equal('model' in bodies[1], false);
+});
+
+test('postStartTurn serializes model:null as an explicit provider-default reset', async () => {
+  let body;
+  globalThis.fetch = async (_url, init) => {
+    body = JSON.parse(init.body);
+    return { ok: true, status: 200, json: async () => ({ turnId: 't-default' }) };
+  };
+
+  await postStartTurn('sess-1', {
+    message: 'Return to provider default',
+    idempotencyKey: 'idem-model-default',
+    model: null,
+  });
+
+  assert.equal(Object.prototype.hasOwnProperty.call(body, 'model'), true);
+  assert.equal(body.model, null);
+});
+
+test('postStartTurn includes purpose and taskId when provided (explicit execution intent, ADR-0009) and omits both otherwise', async () => {
+  const bodies = [];
+  globalThis.fetch = async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return { ok: true, status: 200, json: async () => ({ turnId: 't-exec' }) };
+  };
+
+  await postStartTurn('sess-1', {
+    message: 'Execute the current workflow step for task t1.',
+    idempotencyKey: 'idem-exec-1',
+    purpose: 'execution',
+    taskId: 't1',
+  });
+  await postStartTurn('sess-1', { message: 'Ordinary chat message', idempotencyKey: 'idem-chat-1' });
+
+  assert.equal(bodies[0].purpose, 'execution');
+  assert.equal(bodies[0].taskId, 't1');
+  assert.equal('purpose' in bodies[1], false, 'ordinary chat must never carry purpose: execution');
+  assert.equal('taskId' in bodies[1], false, 'ordinary chat must never carry a taskId');
 });
 
 test('postStartTurn throws the server-provided error message on failure', async () => {

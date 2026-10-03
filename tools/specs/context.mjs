@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 import { readUtf8, resolveWithinBase } from '../lib/fs.mjs';
 import { parseFrontMatterFile } from '../lib/yaml.mjs';
@@ -127,6 +127,80 @@ export function resolveTaskScope(change, task, options = {}) {
   Object.defineProperty(res, 'allowed_paths', { value: res.allowedPaths, enumerable: false });
   Object.defineProperty(res, 'forbidden_paths', { value: res.forbiddenPaths, enumerable: false });
   return res;
+}
+
+/**
+ * Resolves the task's own definition document (D22, D38).
+ * Returns { id, path, content } where path is repository-root-relative,
+ * and content is the task markdown file's full raw text.
+ *
+ * @param {object} change
+ * @param {object} task
+ * @param {object} [context]
+ * @returns {{ id: string, path: string|null, content: string }}
+ */
+export function resolveTaskDefinition(change, task, context = {}) {
+  const repoRoot = context.repoRoot || ROOT;
+  const activeDir = context.activeDir || (repoRoot ? resolveWithinBase(repoRoot, 'specs/active') : ACTIVE_DIR);
+  const changeSlug = change.id || change._slug;
+  const changeDir = change._dir || (changeSlug && activeDir ? resolveWithinBase(activeDir, changeSlug) : null);
+
+  let taskFile = null;
+  let content = task.content || null;
+
+  if (task.file && changeDir) {
+    try {
+      const resolved = resolveWithinBase(changeDir, task.file);
+      if (existsSync(resolved)) {
+        taskFile = resolved;
+        if (content === null) {
+          content = readUtf8(resolved);
+        }
+      }
+    } catch {}
+  }
+
+  const relPath = taskFile && repoRoot
+    ? relative(repoRoot, taskFile).replace(/\\/g, '/')
+    : (task.file ? (changeSlug ? `specs/active/${changeSlug}/${task.file}` : task.file) : null);
+
+  return {
+    id: task.id,
+    path: relPath,
+    content: content ?? '',
+  };
+}
+
+/**
+ * Resolves task-declared required context documents (D23, D38).
+ * Sourced directly from task frontmatter's context.required (or in-memory task.context.required).
+ * Each entry carries path and content inline.
+ *
+ * @param {object} change
+ * @param {object} task
+ * @param {object} [context]
+ * @returns {Array<{ path: string, content: string }>}
+ */
+export function resolveRequiredContext(change, task, context = {}) {
+  const taskFm = loadTaskFrontMatter(change, task, context);
+  const required = task?.context?.required || taskFm?.context?.required;
+  if (!Array.isArray(required) || required.length === 0) {
+    return [];
+  }
+  const repoRoot = context.repoRoot || ROOT;
+  const changeSlug = change.id || change._slug;
+  return required.map(rawPath => {
+    const relPath = typeof rawPath === 'string' && rawPath.startsWith('../')
+      ? join('specs/active', changeSlug, rawPath).replace(/\\/g, '/')
+      : (typeof rawPath === 'string' ? rawPath.replace(/\\/g, '/') : String(rawPath));
+    try {
+      const absPath = repoRoot ? resolveWithinBase(repoRoot, relPath) : relPath;
+      const content = absPath && existsSync(absPath) ? readUtf8(absPath) : '';
+      return { path: relPath, content };
+    } catch {
+      return { path: relPath, content: '' };
+    }
+  });
 }
 
 // ── Context packet ─────────────────────────────────────────────────────────

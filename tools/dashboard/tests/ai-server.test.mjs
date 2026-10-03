@@ -212,7 +212,8 @@ test('Agent session routes expose the complete provider-neutral session and turn
     // The mock provider has no createSession(): the native id is unknown until a turn runs.
     assert.equal(createModalBody.session.providerSessionId, undefined);
     assert.equal(createModalBody.session.specId, specId);
-    assert.equal(createModalBody.session.taskId, 'task-a');
+    assert.deepEqual(createModalBody.session.taskIds, ['task-a']);
+    assert.equal(createModalBody.session.taskId, undefined);
 
     // 9. Delete / unbind session
     const deleteResponse = await fetch(`${baseUrl}/api/agent-sessions/mock/pre-allocated-sess-1`, {
@@ -828,7 +829,7 @@ test('Model selection persists through the HTTP session contract: create -> chat
     const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
     const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
     const server = await buildAiTestApp({ service });
-    return { server };
+    return { server, service };
   };
 
   // 1. Create with an explicit model.
@@ -867,6 +868,8 @@ test('Model selection persists through the HTTP session contract: create -> chat
     );
     assert.equal(turnRes.status, 202);
     assert.equal(lastExecutedModel, 'mock-model-a');
+    const { turnId: restoredModelTurnId } = await turnRes.json();
+    await waitFor(stack2.service, restoredModelTurnId, (turn) => turn.status === 'completed');
 
     // 5. Override on a provider that supports it (capability-driven) via PATCH.
     const patchRes = await fetch(`${baseUrl2}/api/agent-sessions/mock/${sessionId}`, {
@@ -879,6 +882,24 @@ test('Model selection persists through the HTTP session contract: create -> chat
     // 6. Chat snapshot reflects the new model.
     const chatAfterOverride = await fetch(`${baseUrl2}/api/agent-sessions/mock/${sessionId}/chat`);
     assert.equal((await chatAfterOverride.json()).session.model, 'mock-model-b');
+
+    // 7. model:null on a genuinely new turn means "provider default": the provider receives
+    // no explicit model and the durable session model is cleared only after admission.
+    lastExecutedModel = 'sentinel';
+    const resetTurn = await fetch(
+      `${baseUrl2}/api/agent-sessions/${sessionId}/turns`,
+      control({ message: 'return to provider default', model: null }),
+    );
+    assert.equal(resetTurn.status, 202);
+    assert.equal(lastExecutedModel, undefined);
+    const { turnId: resetTurnId } = await resetTurn.json();
+    await waitFor(stack2.service, resetTurnId, (turn) => turn.status === 'completed');
+
+    // The public chat/session representation exposes `binding?.model ?? null` — after a
+    // provider-default reset the durable binding's own model is cleared, so the public value
+    // is the explicit sentinel `null`, never `undefined`.
+    const chatAfterReset = await fetch(`${baseUrl2}/api/agent-sessions/${sessionId}/chat`);
+    assert.equal((await chatAfterReset.json()).session.model, null);
   } finally {
     await closeServer(stack2.server);
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
@@ -2258,11 +2279,18 @@ test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Wor
     const created = await service.createSession('manual', { providerSessionId: 'sess-v2-test' });
     const sessionId = created.sessionId;
 
+    let resolveTerminal;
+    const terminalPromise = new Promise((resolve) => {
+      resolveTerminal = resolve;
+    });
+
     // Subscribe to live session stream before starting turn
     const unsubscribe = service.subscribeToSession(sessionId, {
       onEvent: (ev) => {
         if (ev.type === 'turn.updated') {
           liveV2Updates.push(ev.turn);
+        } else if (ev.type === 'turn.completed' || ev.type === 'turn.failed') {
+          resolveTerminal();
         }
       },
     });
@@ -2271,7 +2299,8 @@ test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Wor
       prompt: 'V2 canonical stream test',
     });
 
-    await new Promise((r) => setTimeout(r, 20));
+    await Promise.race([terminalPromise, new Promise((r) => setTimeout(r, 2000))]);
+    await new Promise((r) => setTimeout(r, 10));
     unsubscribe();
 
     // 1. Live stream received turn.updated events including nested ToolActions and FinalAnswer
