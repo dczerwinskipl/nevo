@@ -510,7 +510,13 @@ export function ExecutionPolicySelectionDialog({
         setMode(initial.mode);
       }
     }
-  }, [initialConfig, initialPolicy, provider, rawProviders]);
+    // `provider` is deliberately not a dependency: this effect only (re-)initializes
+    // selection from props (`initialConfig`/`initialPolicy`) or, failing that, from
+    // `rawProviders` loading in — never in reaction to the user's own `setProvider`
+    // call below. Including it previously made every manual provider click
+    // immediately re-trigger this effect, which unconditionally reapplied
+    // `initialConfig.provider` and silently reverted the click.
+  }, [initialConfig, initialPolicy, rawProviders]);
 
   const handleRoleProviderChange = (
     role: 'implementer' | 'reviewer' | 'refiner',
