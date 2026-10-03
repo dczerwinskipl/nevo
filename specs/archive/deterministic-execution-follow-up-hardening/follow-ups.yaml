@@ -1,0 +1,125 @@
+follow_ups:
+  - id: execution-settlement-never-activated-misclassified-completed
+    source_task: acceptance-scenario-a
+    kind: implementation-defect
+    severity: blocking
+    reason: "tools/specs/workflow/execution-settlement.mjs
+      assessExecutionSettlement's isNeverActivated check misclassifies a task
+      that has NEVER had any attempt activated (no workflow_progress ever
+      persisted, so both the captured baselineProgress and the current
+      task.workflow_progress are null/undefined) as a genuinely-advanced,
+      settled attempt whenever the dirty file present is out-of-scope for the
+      task's own allowed_paths (inScopeDirty ends up empty). It falls through to
+      the final 'genuinely advanced' branch and returns { settled: true,
+      outcome: 'completed' } instead of 'resumable'. Confirmed via a temporary
+      diagnostic log (added and reverted, no code change left) while writing
+      tools/tests/scenario-a-dirty-baseline-activation.test.mjs's
+      abandoned-remediation variant (Acceptance Scenario A (2)): with an
+      out-of-scope dirty file and a task that never activated, wp is undefined
+      and baselineProgress is null, so none of isNeverActivated's OR-conditions
+      (preActivationBlocker flag, baselineProgress-match, wp.state ===
+      ready/waiting-for-step-start) fire. Fix belongs in
+      tools/specs/workflow/execution-settlement.mjs
+      (three-outcome-terminal-classification, already marked implemented), which
+      is outside acceptance-scenario-a's forbidden_paths
+      (tools/specs/workflow/**) and therefore out of scope to fix under this
+      task. Likely fix: also treat '!wp && !params.baselineProgress' as
+      never-activated."
+    resolver_task: null
+    status: resolved
+    resolution: "Correction of a prior resolution entry: the actual final
+      implementation does NOT modify
+      tools/specs/workflow/execution-settlement.mjs at all. The first attempted
+      fix there (treating '!wp && !params.baselineProgress' as unconditionally
+      never-activated) was tried and then explicitly REJECTED during the same
+      work, because it mis-classified other real settlement cases: a task
+      admitted with no activation blocker at all, whose turn leaves a tracked
+      in-scope dirty file with workflow_progress still absent
+      (tools/tests/orchestration-e2e.test.mjs 'AC 4, 5, 6, 7' and
+      tools/tests/workflow-continuation.test.mjs 'AC 422'/'AC 429'), must still
+      settle recovery-required, not resumable -- and execution-settlement.mjs
+      alone has no way to distinguish that case from Scenario A's pre-activation
+      remediation case, since both present as wp-absent/baseline-null. The
+      correct, final fix instead preserves the semantic fact 'this execution was
+      admitted only because its own readiness failure was activation-only' at
+      the actual boundary that knows it:
+      tools/dashboard/server/ai/sessions/turns/routes.mjs computes/receives the
+      readiness verdict for the exact admitted candidate (via
+      evaluateTaskQueue's eligible-entry readiness for the new-session route,
+      and via a new explicit evaluateExecutionReadiness +
+      isActivationOnlyBlocker check added to the existing-session POST
+      /:sessionId/turns route, which previously never checked readiness at all),
+      and passes it as candidate.readiness.
+      tools/dashboard/server/ai/orchestration/admission.mjs's
+      admitAgentExecution is the single common boundary that classifies
+      candidate.readiness into executionRecord.preActivationBlocker via
+      isActivationOnlyBlocker (never a route-local 'readiness.ready === false'
+      shortcut), and threads it into assessExecutionSettlement's existing
+      (previously unwired) preActivationBlocker parameter.
+      reconcileWorkflowPosition/reconcileContinuation's automatic, non-explicit
+      admission paths were also found to be able to reach an
+      activation-only-eligible nextRunnable; both now explicitly decline to
+      auto-admit that case
+      (ACTIVATION_ONLY_BLOCKER_REQUIRES_EXPLICIT_ADMISSION), since
+      remediation-protocol-exception.md requires explicit user instruction,
+      never automatic continuation. Separately, a true stale-durable-queue bug
+      was found and fixed: a resumable task's queue entry is now dequeued at the
+      moment of its own resumable release, so an unrelated task's later
+      settlement can no longer auto-readmit it (new regression:
+      deterministic-status-corrective.test.mjs 'Item 9 regression'). Also fixed
+      along the way: a long-standing ReferenceError (effectiveRepoRoot
+      undefined) and a stale-event-replay bug in Hook 1's session-reuse
+      subscription (subscribeToSession replays a reused session's full event
+      backlog, which could fire reconcileHook1 on a just-acquired claim using a
+      PRIOR turn's stale terminal event) -- both found via the new end-to-end
+      regression tools/tests/scenario-a-dirty-baseline-activation.test.mjs
+      'Acceptance Scenario A (7)', which proves the existing-session route (the
+      one agent-session-page.tsx's explicit Start Agent Step action actually
+      uses) now gets identical activation-only settlement semantics to the
+      new-session route. All previously-skipped Scenario A tests are enabled and
+      passing."
+  - id: admission-settlement-diagnostics-not-propagated
+    source_task: acceptance-scenario-b-and-c
+    kind: implementation-gap
+    severity: non-blocking
+    reason: "Affected area: tools/dashboard/server/ai/orchestration/admission.mjs's
+      reconcileHook1 (task 06, terminal-reconciliation-adopts-outcome),
+      specifically the hookOutcome returned by releaseAdmittedExecution for the
+      'resumable' (and 'completed') branches. Observed behavior:
+      tools/specs/workflow/execution-settlement.mjs's assessExecutionSettlement
+      already computes outOfScopeDirty/outOfScopeDirtyPaths/forbiddenDirtyPaths
+      diagnostics correctly (confirmed directly, and unit-tested by
+      tools/tests/execution-settlement.test.mjs), but reconcileHook1 discards
+      them -- the hookOutcome it builds and returns is only { settled, outcome,
+      released[, markedRecovery] }, never copying settlement's diagnostic fields
+      through. Confirmed via
+      tools/tests/scenario-bc-resume-active-attempt.test.mjs's
+      out-of-scope-dirty test: releaseAdmittedExecution's return for a resumable
+      release with a genuine out-of-scope dirty file left behind is exactly {
+      settled: false, outcome: 'resumable', released: true } -- no diagnostic
+      fields at all. Expected behavior per overview.md's Proposed architecture
+      ('Dirty files outside the task's scope are surfaced as a non-blocking
+      diagnostic on the classification result ... visible to whichever execution
+      resumes next'): the orchestration-level release result (and/or the next
+      admission's bootstrap context) should surface
+      outOfScopeDirty/outOfScopeDirtyPaths/forbiddenDirtyPaths so a resuming
+      agent can see what was left outside its own scope. Why non-blocking: the
+      substantive safety guarantee already holds -- out-of-scope dirty files
+      never escalate a safely-ending turn to recovery-required and never prevent
+      the next execution from being admitted (verified by the same test); only
+      the diagnostic-visibility half of the documented behavior is missing,
+      which is an observability gap, not a correctness or safety regression, and
+      no acceptance criterion of any verified task in this change required it to
+      be fixed (acceptance-scenario-b-and-c's own forbidden_paths excludes
+      tools/dashboard/server/ai/** entirely, so fixing it was out of that task's
+      allowed scope). Likely implementation boundary: reconcileHook1's
+      'resumable' branch (and plausibly the 'completed' branch, for parity) in
+      admission.mjs should copy
+      settlement.outOfScopeDirty/outOfScopeDirtyPaths/forbiddenDirtyPaths onto
+      the hookOutcome it builds; a resolver task would need write access to
+      tools/dashboard/server/ai/orchestration/admission.mjs (forbidden to every
+      acceptance-scenario-* test task in this change) plus a regression test
+      asserting the diagnostic survives on releaseAdmittedExecution's return."
+    resolver_task: null
+    status: open
+    resolution: null

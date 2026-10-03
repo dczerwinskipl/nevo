@@ -75,10 +75,10 @@ tasks:
   - id: activity-local-store
     order: 2
     file: tasks/02-activity-local-store.md
-    status: approved
+    status: verified
     depends_on: [ activity-core-model-and-contracts ]
     workflow_progress:
-      current_step: review
+      current_step: human-verification
       current_attempt: 1
       state: completed
       history:
@@ -98,6 +98,11 @@ tasks:
             append-only NDJSON store, leading-newline framing for crash
             recovery, read-side deduplication by id, specId canonicalization,
             and no pruning). All 16 unit tests pass."
+        - step: human-verification
+          attempt: 1
+          completed_at: 2026-10-03T06:52:04.045Z
+          transitioned_to: verified
+          result: pass
   - id: actor-resolver
     order: 3
     file: tasks/03-actor-resolver.md

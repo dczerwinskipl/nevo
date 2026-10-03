@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-02T16:56:49.101Z",
+  "generated": "2026-10-03T05:44:08.487Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -176,399 +176,6 @@
             "activity-dashboard-api",
             "workflow-step-activity-producer",
             "human-verification-activity-producer"
-          ]
-        }
-      ]
-    },
-    {
-      "id": "deterministic-execution-follow-up-hardening",
-      "specId": "4fadace2-645a-476c-8f46-daf448451078",
-      "title": "Deterministic execution follow up hardening",
-      "status": "draft",
-      "priority": 10,
-      "created": "2026-09-30",
-      "tasks": [
-        {
-          "id": "shared-finish-operation-replayability-classifier",
-          "order": 1,
-          "file": "tasks/01-shared-finish-operation-replayability-classifier.md",
-          "status": "implemented",
-          "implementation": {
-            "baseline_revision": "b8c8c8a8bc89a7bd4ebe6d6cd8e89a0958de220b",
-            "review_revision": "6fe539bd6ef7663ce043d4954a24add7e240496f",
-            "changed_paths": [
-              "tools/specs/workflow/operation-record.mjs",
-              "tools/tests/workflow-operation-record.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "c6d5a71ed8aca99a0b5ea01207d7b5c07ba02151076573bdd8349267ce672b36",
-            "revision": "6fe539bd6ef7663ce043d4954a24add7e240496f",
-            "commands": [
-              {
-                "command": "node --test tools/tests/workflow-operation-record.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "readiness-classification-split",
-          "order": 2,
-          "file": "tasks/02-readiness-classification-split.md",
-          "status": "implemented",
-          "depends_on": [
-            "shared-finish-operation-replayability-classifier"
-          ],
-          "implementation": {
-            "baseline_revision": "53cc4e5b823cd31ebbed0ba90998f068546eb7be",
-            "review_revision": "df4b757851694065059f159cb404ec6da35dfafd",
-            "changed_paths": [
-              "tools/specs/workflow/readiness-policy.mjs",
-              "tools/tests/execution-readiness-policy.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "cc7364bf83708e1a6629772ea5b1f19151c7c43a5c1aaada1aa995598bacd450",
-            "revision": "df4b757851694065059f159cb404ec6da35dfafd",
-            "commands": [
-              {
-                "command": "node --test tools/tests/execution-readiness-policy.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "non-fatal-admission-for-remediable-blockers",
-          "order": 3,
-          "file": "tasks/03-non-fatal-admission-for-remediable-blockers.md",
-          "status": "implemented",
-          "depends_on": [
-            "readiness-classification-split",
-            "terminal-reconciliation-adopts-outcome"
-          ],
-          "implementation": {
-            "baseline_revision": "eb2e139d20e3feb9c60224f164de268c10fccce0",
-            "review_revision": "3fd838a142d2d4b169c233b43a727dc9ea7d796b",
-            "changed_paths": [
-              "tools/dashboard/server/ai/orchestration/admission.mjs",
-              "tools/dashboard/server/ai/sessions/service.mjs",
-              "tools/specs/workflow/queue/evaluator.mjs",
-              "tools/tests/execution-readiness-policy.test.mjs",
-              "tools/tests/workflow-continuation.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "0a2abdc0021a284707d7108c9c6a5349bf17b32f4bc0ed7f57a650c8d8bb23b3",
-            "revision": "3fd838a142d2d4b169c233b43a727dc9ea7d796b",
-            "commands": [
-              {
-                "command": "node --test tools/tests/execution-readiness-policy.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workflow-continuation.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/dashboard-orchestration-wiring.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "remediation-protocol-exception",
-          "order": 4,
-          "file": "tasks/04-remediation-protocol-exception.md",
-          "status": "implemented",
-          "depends_on": [
-            "non-fatal-admission-for-remediable-blockers"
-          ],
-          "implementation": {
-            "baseline_revision": "5e9149ea7615b9839e12f657ad86d77dee92e53d",
-            "review_revision": "6663a7240cf848727270f2e7db04b9075a3dcb52",
-            "changed_paths": [
-              "docs/development/agent-workflow-protocol.md",
-              "tools/dashboard/server/ai/sessions/service.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "dec68008373003a0fe7a6579fe922b0acf50694b900a239d507ce33370ae9b3b",
-            "revision": "6663a7240cf848727270f2e7db04b9075a3dcb52",
-            "commands": [
-              {
-                "command": "node tools/docs.mjs validate",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/dashboard-orchestration-wiring.test.mjs",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "three-outcome-terminal-classification",
-          "order": 5,
-          "file": "tasks/05-three-outcome-terminal-classification.md",
-          "status": "implemented",
-          "depends_on": [
-            "shared-finish-operation-replayability-classifier"
-          ],
-          "implementation": {
-            "baseline_revision": "8be3511bd01349cbe7e4d10991107e72c7f0dde0",
-            "review_revision": "0ea66f30ead8b375d3d27bb86fdf6d0257e71fbc",
-            "changed_paths": [
-              "tools/specs/workflow/execution-settlement.mjs",
-              "tools/tests/execution-settlement.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "131532f205ed6095550fac407d47eb5f8c95f704f88419676b126fb61df7e80f",
-            "revision": "0ea66f30ead8b375d3d27bb86fdf6d0257e71fbc",
-            "commands": [
-              {
-                "command": "node --test tools/tests/execution-settlement.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "terminal-reconciliation-adopts-outcome",
-          "order": 6,
-          "file": "tasks/06-terminal-reconciliation-adopts-outcome.md",
-          "status": "implemented",
-          "depends_on": [
-            "three-outcome-terminal-classification",
-            "dependency-consumption-idempotent-on-resume"
-          ],
-          "implementation": {
-            "baseline_revision": "5a76c3487e6df3d4085cb5d6a7a21562a9b76346",
-            "review_revision": "daa851f07080d5fb7482f2db26cde276550dd73f",
-            "changed_paths": [
-              "tools/dashboard/server/ai/orchestration/admission.mjs",
-              "tools/dashboard/server/ai/orchestration/reconciliation.mjs",
-              "tools/specs/workflow/cli.mjs",
-              "tools/tests/workflow-continuation.test.mjs",
-              "tools/tests/workspace-claim-reconciliation.test.mjs",
-              "tools/tests/workspace-writer.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "6c80f9bf3bb11d469b86501364e79af70310a3d1046ae228df7b2018b7965193",
-            "revision": "daa851f07080d5fb7482f2db26cde276550dd73f",
-            "commands": [
-              {
-                "command": "node --test tools/tests/workflow-continuation.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workspace-writer.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workspace-claim-reconciliation.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "dependency-consumption-idempotent-on-resume",
-          "order": 7,
-          "file": "tasks/07-dependency-consumption-idempotent-on-resume.md",
-          "status": "implemented",
-          "implementation": {
-            "baseline_revision": "9be5da703a0e6e168de99b81954f54972c9a97a1",
-            "review_revision": "ade4fa262e4a5792dc62163d8900fe5a1e50a515",
-            "changed_paths": [
-              "tools/specs/workflow/cli.mjs",
-              "tools/specs/workflow/start-operation.mjs",
-              "tools/tests/workflow-continuation.test.mjs",
-              "tools/tests/workflow-step-context.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "5c29607cc23c6042e02eb09503497839e17ff8377ca2bf96f637ea2dd8e7dcf1",
-            "revision": "ade4fa262e4a5792dc62163d8900fe5a1e50a515",
-            "commands": [
-              {
-                "command": "node --test tools/tests/workflow-step-context.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workflow-continuation.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "resume-and-terminal-audit-trail",
-          "order": 8,
-          "file": "tasks/08-resume-and-terminal-audit-trail.md",
-          "status": "implemented",
-          "depends_on": [
-            "terminal-reconciliation-adopts-outcome"
-          ],
-          "implementation": {
-            "baseline_revision": "6122a314d9b9d2d08bcbb9d001515e79cbc4b901",
-            "review_revision": "6122a314d9b9d2d08bcbb9d001515e79cbc4b901",
-            "changed_paths": [
-              "tools/dashboard/server/ai/orchestration/admission.mjs",
-              "tools/tests/workflow-continuation.test.mjs"
-            ],
-            "worktree_patch_fingerprint": "afee51b88edaa81cdb49c11c6d20e933dd83fca9aa5ae7241341d4c2907abcfe"
-          },
-          "self_check": {
-            "fingerprint": "82456d7ca9c8a5b6b8edcbb47060a3d4fe06aecdf6daf39618cfd32fdb891b33",
-            "revision": "6122a314d9b9d2d08bcbb9d001515e79cbc4b901",
-            "commands": [
-              {
-                "command": "node --test tools/tests/workflow-continuation.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "admission-ownership-model-adr",
-          "order": 9,
-          "file": "tasks/09-admission-ownership-model-adr.md",
-          "status": "implemented",
-          "depends_on": [
-            "non-fatal-admission-for-remediable-blockers",
-            "terminal-reconciliation-adopts-outcome",
-            "dependency-consumption-idempotent-on-resume",
-            "shared-finish-operation-replayability-classifier"
-          ],
-          "implementation": {
-            "baseline_revision": "a17b8fe7b8ad9e4a8088ff0274a2c1373c313e5a",
-            "review_revision": "a17b8fe7b8ad9e4a8088ff0274a2c1373c313e5a",
-            "changed_paths": [
-              "docs/decisions/ADR-0009-agent-admission-and-execution-ownership-model.md"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "f1162e152c05f813f130b4ebbe1848a99c29319cebbc67b6eb84bbab64e3bb27",
-            "revision": "a17b8fe7b8ad9e4a8088ff0274a2c1373c313e5a",
-            "commands": [
-              {
-                "command": "node tools/docs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "acceptance-scenario-a",
-          "order": 10,
-          "file": "tasks/10-acceptance-scenario-a.md",
-          "status": "implemented",
-          "depends_on": [
-            "non-fatal-admission-for-remediable-blockers",
-            "remediation-protocol-exception"
-          ],
-          "implementation": {
-            "baseline_revision": "e41c3635a4180259ee6592214a8c78415fdf7f39",
-            "review_revision": "e41c3635a4180259ee6592214a8c78415fdf7f39",
-            "changed_paths": [
-              "tools/tests/scenario-a-dirty-baseline-activation.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "b5879e69a06271b220f8cf3aedb80e88c07e1861966e6f43e6963ed63c14934a",
-            "revision": "e41c3635a4180259ee6592214a8c78415fdf7f39",
-            "commands": [
-              {
-                "command": "node --test tools/tests/scenario-a-dirty-baseline-activation.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "acceptance-scenario-b-and-c",
-          "order": 11,
-          "file": "tasks/11-acceptance-scenario-b-and-c.md",
-          "status": "approved",
-          "depends_on": [
-            "terminal-reconciliation-adopts-outcome",
-            "dependency-consumption-idempotent-on-resume"
-          ]
-        },
-        {
-          "id": "acceptance-scenario-d-regression",
-          "order": 12,
-          "file": "tasks/12-acceptance-scenario-d-regression.md",
-          "status": "approved",
-          "depends_on": [
-            "terminal-reconciliation-adopts-outcome"
-          ]
-        },
-        {
-          "id": "acceptance-scenario-finish-operation-replay",
-          "order": 13,
-          "file": "tasks/13-acceptance-scenario-finish-operation-replay.md",
-          "status": "approved",
-          "depends_on": [
-            "non-fatal-admission-for-remediable-blockers",
-            "terminal-reconciliation-adopts-outcome",
-            "dependency-consumption-idempotent-on-resume"
           ]
         }
       ]
@@ -2600,6 +2207,408 @@
               }
             ],
             "status": "passed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "deterministic-execution-follow-up-hardening",
+      "specId": "4fadace2-645a-476c-8f46-daf448451078",
+      "title": "Deterministic execution follow up hardening",
+      "status": "archived",
+      "priority": 10,
+      "created": "2026-09-30",
+      "tasks": [
+        {
+          "id": "shared-finish-operation-replayability-classifier",
+          "order": 1,
+          "file": "tasks/01-shared-finish-operation-replayability-classifier.md",
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "b8c8c8a8bc89a7bd4ebe6d6cd8e89a0958de220b",
+            "review_revision": "6fe539bd6ef7663ce043d4954a24add7e240496f",
+            "changed_paths": [
+              "tools/specs/workflow/operation-record.mjs",
+              "tools/tests/workflow-operation-record.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "c6d5a71ed8aca99a0b5ea01207d7b5c07ba02151076573bdd8349267ce672b36",
+            "revision": "6fe539bd6ef7663ce043d4954a24add7e240496f",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-operation-record.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "readiness-classification-split",
+          "order": 2,
+          "file": "tasks/02-readiness-classification-split.md",
+          "status": "implemented",
+          "depends_on": [
+            "shared-finish-operation-replayability-classifier"
+          ],
+          "implementation": {
+            "baseline_revision": "53cc4e5b823cd31ebbed0ba90998f068546eb7be",
+            "review_revision": "df4b757851694065059f159cb404ec6da35dfafd",
+            "changed_paths": [
+              "tools/specs/workflow/readiness-policy.mjs",
+              "tools/tests/execution-readiness-policy.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "cc7364bf83708e1a6629772ea5b1f19151c7c43a5c1aaada1aa995598bacd450",
+            "revision": "df4b757851694065059f159cb404ec6da35dfafd",
+            "commands": [
+              {
+                "command": "node --test tools/tests/execution-readiness-policy.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "non-fatal-admission-for-remediable-blockers",
+          "order": 3,
+          "file": "tasks/03-non-fatal-admission-for-remediable-blockers.md",
+          "status": "implemented",
+          "depends_on": [
+            "readiness-classification-split",
+            "terminal-reconciliation-adopts-outcome"
+          ],
+          "implementation": {
+            "baseline_revision": "eb2e139d20e3feb9c60224f164de268c10fccce0",
+            "review_revision": "3fd838a142d2d4b169c233b43a727dc9ea7d796b",
+            "changed_paths": [
+              "tools/dashboard/server/ai/orchestration/admission.mjs",
+              "tools/dashboard/server/ai/sessions/service.mjs",
+              "tools/specs/workflow/queue/evaluator.mjs",
+              "tools/tests/execution-readiness-policy.test.mjs",
+              "tools/tests/workflow-continuation.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "0a2abdc0021a284707d7108c9c6a5349bf17b32f4bc0ed7f57a650c8d8bb23b3",
+            "revision": "3fd838a142d2d4b169c233b43a727dc9ea7d796b",
+            "commands": [
+              {
+                "command": "node --test tools/tests/execution-readiness-policy.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-continuation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/dashboard-orchestration-wiring.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "remediation-protocol-exception",
+          "order": 4,
+          "file": "tasks/04-remediation-protocol-exception.md",
+          "status": "implemented",
+          "depends_on": [
+            "non-fatal-admission-for-remediable-blockers"
+          ],
+          "implementation": {
+            "baseline_revision": "5e9149ea7615b9839e12f657ad86d77dee92e53d",
+            "review_revision": "6663a7240cf848727270f2e7db04b9075a3dcb52",
+            "changed_paths": [
+              "docs/development/agent-workflow-protocol.md",
+              "tools/dashboard/server/ai/sessions/service.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "dec68008373003a0fe7a6579fe922b0acf50694b900a239d507ce33370ae9b3b",
+            "revision": "6663a7240cf848727270f2e7db04b9075a3dcb52",
+            "commands": [
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/dashboard-orchestration-wiring.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "three-outcome-terminal-classification",
+          "order": 5,
+          "file": "tasks/05-three-outcome-terminal-classification.md",
+          "status": "implemented",
+          "depends_on": [
+            "shared-finish-operation-replayability-classifier"
+          ],
+          "implementation": {
+            "baseline_revision": "8be3511bd01349cbe7e4d10991107e72c7f0dde0",
+            "review_revision": "0ea66f30ead8b375d3d27bb86fdf6d0257e71fbc",
+            "changed_paths": [
+              "tools/specs/workflow/execution-settlement.mjs",
+              "tools/tests/execution-settlement.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "131532f205ed6095550fac407d47eb5f8c95f704f88419676b126fb61df7e80f",
+            "revision": "0ea66f30ead8b375d3d27bb86fdf6d0257e71fbc",
+            "commands": [
+              {
+                "command": "node --test tools/tests/execution-settlement.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "terminal-reconciliation-adopts-outcome",
+          "order": 6,
+          "file": "tasks/06-terminal-reconciliation-adopts-outcome.md",
+          "status": "implemented",
+          "depends_on": [
+            "three-outcome-terminal-classification",
+            "dependency-consumption-idempotent-on-resume"
+          ],
+          "implementation": {
+            "baseline_revision": "5a76c3487e6df3d4085cb5d6a7a21562a9b76346",
+            "review_revision": "daa851f07080d5fb7482f2db26cde276550dd73f",
+            "changed_paths": [
+              "tools/dashboard/server/ai/orchestration/admission.mjs",
+              "tools/dashboard/server/ai/orchestration/reconciliation.mjs",
+              "tools/specs/workflow/cli.mjs",
+              "tools/tests/workflow-continuation.test.mjs",
+              "tools/tests/workspace-claim-reconciliation.test.mjs",
+              "tools/tests/workspace-writer.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "6c80f9bf3bb11d469b86501364e79af70310a3d1046ae228df7b2018b7965193",
+            "revision": "daa851f07080d5fb7482f2db26cde276550dd73f",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-continuation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workspace-writer.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workspace-claim-reconciliation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "dependency-consumption-idempotent-on-resume",
+          "order": 7,
+          "file": "tasks/07-dependency-consumption-idempotent-on-resume.md",
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "9be5da703a0e6e168de99b81954f54972c9a97a1",
+            "review_revision": "ade4fa262e4a5792dc62163d8900fe5a1e50a515",
+            "changed_paths": [
+              "tools/specs/workflow/cli.mjs",
+              "tools/specs/workflow/start-operation.mjs",
+              "tools/tests/workflow-continuation.test.mjs",
+              "tools/tests/workflow-step-context.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "5c29607cc23c6042e02eb09503497839e17ff8377ca2bf96f637ea2dd8e7dcf1",
+            "revision": "ade4fa262e4a5792dc62163d8900fe5a1e50a515",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-step-context.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-continuation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "resume-and-terminal-audit-trail",
+          "order": 8,
+          "file": "tasks/08-resume-and-terminal-audit-trail.md",
+          "status": "implemented",
+          "depends_on": [
+            "terminal-reconciliation-adopts-outcome"
+          ],
+          "implementation": {
+            "baseline_revision": "6122a314d9b9d2d08bcbb9d001515e79cbc4b901",
+            "review_revision": "6122a314d9b9d2d08bcbb9d001515e79cbc4b901",
+            "changed_paths": [
+              "tools/dashboard/server/ai/orchestration/admission.mjs",
+              "tools/tests/workflow-continuation.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "afee51b88edaa81cdb49c11c6d20e933dd83fca9aa5ae7241341d4c2907abcfe"
+          },
+          "self_check": {
+            "fingerprint": "82456d7ca9c8a5b6b8edcbb47060a3d4fe06aecdf6daf39618cfd32fdb891b33",
+            "revision": "6122a314d9b9d2d08bcbb9d001515e79cbc4b901",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-continuation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "admission-ownership-model-adr",
+          "order": 9,
+          "file": "tasks/09-admission-ownership-model-adr.md",
+          "status": "implemented",
+          "depends_on": [
+            "non-fatal-admission-for-remediable-blockers",
+            "terminal-reconciliation-adopts-outcome",
+            "dependency-consumption-idempotent-on-resume",
+            "shared-finish-operation-replayability-classifier"
+          ],
+          "implementation": {
+            "baseline_revision": "a17b8fe7b8ad9e4a8088ff0274a2c1373c313e5a",
+            "review_revision": "a17b8fe7b8ad9e4a8088ff0274a2c1373c313e5a",
+            "changed_paths": [
+              "docs/decisions/ADR-0009-agent-admission-and-execution-ownership-model.md"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "f1162e152c05f813f130b4ebbe1848a99c29319cebbc67b6eb84bbab64e3bb27",
+            "revision": "a17b8fe7b8ad9e4a8088ff0274a2c1373c313e5a",
+            "commands": [
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "acceptance-scenario-a",
+          "order": 10,
+          "file": "tasks/10-acceptance-scenario-a.md",
+          "status": "implemented",
+          "depends_on": [
+            "non-fatal-admission-for-remediable-blockers",
+            "remediation-protocol-exception"
+          ],
+          "implementation": {
+            "baseline_revision": "e41c3635a4180259ee6592214a8c78415fdf7f39",
+            "review_revision": "e41c3635a4180259ee6592214a8c78415fdf7f39",
+            "changed_paths": [
+              "tools/tests/scenario-a-dirty-baseline-activation.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "b5879e69a06271b220f8cf3aedb80e88c07e1861966e6f43e6963ed63c14934a",
+            "revision": "e41c3635a4180259ee6592214a8c78415fdf7f39",
+            "commands": [
+              {
+                "command": "node --test tools/tests/scenario-a-dirty-baseline-activation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "acceptance-scenario-b-and-c",
+          "order": 11,
+          "file": "tasks/11-acceptance-scenario-b-and-c.md",
+          "status": "verified",
+          "depends_on": [
+            "terminal-reconciliation-adopts-outcome",
+            "dependency-consumption-idempotent-on-resume"
+          ],
+          "implementation": {
+            "baseline_revision": "2076672f3c7e2e088a614f4597e4e77f7e91c34b"
+          }
+        },
+        {
+          "id": "acceptance-scenario-d-regression",
+          "order": 12,
+          "file": "tasks/12-acceptance-scenario-d-regression.md",
+          "status": "verified",
+          "depends_on": [
+            "terminal-reconciliation-adopts-outcome"
+          ],
+          "implementation": {
+            "baseline_revision": "add2f5fa3cfef5385acc4308e7352bcbd22816d8"
+          }
+        },
+        {
+          "id": "acceptance-scenario-finish-operation-replay",
+          "order": 13,
+          "file": "tasks/13-acceptance-scenario-finish-operation-replay.md",
+          "status": "verified",
+          "depends_on": [
+            "non-fatal-admission-for-remediable-blockers",
+            "terminal-reconciliation-adopts-outcome",
+            "dependency-consumption-idempotent-on-resume"
+          ],
+          "implementation": {
+            "baseline_revision": "ec54de0b1d93b4aeefd5b8c5a7a841673a6818a0"
           }
         }
       ]
