@@ -15,9 +15,20 @@ change: batch-execution-generalization
   heterogeneous mixed-step `BatchContext` — the owner confirmed the direction but
   found 4 concrete implementation-blocking gaps in `batch-start`/`batch-finish`, and
   rejected the heterogeneous-batch generalization in favor of a simpler,
-  homogeneous-by-contract model. This revision fixes all 4 gaps with direct code
-  verification and corrects the architecture accordingly. Directory renamed from
-  `execution-run-simplification` (obsolete) to `batch-execution-generalization`.
+  homogeneous-by-contract model. Directory renamed from `execution-run-simplification`
+  (obsolete) to `batch-execution-generalization`.
+- Draft 3 (this revision) accepted the homogeneous-batch direction but found 3 more
+  gaps by reading `batch-finish`'s actual preflight/contract code and
+  `dependency-consumption`'s actual production wiring: `BatchFinish`'s preflight is
+  not phase-neutral even before provenance (requires a `result` field that an
+  unconditional implementation step's own `finishStep` would reject); the
+  dependency-consumption design must respect `planStart`'s pre-activation
+  `consumptionSequence` freeze, not just move recording wholesale into `BatchFinish`;
+  and batch-completion handover must partition by the *full* canonical execution
+  contract (continuation policy, target step/executor, role, session policy,
+  resolved execution policy — not just "pass vs fail"). Closes two previously-open
+  questions (mixed-review-result partitioning, single-task convergence) with direct
+  evidence. Self-review at the end: no new model-level blocker found.
 
 Still no implementation. All claims below are grounded in this session's own direct
 reads of the cited files (not restated from memory of the previous draft).
@@ -47,7 +58,7 @@ blocks admission, same as today.
 (Full citations for all of the above are in this change's git history, commit
 `b79afa68`, superseded only where the 4 gaps below require correction.)
 
-## Corrections and new facts (this round)
+## Round 2 corrections and new facts
 
 ### Gap 1 — `executeBatchStart` cannot admit any batch of brand-new tasks today, independent of `validateBatchCompatibility`
 
@@ -225,18 +236,151 @@ one batch — this is a hard constraint on what the picker (and the UI
 dependency-duplication fix already in scope) must enforce at selection time, not
 something the batch machinery needs to tolerate.
 
-### Batch-completion handover: partition by canonical destination, not one-size-fits-all
+## Round 3 corrections and new facts
 
-Corrected from draft 2's "derive the subset needing another phase, admit one batch for
-that subset" (too simple): a review batch's members can land on **different**
-canonical destinations after the same review turn — e.g., `pass → human-verification`
-(produces a human interaction, no new agent session at all) vs. `fail →
-implementation/refinement` (becomes a candidate for one refiner batch). The handover
-step must partition members by their actual resulting transition and
-`continuation: auto`/owner-action policy — each member's own transition stays
-authoritative, same as the single-task model already guarantees. "One handover" means
-*at most one new agent-session admission is derived per distinct destination
-grouping*, not literally always exactly one session regardless of outcome mix.
+### Gap 5 — `BatchFinish`'s preflight is not phase-neutral even before provenance/source-control
+
+Read directly, `tools/specs/workflow/batch-finish/preflight.mjs:287-295`
+(`prevalidateBatchFinish`): unconditionally requires `taskResult.result` to be defined
+for **every** member — `throw ... 'Missing result for batch member task'` otherwise.
+
+Read directly, `tools/specs/workflow/finish-operation.mjs:217-248`: `isConditional`
+is `transitions.length > 1 || (transitions.length === 1 && transitions[0].value !== undefined)`.
+For an unconditional step (exactly one transition, no `value`), supplying a non-null
+`result` throws `UNEXPECTED_TRANSITION_RESULT` (lines 237-246) — the opposite problem
+from the missing-result case, but equally fatal.
+
+Read directly, `.nevo-ai/workflows/standard-v1.yaml:14-28`: `implementation`'s own
+`transitions` is exactly one entry (`{to: review, continuation: auto, ...}`, no
+`value`) — **unconditional**, by the same test `finish-operation.mjs:218` uses.
+
+**Conclusion of fact:** for an implementation-phase batch, `prevalidateBatchFinish`'s
+blanket "every member needs a `result`" requirement would itself be satisfiable only
+by supplying a `result` that `finishStep` then rejects for that same member when the
+transition is actually applied in Stage 4 — the preflight and the per-member finish
+stage disagree about whether `result` is even a valid field for this step, before any
+provenance or source-control concern is reached. This is a second, independent
+blocker from Gap 2's provenance check, not a restatement of it.
+
+Read directly, `tools/specs/workflow/step-context.mjs:75-118` (`buildFinishContract`):
+`parameters.result` is added **only when `isConditional`** (line 95-103); every step's
+own contract also always includes whatever the step's `finalize` actions require —
+for `implementation`/`review` (`finalize: [{id: commit-and-push}]`), that's
+`commit.title` (required) and `commit.message` (optional), confirmed directly in
+`tools/specs/workflow/actions/commit-and-push.mjs:15-23,268-300`. So today, every
+member's own `finishContract` independently demands its own `commit.title` — one
+title per member, for what should be one shared commit.
+
+**Target correction:** `BatchFinish` must validate each member against *its own*
+canonical `finishContract` (derived the same way `buildFinishContract` already does,
+per member's actual step) rather than assuming a shared `result` field exists
+everywhere. Split inputs into two groups:
+- **Per-member workflow inputs** — `result` only where that member's own target step
+  is conditional (e.g. review's pass/fail), plus `feedback`/`artifacts`.
+- **Shared batch-finalize inputs** — `commit.title`/`commit.message`, supplied once
+  for the whole batch, not once per member. The agent should never be asked for N
+  independent commit contracts when the batch produces one shared commit.
+
+`BatchContext` should expose this as an explicit `batchFinishContract`: a map of
+per-member contracts (workflow fields only, commit fields excluded) plus one shared
+commit-contract object — computed the same way individual contracts are today, just
+assembled once per batch instead of trusted as homogeneous.
+
+### Gap 6 — dependency-consumption must respect `planStart`'s pre-activation sequence freeze; production remediation wiring is incomplete today (name this precisely)
+
+Read directly, `tools/specs/workflow/start-operation.mjs:153-188` (`planStart`):
+scans existing start-operation records for this **task** (`scanMaxConsumptionSequence(repoRoot, change, task)`,
+line 18, called at line 177 — scoped per consuming task, not change-wide), allocates
+`consumptionSequence = maxSeq + 1`, and freezes it into a durable record **before**
+`ensureStepActivated` ever runs (`cli.mjs:432-442`: `planStart` →
+`ensureStepActivated` → `recordDependencyConsumption`, in that order). This sequence
+freeze is a real invariant (D52/D58) — round 2's proposal to record dependency
+consumption only at batch-finish time, with no batch-start involvement at all, skips
+this invariant entirely rather than satisfying it.
+
+**Target correction (reusing `planStart`, not replacing it):** `BatchStart` creates/
+maintains a per-member start-operation and allocates each member's own
+`consumptionSequence` before that member's activation — same function, same freeze
+guarantee, just called once per member inside the batch loop instead of once for a
+single task. For each member's `depends_on` list: a dependency **outside** the batch
+already has a real `releaseEpoch` (or the batch wouldn't have been admitted at all,
+per Gap 1's corrected compatibility check) — snapshot it immediately, exactly like the
+single-task path does today. A dependency **inside** the batch has no `releaseEpoch`
+yet by construction (its own implementation hasn't happened) — recorded as a
+*pending* entry in the same `dependencySnapshot` array shape
+(`{taskId, releaseEpoch: null}` or an explicit `pending: true` marker — a schema
+detail, not a new system) alongside the already-allocated `consumptionSequence`.
+
+`BatchFinish`, processing members in topological order: once an upstream member's own
+transition is applied (creating its `releaseEpoch`, as part of Gap 2's "derive every
+member's transition" stage), any downstream member's pending entry pointing at that
+task is *materialized* — the real `releaseEpoch` is filled in and
+`recordDependencyConsumption` is called using the **already-allocated**
+`consumptionSequence` from that member's own start-operation (never a new one — this
+is what preserves `planStart`'s frozen-snapshot invariant exactly, since the sequence
+number was reserved before any member activated, independent of execution order). The
+member's own `record-consumption` stage closes, then its own `finishStep` applies.
+This reuses `dependency-consumption.mjs`'s existing record shape and
+`start-operation.mjs`'s existing sequence allocation — no second provenance system,
+per the owner's instruction.
+
+**Important precision, found by direct call-site search (not assumed):**
+`findConsumersOfEpoch` (`dependency-consumption.mjs:95`) and `createRemediationRecord`
+(`remediation-record.mjs:28`) are each defined and exported, but a repo-wide search
+(`grep -rn "findConsumersOfEpoch(\|createRemediationRecord(" --include=*.mjs .`,
+excluding `node_modules`) found **zero production call sites** — every call is from a
+test file (`deterministic-dependency-satisfaction.test.mjs`, `orchestration-e2e.test.mjs`,
+`dependency-invalidation-remediation-review.test.mjs`, `deterministic-task-queue.test.mjs`).
+**This discovery must not describe dependency-consumption provenance as a complete,
+working end-to-end production path.** It is a real, existing data *contract*
+(D52-D58) worth preserving and extending to intra-batch edges — the *recording* half
+(`recordDependencyConsumption`, called from `cli.mjs`) is live in production. The
+*consumption* half (finding who consumed an epoch, building a remediation record when
+an epoch turns out to be invalid) is only exercised by tests today. Generalizing
+batch-start/finish to record intra-batch consumption correctly is still worth doing —
+it keeps the data available for whenever the remediation-consumer side does get wired
+up — but this discovery does not claim that wiring already works, and implementing
+this gap does not, by itself, complete it.
+
+### Batch-completion handover: partition by full canonical execution contract, not just destination
+
+Corrected again from both draft 2 ("one subset, one batch") and round 2's first
+correction ("partition by destination transition alone"): two members both
+transitioning to `implementation` after a failed review are not necessarily
+batch-compatible with each other — `taskOverrides` (confirmed to exist,
+`tools/dashboard/server/ai/sessions/execution-policy-service.mjs:76-91`, allowing
+per-task `provider`/`model`/`mode` overrides) can make their *resolved* execution
+policy differ even though their canonical target step is identical. The partition key
+for "how many new agent sessions does this handover produce, and which members go in
+each" must be the full tuple: **continuation policy + target step/executor +
+incoming role + session policy + resolved execution policy** (provider/model/mode/
+taskOverrides) — not destination transition alone. Human destinations
+(`continuation: owner-action`/no agent executor) never produce a session regardless.
+Agent destinations produce exactly one new session per group of members that share
+every element of that tuple — a typical review failure still produces one refiner
+batch, but only when its failing members actually share the same contract; if they
+don't, it's more than one.
+
+**Closing the "mixed review-result partitioning" open question (round 2), with
+evidence:** `tools/tests/batch-finish-operation.test.mjs:218-247` already proves
+`t1: pass, t2: pass, t3: fail` processed in one existing `executeBatchFinish` call,
+with the resulting `change.yaml` containing **both** `transitioned_to: verified` and
+`transitioned_to: implementation` for the respective members, read directly out of
+each member's own `workflow_progress.history` after the call. The data needed to
+partition a handover already exists and is already correctly per-member — generalizing
+the handover is a **dispatch-logic change** (group already-recorded transitions by the
+full contract tuple above, then admit one session per group), not a new workflow-state
+concept.
+
+**Closing the single-task convergence open question (round 1/2), per owner's
+decision:** keep `ExecutionScope {task | task-batch}` as two scope shapes. Both
+converge onto one shared orchestration lifecycle and shared primitives (gate
+verification, transition derivation, the generalized `BatchFinish`/dependency-
+consumption mechanics above). A one-task scope is not required to fabricate a
+group-reservation/`BatchContext` wrapper merely for architectural uniformity, but it
+also retains no separate queue/scheduler/continuation engine alongside the batch
+path — the convergence is at the level of shared primitives and invariants, not a
+shared literal data structure for every scope size.
 
 ### Wording correction: "ONE provider turn" → "one batch execution / one logical session"
 
@@ -254,130 +398,167 @@ prohibiting more than one turn total.
 ```
 Implementation batch:
   user selects T1, T2(depends_on T1), T3(depends_on T1) — all canonically targeting
-  the same step/role/session-policy (homogeneous)
+  the same step/role/session-policy/resolved-execution-policy (homogeneous)
     → batch-level compatibility: T2/T3's block-on-T1 is intra-batch, not an admission
       blocker; all three accepted as entry-step members (no incoming-transition
       requirement for fresh tasks — Gap 1)
     → ONE admission, ONE workspace-writer claim, ONE AgentSession
+    → batch-start allocates each member's own consumptionSequence before that
+      member's activation (reusing planStart per member — Gap 6); external
+      dependencies snapshot their real releaseEpoch now; intra-batch dependencies are
+      recorded pending (no epoch yet)
     → agent receives BatchContext with members[].dependsOn (filtered to in-batch ids)
+      and a batchFinishContract (per-member workflow-only fields + one shared
+      commit.title/commit.message — Gap 5)
     → agent implements T1, then T2/T3, in dependency order, inside the one session
       (possibly multiple turns if a provider failure requires an explicit resume —
       still the same session)
-    → ONE batch finish: prevalidate every member against its own allowed scope,
-      process members in topological order (T1 first) — as each member's transition
-      is applied, record any other member's dependency-consumption of that
-      newly-created release epoch (Gap 3) — ONE shared commit/push (Gap 2)
-    → handover: partition members by actual destination (e.g. all → review batch;
-      or some → human-verification with no new session, others → refiner batch)
+    → ONE batch finish: prevalidate every member against its own canonical
+      finishContract (no blanket `result` requirement — Gap 5) and its own allowed
+      scope; process members in topological order (T1 first) — as each member's
+      transition is applied, materialize any pending dependency-consumption entries
+      that pointed at it, using each downstream member's already-allocated
+      consumptionSequence (Gap 6) — ONE shared commit/push (Gap 2)
+    → handover: partition members by the full contract tuple (continuation policy +
+      target step/executor + role + session policy + resolved execution policy) —
+      e.g. all → one review batch; or some → human-verification (no session), others
+      → one refiner batch, only if those failing members actually share one contract
 
 Review batch (existing shape, corrected handover):
   user selects "review together" → batch-level compatibility (homogeneous, as today,
-  unaffected by Gap 1/4 since review members are already individually ready)
+  unaffected by Gap 1/4 since review members are already individually ready; no
+  intra-batch dependency ordering assumed for review — open question below)
     → ONE admission → ONE session → agent reviews all members → ONE batch finish
       (review report generation stays here, as the review-phase-specific artifact —
-      Gap 2's generalized BatchFinish still supports it, just doesn't require it)
-    → handover: pass-ing members → human-verification (no session); failing members
-      → ONE refinement batch for that subset (not N independent refiner sessions)
+      Gap 5's generalized BatchFinish still supports it, just doesn't require it)
+    → handover: partition by full contract tuple — passing members → human-verification
+      (no session); failing members sharing one contract → ONE refinement batch each
+      (proven possible with existing per-member transition data — Gap 6's closing
+      evidence, `batch-finish-operation.test.mjs:218-247`)
 
 Refinement batch:
-  same shape as implementation batch, scoped to the subset of members a review batch's
-  handover flagged — one session, dependency-ordered if the flagged members depend on
-  each other (same Gap 1/3 mechanics), one batch finish.
+  same shape as implementation batch, scoped to one partition group from a review
+  batch's handover — one session, dependency-ordered if that group's members depend
+  on each other, one batch finish.
 
-Single-task execution:
-  owner's preferred direction (this round): keep ExecutionScope {task|task-batch} as
-  two scope shapes, but converge both onto one orchestration lifecycle — a one-task
-  scope must not require fabricating group-reservation/batch metadata for
-  architectural purity, but also must not retain a separate queue/scheduler/
-  continuation system alongside the batch path. Still open precisely how (see below).
+Single-task execution (owner's decision, closed):
+  ExecutionScope {task|task-batch} stays as two scope shapes. Both converge onto one
+  shared orchestration lifecycle and shared primitives (gate verification, transition
+  derivation, the generalized BatchFinish/dependency-consumption mechanics above) — a
+  one-task scope fabricates no group-reservation/BatchContext wrapper, but also keeps
+  no separate queue/scheduler/continuation engine alongside the batch path.
 ```
 
 ### Revised responsibility table
 
 | Current responsibility | Needed in one-session batch model? | Target owner | Remove / generalize |
 |---|---|---|---|
-| Durable `{taskIds, eligibleAt}` FIFO, `enqueueTasks`/`dequeueTask`/`loadTaskQueue`/`evaluateTaskQueue`'s cross-task selection, `schedulingPriority` | No | — | **Remove**, unchanged from draft 2 — re-verified, still no caller once the queue-wide drain is gone |
-| `executeBatchStart`'s per-member `assertBaseExecutionReadiness` replay | **Generalize** — becomes batch-level compatibility with the in-batch-dependency exception, evaluated once per batch, not re-derived per member against single-task rules | `reservation.mjs`/`batch-start/operation.mjs` | Generalize |
+| Durable `{taskIds, eligibleAt}` FIFO, `enqueueTasks`/`dequeueTask`/`loadTaskQueue`/`evaluateTaskQueue`'s cross-task selection, `schedulingPriority` | No | — | **Remove** — re-verified, still no caller once the queue-wide drain is gone |
+| `executeBatchStart`'s per-member `assertBaseExecutionReadiness` replay | **Generalize** — batch-level compatibility with the in-batch-dependency exception, evaluated once per batch | `reservation.mjs`/`batch-start/operation.mjs` | Generalize |
 | `executeBatchStart`'s per-member incoming-transition + `session:fresh` requirement | **Generalize** — must accept entry-step members (no incoming transition) as normal | `batch-start/operation.mjs` | Generalize |
-| `prevalidateBatchFinish`'s provenance check (excludes only the review report) | **Generalize** — must allow every member's own `allowed_paths`/`consequential_paths`, not just the report path | `batch-finish/preflight.mjs` | Generalize |
-| `executeBatchFinish`'s unconditional review-report render/commit | **Generalize** — becomes an optional, review-phase-specific artifact | `batch-finish/operation.mjs` | Generalize |
-| `executeBatchFinish`'s per-member `finishStep` call (N independent commit+push) | No, in its current N-commits shape | `batch-finish/operation.mjs`, reusing `finishStep`'s non-commit/push stages | **Remove the per-member commit/push**, replace with one shared source-control finalize |
-| Dependency-consumption recording for intra-batch deps | **New timing, not new system** — same `recordDependencyConsumption` record, called during topologically-ordered batch finish instead of at start | `batch-finish/operation.mjs` | Generalize (reuse `dependency-consumption.mjs` as-is) |
+| Dependency-consumption recording (`planStart`'s `consumptionSequence` freeze) | **Generalize, not relocate** — per-member allocation stays at batch-start time (pre-activation), pending intra-batch entries materialized at batch-finish | `batch-start/operation.mjs` (allocate), `batch-finish/operation.mjs` (materialize) | Generalize; reuses `start-operation.mjs`/`dependency-consumption.mjs` as-is |
+| `findConsumersOfEpoch`/`createRemediationRecord` (remediation/invalidation consumer side) | Not addressed by this change — confirmed zero production call sites today (Gap 6) | Unchanged | Out of scope — do not claim this gets "generalized," it isn't wired up to generalize |
+| `prevalidateBatchFinish`'s blanket per-member `result` requirement | **Generalize** — validate against each member's own canonical `finishContract` (result only if that member's step is conditional) | `batch-finish/preflight.mjs` | Generalize |
+| `prevalidateBatchFinish`'s provenance check (excludes only the review report) | **Generalize** — must allow every member's own `allowed_paths`/`consequential_paths` | `batch-finish/preflight.mjs` | Generalize |
+| `executeBatchFinish`'s unconditional review-report render/commit | **Generalize** — optional, review-phase-specific artifact | `batch-finish/operation.mjs` | Generalize |
+| `executeBatchFinish`'s per-member `finishStep` call (N independent commit+push, N independent `commit.title` contracts) | No, in its current N-commits shape | `batch-finish/operation.mjs`, reusing `finishStep`'s non-commit/push stages | **Remove the per-member commit/push and per-member commit contract**, replace with one shared `batchFinishContract` commit section |
 | `BatchContext`'s member dependency representation | **Add** `members[].dependsOn` sourced from existing `depends_on` (no second graph) | `batch-context.mjs` | Generalize, minimal |
 | `BatchContext`'s single shared `targetStepName` | Keep as-is — confirmed correct for homogeneous batches (Gap 4) | `batch-context.mjs` | No change |
-| Per-member fresh-refiner dispatch (`batch-completion-settlement.mjs` Stage 4, N sessions) | No | Same file, rewritten | **Remove**, replace with destination-partitioned handover (at most one new session per distinct destination grouping) |
+| `BatchContext`'s finish-contract exposure | **Add** `batchFinishContract` (per-member workflow fields + one shared commit section) | `batch-context.mjs` | New, minimal field |
+| Per-member fresh-refiner dispatch (`batch-completion-settlement.mjs` Stage 4, N sessions) | No | Same file, rewritten | **Remove**, replace with full-contract-partitioned handover (one new session per distinct `{continuation, step/executor, role, session policy, resolved execution policy}` group) |
 | `groupReservations`/barrier | Yes, unchanged (D31/D33/D36/D37) | Same module, re-homed storage (owner: in this change, no shim) | Keep logic, migrate storage |
 | Workspace-writer claims, 3-outcome settlement, session fresh/reuse, execution policy | Yes, unchanged | Unchanged | None |
 | UI dependency-satisfaction duplication | No, in current form | Canonical batch/dependency projection | **In scope** (owner's decision) |
 
-## Self-review (owner's 6 questions, answered against this revision)
+## Self-review, round 3 (owner's 6 questions, re-answered against this revision)
 
-1. **Can an initial implementation batch actually start?** Not yet in the current
-   code (Gap 1, confirmed blocking) — but the revised target flow fixes exactly this:
-   entry-step members no longer need an incoming transition, and intra-batch
-   dependency blocks no longer fail batch-level compatibility. Answered by design in
-   this revision; still needs implementation.
+1. **Can an initial implementation batch actually start?** Still not in current code
+   (Gap 1) — the design fix (entry-step members accepted, intra-batch blocks excepted)
+   is unchanged from round 2 and still holds after this round's corrections.
 2. **Can an implementation batch modify source files and finish with one commit/push?**
-   Not in the current code (Gap 2, confirmed: N commits + N pushes today, plus a
-   provenance check that would reject any source change outright). The revised
-   `BatchFinish` target (one shared finalize, provenance scoped to every member's own
-   allowed paths) is designed to answer yes; not yet implemented.
+   Still not in current code (Gaps 2 and 5, both confirmed, independently: provenance
+   rejects any source change, *and* the preflight's blanket `result` field would be
+   rejected by `finishStep` for an unconditional step even before provenance is
+   reached). The target design (per-member canonical `finishContract` + one shared
+   `batchFinishContract` commit section) answers both; not yet implemented.
 3. **Is dependency-consumption/remediation provenance preserved for intra-batch
-   dependencies?** Not automatically today (Gap 3: batch-start never calls
-   `recordDependencyConsumption` at all). The revised design reuses the existing
-   record, moved to topologically-ordered batch-finish time. This is the least
-   independently-verified part of this revision — it has not been checked against
-   every remediation/invalidation consumer of `dependency-consumption.mjs` records
-   (only the recording path was traced, not every reader). Flagged as the single
-   highest-risk open item below, not asserted as fully safe.
-4. **Is every batch homogeneous by execution contract?** Yes, by this revision's
-   design (Gap 4, confirmed by `task-projection.mjs`'s blocked-task `nextStep`
-   behavior) — the heterogeneous-batch idea from draft 2 is retracted.
+   dependencies?** Design now concrete and reuses existing primitives exactly
+   (`planStart`'s sequence freeze, `recordDependencyConsumption`'s record shape) —
+   but precision matters here: the *recording* half can be made correct by this
+   change; the *consumption* half (remediation/invalidation reading these records) has
+   **zero production call sites today** (Gap 6, confirmed by direct grep) — this
+   change does not complete an end-to-end path that doesn't exist yet, it keeps the
+   recorded data correct and available for whenever that consumer side is built.
+4. **Is every batch homogeneous by execution contract?** Yes — reaffirmed and
+   sharpened this round: homogeneity now explicitly includes resolved execution
+   policy (`taskOverrides`/provider/model/mode), not just target step/role/session
+   policy (Gap 6's handover-partition correction).
 5. **Can mixed review results produce human + one refinement batch without N refiner
-   sessions?** Addressed by design (the "partition by canonical destination" handover
-   correction above) — not yet verified against `batch-completion-settlement.mjs`'s
-   actual destination-resolution code in enough depth to be certain the existing
-   per-member transition data is sufficient to compute the partition without new
-   plumbing. Listed as an open question below, not assumed solved.
+   sessions?** Closed this round with direct evidence
+   (`batch-finish-operation.test.mjs:218-247` proves per-member transitions already
+   persist correctly for mixed pass/fail in one batch-finish call) — the remaining
+   work is a dispatch-logic change (group by full contract tuple), not new workflow
+   state. No longer an open question.
 6. **Is there anywhere left where moving from one task to another creates a new
-   session?** The per-member fresh-refiner dispatch (Gap 2's cousin, in
-   `batch-completion-settlement.mjs` Stage 4) was exactly this, and is explicitly
-   targeted for removal above. No other such mechanism was found in this round's
-   re-reading. The single-task-execution flow is still explicitly open (not asserted
-   either way) — see below.
+   session?** No new instance found this round. The single-task-execution flow is no
+   longer open either — closed by owner decision (shared lifecycle/primitives, no
+   fabricated batch wrapper, no separate scheduler).
 
-## Open questions
+**Conclusion: no new model-level blocker found this round.** The three gaps raised
+this round (preflight contract mismatch, dependency-consumption sequencing,
+full-contract handover partitioning) are all generalizations of existing,
+well-understood mechanisms (`buildFinishContract`, `planStart`, per-member transition
+data already proven correct) — none required inventing a new primitive or revealed a
+reason the overall direction is unworkable. Recommend proceeding to a concrete
+spec/task breakdown; the residual items below are implementation-level risks to carry
+as explicit tasks/acceptance criteria, not reasons to keep discovering.
 
-1. **Single-task-as-batch-of-one**: concretely, does a one-task `ExecutionScope`
-   share `batch-start`/`batch-finish` code paths (with a trivial one-member batch
-   underneath), or keep its own simpler admission/finish while both converge on
-   shared primitives (gate verification, transition derivation) without a
-   batch-reservation wrapper? Not decided; needs a concrete side-by-side comparison
-   before implementation.
-2. **Review-batch dependency semantics**: does review ever need intra-batch
-   dependency ordering, or does it stay fully homogeneous (no ordering, as today)?
-   Assumed the latter in this revision, not independently confirmed.
-3. **Dependency-consumption provenance risk (Gap 3, highest-risk item)**: every
-   *reader* of `.nevo-ai-local/dependency-consumption/**` records (remediation,
-   invalidation, D52/D53/D58's sequence-based matching) needs to be checked against
-   "recorded at batch-finish time, in topological order, for an intra-batch
-   dependency" before this is trusted — only the recording call site was traced this
-   round.
-4. **Mixed review-result partitioning**: exact code path in
-   `batch-completion-settlement.mjs` that would need to compute "which destination
-   does each member's result resolve to" — not yet traced against the actual
-   transition-matching logic used for routing.
-5. Carried from the previous revision, still open: full list of `.mjs` test files
-   importing `reservation.mjs` only transitively; whether any `specs/active/**` task
-   depends on `groupReservations`.
+## Open questions (residual, implementation-level — not direction-blocking)
+
+1. **Dependency-consumption pending-entry schema**: exact representation of a pending
+   intra-batch edge in the `dependencySnapshot` array (`releaseEpoch: null` vs. an
+   explicit `pending: true` flag) — a schema detail to settle during task-writing, not
+   a design risk.
+2. **Crash recovery interaction**: what happens if the process crashes after
+   batch-start allocates per-member `consumptionSequence`s but before batch-finish
+   materializes a pending intra-batch epoch? Plausibly already safe (each member's own
+   start-operation record shows its `record-consumption` stage incomplete, same
+   resumability pattern `reconcileCrashedReservation` already uses elsewhere) but not
+   independently traced this round — should be a specific acceptance criterion, not
+   assumed.
+3. **Review-batch dependency semantics**: does review ever need intra-batch ordering,
+   or does it stay fully homogeneous/unordered (assumed in this revision)?
+4. Carried, still open, low priority: full list of `.mjs` test files importing
+   `reservation.mjs` only transitively; whether any `specs/active/**` task depends on
+   `groupReservations`.
 
 ## Owner decisions (recorded, not re-opened)
 
 1. Target architecture: generalized `BatchExecution`/`ExecutionScope`, homogeneous by
-   execution contract (not `ExecutionRun`, not heterogeneous mixed-step batches).
+   full execution contract — target step/executor, role, session policy, *and*
+   resolved execution policy (not `ExecutionRun`, not heterogeneous mixed-step
+   batches).
 2. `groupReservations` storage migration happens in this same change, no compatibility
    shim.
 3. UI dependency-satisfaction duplication is in scope for this change.
-4. Directory/change id renamed `execution-run-simplification` →
-   `batch-execution-generalization` (this revision) — the obsolete `ExecutionRun` name
-   does not become permanent terminology.
+4. `BatchFinish` becomes genuinely phase-neutral: per-member canonical
+   `finishContract` validation (not a blanket `result` field), one shared
+   `batchFinishContract` commit section, review-report generation as an optional
+   phase-specific artifact rather than baked into the generic lifecycle.
+5. Dependency-consumption for intra-batch edges reuses the existing record/sequence
+   primitives (`planStart`, `recordDependencyConsumption`) with new *timing*
+   (allocate at batch-start, materialize at topologically-ordered batch-finish) — no
+   second provenance system. The remediation/invalidation *consumer* side of this
+   contract is out of scope (it has no production wiring to generalize).
+6. Batch-completion handover partitions by the full execution-contract tuple, not
+   destination transition alone.
+7. Single-task execution keeps `ExecutionScope {task|task-batch}`, converging on
+   shared orchestration primitives without a separate scheduler and without
+   fabricating batch metadata for a one-task scope.
+8. Directory/change id renamed `execution-run-simplification` →
+   `batch-execution-generalization` — the obsolete `ExecutionRun` name does not
+   become permanent terminology.
+
+**Next step, per owner: if no new model-level blocker surfaced in this self-review
+(none did), proceed to writing the concrete spec/task breakdown. Still no
+implementation in this discovery report itself.**
