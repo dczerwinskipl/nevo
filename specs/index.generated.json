@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-03T05:44:08.487Z",
+  "generated": "2026-10-03T14:22:08.095Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -69,12 +69,12 @@
           "id": "activity-local-store",
           "order": 2,
           "file": "tasks/02-activity-local-store.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "activity-core-model-and-contracts"
           ],
           "workflow_progress": {
-            "current_step": "review",
+            "current_step": "human-verification",
             "current_attempt": 1,
             "state": "completed",
             "history": [
@@ -93,6 +93,13 @@
                 "sessionId": "e7f482c1-cefc-4cc8-94a3-e8c322e0cb76",
                 "result": "pass",
                 "feedback": "Independent review: store.mjs and activity-store.test.mjs fully satisfy task 02 requirements and acceptance criteria (pure append-only NDJSON store, leading-newline framing for crash recovery, read-side deduplication by id, specId canonicalization, and no pruning). All 16 unit tests pass."
+              },
+              {
+                "step": "human-verification",
+                "attempt": 1,
+                "completed_at": "2026-10-03T06:52:04.045Z",
+                "transitioned_to": "verified",
+                "result": "pass"
               }
             ]
           }
