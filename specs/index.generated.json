@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-03T14:24:18.719Z",
+  "generated": "2026-10-03T14:27:50.409Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -198,12 +198,14 @@
         {
           "id": "session-visibility-on-creation",
           "order": 1,
-          "file": "tasks/01-session-visibility-on-creation.md"
+          "file": "tasks/01-session-visibility-on-creation.md",
+          "status": "draft"
         },
         {
           "id": "execution-policy-provider-selection-fix",
           "order": 2,
-          "file": "tasks/02-execution-policy-provider-selection-fix.md"
+          "file": "tasks/02-execution-policy-provider-selection-fix.md",
+          "status": "draft"
         }
       ]
     },
