@@ -239,9 +239,15 @@ test('AC 422: Proven settlement releases workspace-writer claim using captured o
     assert.ok(claimBefore);
     assert.equal(claimBefore.ownerId, admission.ownerId);
 
-    // Call Hook 1 reconciliation with clean settled state
+    // Call Hook 1 reconciliation with a clean worktree. t1 has no workflow_progress
+    // at all (never activated), so this correctly settles as resumable, not
+    // completed (regression-fixed: see tools/tests/execution-settlement.test.mjs's
+    // dedicated test for a never-started task) — what this AC actually verifies is
+    // that the claim release itself uses the captured ownerId, independent of which
+    // of the two non-recovery-required outcomes triggered it.
     const releaseRes = await releaseAdmittedExecution('spec-1');
-    assert.equal(releaseRes.settled, true);
+    assert.equal(releaseRes.settled, false);
+    assert.equal(releaseRes.outcome, 'resumable');
     assert.equal(releaseRes.released, true);
 
     const claimAfter = getWorkspaceWriterClaim(tmpRepo);
