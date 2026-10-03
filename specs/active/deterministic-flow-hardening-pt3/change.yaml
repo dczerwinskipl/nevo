@@ -19,6 +19,6 @@ tasks:
   - id: execution-policy-provider-selection-fix
     order: 2
     file: tasks/02-execution-policy-provider-selection-fix.md
-    status: draft
+    status: approved
 
 spec_id: e12bc9ff-69b7-45b5-9c67-cafaa6dd6d56

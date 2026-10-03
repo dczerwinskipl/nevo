@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-03T14:27:57.294Z",
+  "generated": "2026-10-03T14:28:15.946Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -205,7 +205,7 @@
           "id": "execution-policy-provider-selection-fix",
           "order": 2,
           "file": "tasks/02-execution-policy-provider-selection-fix.md",
-          "status": "draft"
+          "status": "approved"
         }
       ]
     },
