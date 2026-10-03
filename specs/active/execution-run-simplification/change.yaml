@@ -1,0 +1,9 @@
+# Specification manifest for execution-run-simplification
+id: execution-run-simplification
+title: "Simplify sequential task execution: generic durable queue -> ExecutionRun"
+type: architectural
+status: draft
+priority: 10
+created: 2026-10-03
+tasks: []
+spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-03T17:32:27.940Z",
+  "generated": "2026-10-03T17:58:24.656Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -214,6 +214,15 @@
           }
         }
       ]
+    },
+    {
+      "id": "execution-run-simplification",
+      "specId": "b5011a2e-1197-4fc4-97ea-19758c1891ea",
+      "title": "Simplify sequential task execution: generic durable queue -> ExecutionRun",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-10-03",
+      "tasks": []
     },
     {
       "id": "agent-workflow-protocol-and-flow-hardening",
