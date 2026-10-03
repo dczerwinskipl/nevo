@@ -15,7 +15,7 @@ tasks:
   - id: session-visibility-on-creation
     order: 1
     file: tasks/01-session-visibility-on-creation.md
-    status: draft
+    status: approved
   - id: execution-policy-provider-selection-fix
     order: 2
     file: tasks/02-execution-policy-provider-selection-fix.md
