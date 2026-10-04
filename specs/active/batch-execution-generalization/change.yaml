@@ -72,7 +72,7 @@ tasks:
   - id: batch-finish-phase-neutral-generalization
     order: 3
     file: tasks/03-batch-finish-phase-neutral-generalization.md
-    status: draft
+    status: approved
     depends_on: [ batch-admission-generalization ]
   - id: intra-batch-dependency-consumption-materialization
     order: 4
