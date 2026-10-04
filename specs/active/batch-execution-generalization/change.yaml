@@ -14,7 +14,38 @@ tasks:
   - id: queue-removal-and-reservation-storage-migration
     order: 1
     file: tasks/01-queue-removal-and-reservation-storage-migration.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: 04ff07e4ea63fdc8d6dd8dcea47d66610deee3b8
+      review_revision: 24531ec2b97f8c94e071fc6d46eb1698686fc6e9
+      changed_paths:
+        - .nevo-ai/workflows/standard-v1.yaml
+        - .nevo-ai/workflows/standard.yaml
+        - tools/dashboard/server/ai/orchestration/admission.mjs
+        - tools/dashboard/server/ai/orchestration/deterministic-execution-plan.mjs
+        - tools/dashboard/server/ai/orchestration/reconciliation.mjs
+        - tools/dashboard/server/ai/sessions/turns/routes.mjs
+        - tools/dashboard/tests/execution-policy.test.mjs
+        - tools/specs/workflow/definitions/schema.mjs
+        - tools/specs/workflow/queue/evaluator.mjs
+        - tools/specs/workflow/queue/index.mjs
+        - tools/specs/workflow/queue/reservation.mjs
+        - tools/specs/workflow/queue/store.mjs
+        - tools/specs/workflow/templates/standard.yaml
+        - tools/tests/deterministic-status-corrective.test.mjs
+        - tools/tests/deterministic-task-queue.test.mjs
+        - tools/tests/workflow-continuation.test.mjs
+        - tools/tests/workflow-definitions-schema.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 9a2f824284bd3247bdb051dd0d6c94d1fd34cd32a0a9c33caa5c56d28e7203ec
+      revision: 24531ec2b97f8c94e071fc6d46eb1698686fc6e9
+      commands:
+        - command: node --test tools/tests/*.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: batch-admission-generalization
     order: 2
     file: tasks/02-batch-admission-generalization.md
