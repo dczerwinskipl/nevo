@@ -24,8 +24,16 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const SPECS_CLI = path.join(REPO_ROOT, 'tools', 'specs.mjs');
 
 function setupTestRepo(slug, { omitSpecId = false, specId = randomUUID() } = {}) {
-  const tmpRoot = fs.mkdtempSync(path.join(tmpdir(), `nevo-batch-cli-${slug}-`));
-  execFileSync('git', ['init', '-q'], { cwd: tmpRoot });
+  // A real 'origin' remote is required now that batch-finish's one shared commit
+  // stage actually attempts a push when the workflow definition declares
+  // sourceControl.push: true (batch-execution-generalization, task 03/04) — matching
+  // the same bare-remote-plus-clone pattern other CLI integration tests already use
+  // (see approve-git-sync.test.mjs's setupTempGitRepo).
+  const baseDir = fs.mkdtempSync(path.join(tmpdir(), `nevo-batch-cli-${slug}-`));
+  const originDir = path.join(baseDir, 'origin.git');
+  const tmpRoot = path.join(baseDir, 'repo');
+  execFileSync('git', ['init', '--bare', '-q', originDir]);
+  execFileSync('git', ['clone', '-q', originDir, tmpRoot]);
   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: tmpRoot });
   execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpRoot });
 
@@ -80,8 +88,10 @@ tasks:
 
   execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
   execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: tmpRoot });
+  const currentBranch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: tmpRoot, encoding: 'utf8' }).trim();
+  execFileSync('git', ['push', '-u', 'origin', currentBranch], { cwd: tmpRoot });
 
-  return { tmpRoot, activeDir, changeDir, specId: omitSpecId ? null : specId };
+  return { tmpRoot, baseDir, activeDir, changeDir, specId: omitSpecId ? null : specId };
 }
 
 test('1. CLI surface: node tools/specs.mjs workflow batch --help shows start and finish subcommands', () => {
@@ -97,7 +107,7 @@ test('1. CLI surface: node tools/specs.mjs workflow batch --help shows start and
 
 test('2. Security: workflow batch start fails closed when no ambient session identity exists', async () => {
   const slug = 'fail-closed-ambient';
-  const { tmpRoot } = setupTestRepo(slug);
+  const { tmpRoot, baseDir } = setupTestRepo(slug);
   try {
     const reservation = await createGroupReservation({
       repoRoot: tmpRoot,
@@ -129,13 +139,13 @@ test('2. Security: workflow batch start fails closed when no ambient session ide
       `Output must explain missing session or identity mismatch: ${combinedOutput}`
     );
   } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
 
 test('3. Full public CLI lifecycle: workflow batch start and finish via ambient session without --session-id', async () => {
   const slug = 'cli-full-lifecycle';
-  const { tmpRoot, specId } = setupTestRepo(slug);
+  const { tmpRoot, baseDir, specId } = setupTestRepo(slug);
   try {
     const batchExecutionId = 'batch-exec-101';
     const sessionId = 'session-agent-101';
@@ -207,6 +217,7 @@ test('3. Full public CLI lifecycle: workflow batch start and finish via ambient 
         t2: { result: 'pass', feedback: 'Verified' },
       },
       crossTaskFindings: [{ summary: 'No collisions', affectedTaskIds: ['t1', 't2'] }],
+      'commit.title': 'docs(review): batch review report',
     });
 
     const finishRes = spawnSync(
@@ -234,13 +245,13 @@ test('3. Full public CLI lifecycle: workflow batch start and finish via ambient 
     const lastCommitLog = execFileSync('git', ['log', '-1', '--oneline'], { cwd: tmpRoot, encoding: 'utf8' }).trim();
     assert.ok(lastCommitLog.includes('review-batch') || lastCommitLog.includes('report'), `Report commit log: ${lastCommitLog}`);
   } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
 
 test('4. CLI batch finish with --input-file works identically', async () => {
   const slug = 'cli-input-file';
-  const { tmpRoot, specId } = setupTestRepo(slug);
+  const { tmpRoot, baseDir, specId } = setupTestRepo(slug);
   try {
     const batchExecutionId = 'batch-exec-file-202';
     const sessionId = 'session-agent-file-202';
@@ -300,6 +311,7 @@ test('4. CLI batch finish with --input-file works identically', async () => {
           t1: { result: 'pass', feedback: 'ok file' },
           t2: { result: 'fail', feedback: 'needs fix' },
         },
+        'commit.title': 'docs(review): batch review report',
       }),
       'utf8'
     );
@@ -318,7 +330,7 @@ test('4. CLI batch finish with --input-file works identically', async () => {
     assert.equal(finishRecord.results.t1.result, 'pass');
     assert.equal(finishRecord.results.t2.result, 'fail');
   } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
 
@@ -333,7 +345,7 @@ test('5. Policy conflict throws AiPolicyConflictError with HTTP 409 mapping', ()
 
 test('6. Security: deterministic spec without spec_id fails closed on workflow batch start (Item 2)', async () => {
   const slug = 'deterministic-no-spec-id';
-  const { tmpRoot, activeDir } = setupTestRepo(slug, { omitSpecId: true });
+  const { tmpRoot, baseDir, activeDir } = setupTestRepo(slug, { omitSpecId: true });
   try {
     const batchExecutionId = 'batch-no-spec-id-1';
     const sessionId = 'session-no-spec-id-1';
@@ -372,14 +384,14 @@ test('6. Security: deterministic spec without spec_id fails closed on workflow b
     assert.equal(t1.workflow_progress.state, 'completed', 'Task t1 state must remain untouched');
     assert.equal(t2.workflow_progress.state, 'completed', 'Task t2 state must remain untouched');
   } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
 
 test('7. Identity: canonical spec_id UUID resolution across admission, batch-start, batch-finish (Item 1)', async () => {
   const slug = 'canonical-spec-uuid-flow';
   const canonicalUuid = randomUUID();
-  const { tmpRoot } = setupTestRepo(slug, { specId: canonicalUuid });
+  const { tmpRoot, baseDir } = setupTestRepo(slug, { specId: canonicalUuid });
   try {
     const batchExecutionId = 'batch-uuid-test-1';
     const sessionId = 'session-uuid-test-1';
@@ -448,7 +460,7 @@ test('7. Identity: canonical spec_id UUID resolution across admission, batch-sta
         '--batch',
         batchExecutionId,
         '--input',
-        JSON.stringify({ results: { t1: { result: 'pass' }, t2: { result: 'pass' } } }),
+        JSON.stringify({ results: { t1: { result: 'pass' }, t2: { result: 'pass' } }, 'commit.title': 'docs(review): batch review report' }),
       ],
       { cwd: tmpRoot, env, encoding: 'utf8' }
     );
@@ -458,13 +470,13 @@ test('7. Identity: canonical spec_id UUID resolution across admission, batch-sta
     assert.ok(finishRecord);
     assert.equal(finishRecord.status, 'completed');
   } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
 
 test('8. Prevalidation: failed provenance check leaves no report file, no batch-finish record, and no task mutations (Item 8)', async () => {
   const slug = 'provenance-zero-write';
-  const { tmpRoot, activeDir, specId } = setupTestRepo(slug);
+  const { tmpRoot, baseDir, activeDir, specId } = setupTestRepo(slug);
   try {
     const batchExecutionId = 'batch-prov-fail-1';
     const sessionId = 'session-prov-fail-1';
@@ -533,6 +545,7 @@ test('8. Prevalidation: failed provenance check leaves no report file, no batch-
         sessionId,
         inputs: {
           results: { t1: { result: 'pass' }, t2: { result: 'pass' } },
+          'commit.title': 'docs(review): batch review report',
         },
       });
     } catch (err) {
@@ -557,6 +570,6 @@ test('8. Prevalidation: failed provenance check leaves no report file, no batch-
     assert.equal(t1.workflow_progress.state, 'active', 'Task t1 must remain in active state (not finished)');
     assert.equal(t2.workflow_progress.state, 'active', 'Task t2 must remain in active state (not finished)');
   } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });

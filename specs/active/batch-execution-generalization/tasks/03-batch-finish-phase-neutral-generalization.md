@@ -20,6 +20,8 @@ allowed_paths:
   - tools/specs/context/batch-context.mjs
   - tools/tests/batch-finish-operation.test.mjs
   - tools/tests/batch-claim-release-ordering.test.mjs
+  - tools/tests/batch-cli-and-security.test.mjs
+  - tools/tests/batch-lifecycle-assembled.test.mjs
 forbidden_paths:
   - src/**
   - tools/dashboard/**
@@ -27,6 +29,27 @@ forbidden_paths:
   - tools/specs/workflow/batch-start/**
 depends_on: [batch-admission-generalization]
 ---
+
+<!--
+Scope amendment (implementation-time, legacy lifecycle — same pattern as task 01's own
+amendment, references/review-policy.md "Specification scope amendment"): two more test
+files, missed by the task's original allowed_paths, directly exercise
+`executeBatchFinish`/the CLI `workflow batch finish` surface with `inputs` payloads that
+never supplied the new shared `commit.title` this task's own Gap 5 requires — a
+mechanical, necessary consequence of this task's own requirements, not a scope
+expansion of what the task does:
+- tools/tests/batch-cli-and-security.test.mjs — 4 sub-tests call batch finish without
+  `commit.title`; one of them (test 7) also needed a real bare-origin remote added to
+  its fixture, since the new shared commit/push stage (Gap 2) is the first thing in
+  batch-finish to ever actually attempt a real `git push`, and `sourceControl.push: true`
+  in the real `.nevo-ai/workflows/standard.yaml` this fixture copies means that push is
+  no longer a dead code path once source control push:true is used in this test's own
+  fixture.
+- tools/tests/batch-lifecycle-assembled.test.mjs — 3 sub-tests call batch finish without
+  `commit.title`; its own embedded workflow fixture already declares `push: false`, so
+  no remote was needed there.
+-->
+
 
 # Task: Make `BatchFinish` genuinely phase-neutral
 
