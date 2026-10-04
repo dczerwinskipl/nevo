@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-04T14:33:40.622Z",
+  "generated": "2026-10-04T14:36:36.565Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -199,7 +199,7 @@
           "id": "queue-removal-and-reservation-storage-migration",
           "order": 1,
           "file": "tasks/01-queue-removal-and-reservation-storage-migration.md",
-          "status": "implemented",
+          "status": "verified",
           "implementation": {
             "baseline_revision": "04ff07e4ea63fdc8d6dd8dcea47d66610deee3b8",
             "review_revision": "24531ec2b97f8c94e071fc6d46eb1698686fc6e9",
