@@ -49,7 +49,7 @@ tasks:
   - id: batch-admission-generalization
     order: 2
     file: tasks/02-batch-admission-generalization.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 64faf3a1a71d667d48aaa0ec16c09938669acdb7
       review_revision: b6c6cf2dd5c95529bfbfaaee14eb9e1fb5bb4075
