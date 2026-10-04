@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-04T14:44:24.585Z",
+  "generated": "2026-10-04T20:05:28.375Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -276,10 +276,13 @@
           "id": "batch-finish-phase-neutral-generalization",
           "order": 3,
           "file": "tasks/03-batch-finish-phase-neutral-generalization.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "batch-admission-generalization"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "bf47d47bfe8c412d6939e60732b2582bb5a99760"
+          }
         },
         {
           "id": "intra-batch-dependency-consumption-materialization",
