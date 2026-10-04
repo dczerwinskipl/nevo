@@ -6,8 +6,11 @@ import path from 'node:path';
 import * as git from '../../../lib/git.mjs';
 import { requireChange, requireTask, ACTIVE_DIR } from '../../store.mjs';
 import { loadWorkflowDefinition } from '../definitions/loader.mjs';
+import { normalizeSourceControlConfig } from '../definitions/schema.mjs';
 import { getGroupReservation } from '../queue/reservation.mjs';
 import { finishStep } from '../finish-operation.mjs';
+import { defaultActionRegistry } from '../registry.mjs';
+import { resolveTaskScope } from '../../context.mjs';
 import '../actions/index.mjs';
 import { WorkflowError } from '../errors.mjs';
 import {
@@ -29,8 +32,8 @@ import { prevalidateBatchFinish } from './preflight.mjs';
  * @param {string} [params.sessionId]
  * @param {string} [params.repoRoot]
  * @param {string} [params.activeDir]
- * @param {boolean} [params._crashAfterReportCommit=false] Test hook for crash simulation
  * @param {string|null} [params._crashAfterMemberTaskId=null] Test hook for crash simulation
+ * @param {boolean} [params._crashAfterSharedCommit=false] Test hook for crash simulation
  * @returns {Promise<{ status: string, batchExecutionId: string, record: object }>}
  */
 export async function executeBatchFinish(params = {}) {
@@ -41,8 +44,8 @@ export async function executeBatchFinish(params = {}) {
     sessionId,
     repoRoot = process.cwd(),
     activeDir = ACTIVE_DIR,
-    _crashAfterReportCommit = false,
     _crashAfterMemberTaskId = null,
+    _crashAfterSharedCommit = false,
   } = params;
 
   if (!changeSlug || !batchExecutionId) {
@@ -80,7 +83,15 @@ export async function executeBatchFinish(params = {}) {
     };
   }
 
-  const reportAlreadyCommitted = record?.stages?.reportCommit?.status === 'completed';
+  // Provenance (HEAD === baseline, worktree delta === baseline delta) is a one-time gate
+  // on the very first attempt, before this operation's own first durable write
+  // (`createBatchFinishRecord` below) — not something to re-derive on every resume.
+  // Once a record exists at all, Stage 4 may already have mutated change.yaml for some
+  // members (a legitimate, expected divergence from the original baseline, not a new
+  // violation) — re-running the check against that moving target would incorrectly
+  // fail. A record's mere existence is the correct "already past this gate" signal,
+  // independent of which stage it most recently reached.
+  const isResume = record != null;
 
   // Stage 0 & Stage 1: In-memory prevalidation (D21, D23, D29, D30, D39).
   // Zero durable writes occur if this fails.
@@ -100,13 +111,23 @@ export async function executeBatchFinish(params = {}) {
     change,
     definition,
     reservation,
-    skipProvenanceCheck: reportAlreadyCommitted,
+    skipProvenanceCheck: isResume,
   });
 
-  // Stage 1.5: Render and write canonical batch review report (D21, D22, Item 8)
+  // Phase signal (batch-execution-generalization, task 03): whether this is a
+  // review-shaped batch is derived from the one signal already present in the normal
+  // per-member validation Stage 1 just ran — any member supplying a `result` means its
+  // own target step is conditional (review-like); homogeneous-by-contract batches
+  // never mix conditional and unconditional members, so this is unambiguous. No new,
+  // redundant "phase" field is introduced.
+  const isReviewPhase = taskIds.some((id) => normalizedResults[id]?.result !== undefined);
+
+  // Stage 1.5: Render and write canonical batch review report (D21, D22, Item 8) — the
+  // review-phase-specific artifact, now genuinely optional (Gap 5): an implementation/
+  // refinement batch produces no review report at all.
   // Strictly performed only after all read-only prevalidation has succeeded.
   const fullReportPath = path.join(repoRoot, canonicalReportPath);
-  if (!fs.existsSync(fullReportPath)) {
+  if (isReviewPhase && !fs.existsSync(fullReportPath)) {
     const startRecord = loadBatchStartRecord(repoRoot, changeSlug, batchExecutionId);
     const batchCtx = startRecord?.batchContext || {
       batchExecutionId,
@@ -127,42 +148,18 @@ export async function executeBatchFinish(params = {}) {
       batchExecutionId,
       taskIds,
       results: normalizedResults,
-      reportPath: canonicalReportPath,
+      reportPath: isReviewPhase ? canonicalReportPath : null,
       crossTaskFindings,
       sessionId: effectiveSessionId,
     });
   }
 
-  // Stage 3: Report commit (D22, D30)
-  if (record.stages?.reportCommit?.status !== 'completed') {
-    let commitSha = null;
-    const isGit = fs.existsSync(path.join(repoRoot, '.git'));
-
-    if (isGit) {
-      await git.addAndCommitAsync(
-        repoRoot,
-        [canonicalReportPath],
-        `docs(review): batch review report ${batchExecutionId}`
-      );
-      commitSha = git.getCurrentRevision(repoRoot);
-    } else {
-      commitSha = 'fixture-commit-sha';
-    }
-
-    record.stages.reportCommit = {
-      status: 'completed',
-      sha: commitSha,
-      path: canonicalReportPath,
-      committedAt: new Date().toISOString(),
-    };
-    saveBatchFinishRecord(repoRoot, changeSlug, record);
-
-    if (_crashAfterReportCommit) {
-      throw new Error('[test-hook] Simulated crash after report commit');
-    }
-  }
-
-  // Stage 4: Apply each member task sequentially & idempotently (D21)
+  // Stage 4: Apply each member task's gate verification, task-state update, and
+  // transition derivation sequentially & idempotently (D21), reusing `finishStep`'s own
+  // non-commit/push stages exactly as the single-task path does. `sourceControl` is
+  // explicitly disabled for this per-member call — its own `commit`/`push` stages must
+  // not execute per member (batch-execution-generalization, task 03, Gap 2/5); Stage 5
+  // below performs the one shared commit/push covering every member's changes instead.
   if (!record.stages.memberFinishes) {
     record.stages.memberFinishes = {};
   }
@@ -177,9 +174,10 @@ export async function executeBatchFinish(params = {}) {
     const task = requireTask(currentChange, taskId);
     const taskInputs = {
       ...(normalizedResults[taskId] || {}),
-      artifacts: [canonicalReportPath],
+      ...(isReviewPhase ? { artifacts: [canonicalReportPath] } : {}),
       sessionId: effectiveSessionId,
     };
+    const { allowedPaths } = resolveTaskScope(currentChange, task, { repoRoot, activeDir });
 
     const finishResult = await finishStep({
       change: currentChange,
@@ -189,6 +187,9 @@ export async function executeBatchFinish(params = {}) {
         repoRoot,
         activeDir,
         sessionId: effectiveSessionId,
+        taskAllowedPaths: allowedPaths,
+        allowedPaths,
+        sourceControl: { enabled: false },
       },
       inputs: taskInputs,
       activeDir,
@@ -207,7 +208,57 @@ export async function executeBatchFinish(params = {}) {
     }
   }
 
-  // Stage 5: Reach 'completed' (D21)
+  // Stage 5: ONE shared commit + push covering every member's changes — their own
+  // workflow-state transitions (Stage 4), any real source edits within their declared
+  // scope, and the rendered review report (still sitting on disk, uncommitted, when one
+  // was rendered above) — all swept up together by the action's own default `include:
+  // ['*']` staging, exactly the "one commit covering every member's changes plus the
+  // review report" Gap 2 asks for, never a separate earlier report-only commit.
+  // Reuses the exact same commit-then-push split `finishStep`'s own (module-private)
+  // ensureCommit/ensurePush stages use — not exported there since this is a batch-wide
+  // finalize, not a per-task one, so it does not belong inside that per-task saga.
+  const sourceControl = normalizeSourceControlConfig(definition.sourceControl);
+
+  if (!record.stages.sharedCommit) {
+    record.stages.sharedCommit = { status: 'pending' };
+  }
+  if (record.stages.sharedCommit.status !== 'completed') {
+    if (sourceControl.enabled) {
+      const commitTitle = typeof inputs['commit.title'] === 'string' ? inputs['commit.title'].trim() : '';
+      const action = defaultActionRegistry.require('commit-and-push');
+      const actionContext = { repoRoot, changeSlug, activeDir, sourceControl: { enabled: true, push: false } };
+      const actionInputs = { 'commit.title': commitTitle };
+      const commitMessage = typeof inputs['commit.message'] === 'string' ? inputs['commit.message'].trim() : '';
+      if (commitMessage) {
+        actionInputs['commit.message'] = commitMessage;
+      }
+      const execResult = await action.execute(actionInputs, actionContext);
+      record.stages.sharedCommit = { status: 'completed', result: execResult.outputs.commit };
+    } else {
+      record.stages.sharedCommit = { status: 'completed', skipped: true };
+    }
+    saveBatchFinishRecord(repoRoot, changeSlug, record);
+
+    if (_crashAfterSharedCommit) {
+      throw new Error('[test-hook] Simulated crash after shared commit');
+    }
+  }
+
+  if (!record.stages.sharedPush) {
+    record.stages.sharedPush = { status: 'pending' };
+  }
+  if (record.stages.sharedPush.status !== 'completed') {
+    if (sourceControl.enabled && sourceControl.push) {
+      const branch = git.getCurrentBranch(repoRoot);
+      await git.pushAsync(repoRoot, branch);
+      record.stages.sharedPush = { status: 'completed' };
+    } else {
+      record.stages.sharedPush = { status: 'completed', skipped: true };
+    }
+    saveBatchFinishRecord(repoRoot, changeSlug, record);
+  }
+
+  // Stage 6: Reach 'completed' (D21)
   record.status = 'completed';
   saveBatchFinishRecord(repoRoot, changeSlug, record);
 

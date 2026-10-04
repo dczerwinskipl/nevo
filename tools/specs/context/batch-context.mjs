@@ -5,6 +5,62 @@ import * as git from '../../lib/git.mjs';
 import { attributeTouchedPaths, detectBatchIntegrationFindings } from '../lifecycle/batch.mjs';
 import { resolveIncomingExecution } from '../workflow/resolve-incoming-execution.mjs';
 import { listPersistedBindingsSync } from '../workflow/execution-identity.mjs';
+import { resolveWorkflowPosition } from '../workflow/step-runner.mjs';
+import { buildFinishContract } from '../workflow/step-context.mjs';
+
+// Mirrors `commit-and-push.mjs`'s own (module-private) COMMIT_TITLE_SCHEMA/
+// COMMIT_MESSAGE_SCHEMA — the one static, shared commit-contract section every
+// `commit-and-push` finalize step declares. Factored out once per batch instead of
+// once per member (batch-execution-generalization, task 03, Gap 5): the agent should
+// never be asked for N independent commit contracts when the batch produces one shared
+// commit. Kept as a small, local literal (rather than exporting the action's private
+// constants) so this stays synchronous — the real schema only ever changes alongside
+// the action's own required-field contract, which is covered by that action's own tests.
+const SHARED_COMMIT_CONTRACT = {
+  'commit.title': {
+    name: 'commit.title',
+    type: 'string',
+    required: true,
+    description: 'Conventional commit title describing the change',
+    constraints: { minLength: 5 },
+  },
+  'commit.message': {
+    name: 'commit.message',
+    type: 'string',
+    required: false,
+    description: 'Extended commit body',
+  },
+};
+
+/**
+ * Resolves a task's own canonical target step definition (entry, active, or
+ * post-completion next step) — same phase resolution `executeBatchStart` and
+ * `validateBatchCompatibility` already use.
+ */
+function resolveMemberTargetStep(task, definition) {
+  const position = resolveWorkflowPosition(definition, task);
+  const stepName = position.phase === 'new'
+    ? definition.entryStep
+    : (position.phase === 'active' ? position.step : position.nextStep);
+  return definition.steps?.[stepName] || null;
+}
+
+/**
+ * Builds the batch-wide finish contract (batch-execution-generalization, task 03,
+ * Gap 5): each member's own canonical workflow-level finish parameters (`result` only
+ * if that member's own target step is conditional, plus `artifacts`/`feedback`) — via
+ * `buildFinishContract`, same as the single-task path, called with no finalize-action
+ * result so the commit-action fields are excluded by construction, not filtered out
+ * after the fact — plus one shared `commit.title`/`commit.message` section.
+ */
+function buildBatchFinishContract(sortedTasks, definition) {
+  const members = {};
+  for (const task of sortedTasks) {
+    const step = resolveMemberTargetStep(task, definition);
+    members[task.id] = step ? buildFinishContract(null, step) : {};
+  }
+  return { members, commit: { ...SHARED_COMMIT_CONTRACT } };
+}
 
 /**
  * Deduplicates an array of items across tasks, tracking usedBy taskIds.
@@ -273,5 +329,6 @@ export function buildBatchContext(params = {}) {
     relevantDocs: dedupedRelevantDocs,
     crossTask,
     predecessorSessions,
+    batchFinishContract: definition ? buildBatchFinishContract(sortedTasks, definition) : { members: {}, commit: { ...SHARED_COMMIT_CONTRACT } },
   };
 }

@@ -130,6 +130,11 @@ function createTasksAndBootstrap(tmpRoot, slug, taskIds = ['t1', 't2', 't3']) {
     fs.writeFileSync(path.join(tmpRoot, 'src', `${id}.js`), `export const ${id} = '${id}';\n`, 'utf8');
     fs.writeFileSync(path.join(taskDir, `${id}.md`), `# Task ${id}\n`, 'utf8');
   }
+  // Tracked file outside every member's own allowed_paths — used to prove a real
+  // out-of-scope provenance violation still gets caught (batch-execution-
+  // generalization, task 03, Gap 2 widens the exclusion to each member's own declared
+  // scope, so an in-scope edit like src/t1.js is no longer, by itself, a violation).
+  fs.writeFileSync(path.join(tmpRoot, 'src', 'unrelated.js'), "export const unrelated = 'unrelated';\n", 'utf8');
 
   execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
   execFileSync('git', ['commit', '-m', 'Initial setup for batch finish test'], { cwd: tmpRoot });
@@ -222,21 +227,28 @@ test('1. AC1: 3 tasks with valid results on post-bootstrap fixture reaches compl
         t3: { result: 'fail', feedback: 't3 needs minor fix' },
       },
       crossTaskFindings: [{ id: 'CT-1', message: 'No conflicts found', affectedTaskIds: ['t1', 't2'] }],
+      'commit.title': 'docs(review): batch review report',
     },
   });
 
   assert.equal(finishRes.status, 'completed');
   assert.equal(finishRes.record.status, 'completed');
-  assert.equal(finishRes.record.stages.reportCommit.status, 'completed');
+  assert.equal(finishRes.record.stages.sharedCommit.status, 'completed');
 
-  // Check report commit landed with report path only
+  // Check exactly one shared commit landed, covering every member's transition AND the
+  // report together (batch-execution-generalization, task 03, Gap 2: one commit, not a
+  // separate report-only commit plus per-member commits).
   const commitCountAfter = execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: tmpRoot, encoding: 'utf8' }).trim();
-  assert.equal(Number(commitCountAfter), Number(commitCountBefore) + 1, 'Exactly one report commit must be added');
+  assert.equal(Number(commitCountAfter), Number(commitCountBefore) + 1, 'Exactly one shared commit must be added');
 
   // Check commit contents
-  const reportCommitSha = finishRes.record.stages.reportCommit.sha;
-  const changedFiles = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', reportCommitSha], { cwd: tmpRoot, encoding: 'utf8' }).trim();
-  assert.equal(changedFiles, reportPath.replace(/\\/g, '/'), 'Report commit must ONLY include report path');
+  const sharedCommitSha = finishRes.record.stages.sharedCommit.result.sha;
+  const changedFiles = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', sharedCommitSha], { cwd: tmpRoot, encoding: 'utf8' }).trim().split('\n').sort();
+  assert.deepEqual(
+    changedFiles,
+    [reportPath.replace(/\\/g, '/'), 'specs/active/three-tasks-spec/change.yaml'].sort(),
+    'The one shared commit must include both the report and change.yaml'
+  );
 
   // Verify task transitions and histories in change.yaml
   const changeYaml = fs.readFileSync(path.join(changeDir, 'change.yaml'), 'utf8');
@@ -379,8 +391,8 @@ test('3. AC3: Prevalidation provenance failure (HEAD divergence, modified doc/so
   fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
   fs.writeFileSync(fullReportPath, '# Report Content\n', 'utf8');
 
-  // Case A: Modified tracked source file
-  fs.writeFileSync(path.join(tmpRoot, 'src', 't1.js'), '// reviewer illegal edit\n', 'utf8');
+  // Case A: Modified tracked source file outside every member's own allowed_paths
+  fs.writeFileSync(path.join(tmpRoot, 'src', 'unrelated.js'), '// reviewer illegal edit\n', 'utf8');
   await assert.rejects(
     async () => {
       await executeBatchFinish({
@@ -391,14 +403,15 @@ test('3. AC3: Prevalidation provenance failure (HEAD divergence, modified doc/so
         sessionId,
         inputs: {
           tasks: { t1: 'pass', t2: 'pass' },
+          'commit.title': 'docs(review): batch review report',
         },
       });
     },
     { code: 'BATCH_PROVENANCE_VIOLATION' }
   );
 
-  // Restore t1.js to valid state
-  fs.writeFileSync(path.join(tmpRoot, 'src', 't1.js'), "export const t1 = 't1';\n", 'utf8');
+  // Restore unrelated.js to valid state
+  fs.writeFileSync(path.join(tmpRoot, 'src', 'unrelated.js'), "export const unrelated = 'unrelated';\n", 'utf8');
 
   // Case B: Newly created untracked source file
   fs.writeFileSync(path.join(tmpRoot, 'src', 'untracked-reviewer-artifact.js'), '// extra\n', 'utf8');
@@ -412,6 +425,7 @@ test('3. AC3: Prevalidation provenance failure (HEAD divergence, modified doc/so
         sessionId,
         inputs: {
           tasks: { t1: 'pass', t2: 'pass' },
+          'commit.title': 'docs(review): batch review report',
         },
       });
     },
@@ -431,6 +445,7 @@ test('3. AC3: Prevalidation provenance failure (HEAD divergence, modified doc/so
         sessionId,
         inputs: {
           tasks: { t1: 'pass', t2: 'pass' },
+          'commit.title': 'docs(review): batch review report',
         },
       });
     },
@@ -438,7 +453,7 @@ test('3. AC3: Prevalidation provenance failure (HEAD divergence, modified doc/so
   );
 });
 
-test('4. AC4: Crash immediately after report commit lands resumes without re-checking HEAD==baseRevision or re-committing', async () => {
+test('4. AC4: Crash immediately after the shared commit lands resumes without re-checking HEAD==baseRevision or re-committing', async () => {
   const { tmpRoot, activeDir } = setupTestRepo('crash-report-spec');
   const slug = 'crash-report-spec';
   const taskIds = ['t1', 't2'];
@@ -484,7 +499,9 @@ test('4. AC4: Crash immediately after report commit lands resumes without re-che
   fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
   fs.writeFileSync(fullReportPath, '# Report Content\n', 'utf8');
 
-  // Run with simulated crash immediately after report commit
+  // Run with simulated crash immediately after the one shared commit lands (after
+  // every member's own finish already completed — the shared commit is now the last
+  // durable step before 'completed', batch-execution-generalization task 03)
   await assert.rejects(
     async () => {
       await executeBatchFinish({
@@ -495,19 +512,23 @@ test('4. AC4: Crash immediately after report commit lands resumes without re-che
         sessionId,
         inputs: {
           tasks: { t1: 'pass', t2: 'pass' },
+          'commit.title': 'docs(review): batch review report',
         },
-        _crashAfterReportCommit: true,
+        _crashAfterSharedCommit: true,
       });
     },
-    /Simulated crash after report commit/
+    /Simulated crash after shared commit/
   );
 
-  // Verify report was committed and record saved
+  // Verify the shared commit landed and the record was saved
   const recordMid = loadBatchFinishRecord(tmpRoot, slug, batchExecutionId);
   assert.ok(recordMid);
-  assert.equal(recordMid.stages.reportCommit.status, 'completed');
-  const initialReportCommitSha = recordMid.stages.reportCommit.sha;
-  assert.ok(initialReportCommitSha);
+  assert.equal(recordMid.stages.sharedCommit.status, 'completed');
+  const initialSharedCommitSha = recordMid.stages.sharedCommit.result.sha;
+  assert.ok(initialSharedCommitSha);
+  // Every member finish already completed before the shared commit stage runs
+  assert.equal(recordMid.stages.memberFinishes.t1.status, 'completed');
+  assert.equal(recordMid.stages.memberFinishes.t2.status, 'completed');
 
   const commitCountMid = execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: tmpRoot, encoding: 'utf8' }).trim();
 
@@ -520,14 +541,15 @@ test('4. AC4: Crash immediately after report commit lands resumes without re-che
     sessionId,
     inputs: {
       tasks: { t1: 'pass', t2: 'pass' },
+      'commit.title': 'docs(review): batch review report',
     },
   });
 
   assert.equal(resumeRes.status, 'completed');
-  assert.equal(resumeRes.record.stages.reportCommit.sha, initialReportCommitSha, 'Must reuse recorded commit SHA');
+  assert.equal(resumeRes.record.stages.sharedCommit.result.sha, initialSharedCommitSha, 'Must reuse recorded commit SHA');
 
   const commitCountAfter = execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: tmpRoot, encoding: 'utf8' }).trim();
-  assert.equal(commitCountAfter, commitCountMid, 'Report must NOT be committed a second time');
+  assert.equal(commitCountAfter, commitCountMid, 'Shared commit must NOT be committed a second time');
 });
 
 test('5. AC5: Crash after report commit and task t1 finish resumes and completes t2 and t3 without re-touching t1', async () => {
@@ -587,6 +609,7 @@ test('5. AC5: Crash after report commit and task t1 finish resumes and completes
         sessionId,
         inputs: {
           tasks: { t1: 'pass', t2: 'pass', t3: 'pass' },
+          'commit.title': 'docs(review): batch review report',
         },
         _crashAfterMemberTaskId: 't1',
       });
@@ -608,6 +631,7 @@ test('5. AC5: Crash after report commit and task t1 finish resumes and completes
     sessionId,
     inputs: {
       tasks: { t1: 'pass', t2: 'pass', t3: 'pass' },
+      'commit.title': 'docs(review): batch review report',
     },
   });
 
@@ -846,6 +870,7 @@ test('8. CLI surface: handleWorkflowBatchFinish runs end-to-end via CLI options'
     silent: true,
     input: JSON.stringify({
       tasks: { t1: 'pass', t2: 'fail' },
+      'commit.title': 'docs(review): batch review report',
     }),
   });
 
@@ -912,6 +937,7 @@ test('9. AC9: Reviewer cross-task findings with affectedTaskIds reach canonical 
               affectedTaskIds: ['t1', 'unknown-foreign-task'],
             },
           ],
+          'commit.title': 'docs(review): batch review report',
         },
       });
     },
@@ -939,6 +965,7 @@ test('9. AC9: Reviewer cross-task findings with affectedTaskIds reach canonical 
           severity: 'warning',
         },
       ],
+      'commit.title': 'docs(review): batch review report',
     },
   });
 
