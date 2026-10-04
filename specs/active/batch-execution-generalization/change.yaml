@@ -98,8 +98,24 @@ tasks:
   - id: intra-batch-dependency-consumption-materialization
     order: 4
     file: tasks/04-intra-batch-dependency-consumption-materialization.md
-    status: approved
+    status: implemented
     depends_on: [ batch-admission-generalization, batch-finish-phase-neutral-generalization ]
+    implementation:
+      baseline_revision: 8b51948564b92d4ad556a2b7b7c846524d60779d
+      review_revision: 9b9695d21d824f878a06ef9e26d4a080c494b22a
+      changed_paths:
+        - tools/specs/workflow/batch-finish/operation.mjs
+        - tools/tests/batch-finish-operation.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: fea39b7439c1565b4f341dfe756abfaedda898e229e315000354ae09a51a807d
+      revision: 9b9695d21d824f878a06ef9e26d4a080c494b22a
+      commands:
+        - command: node --test tools/tests/batch-finish-operation.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: batch-completion-handover-partitioning
     order: 5
     file: tasks/05-batch-completion-handover-partitioning.md
