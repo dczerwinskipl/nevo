@@ -613,19 +613,6 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             activeExecutions.delete(specId);
           }
 
-          // Consume this task's durable sequential-queue entry (if any) now that its own
-          // execution ended resumable without genuinely advancing. ADR-0009: "later
-          // continuation is a new deterministic admission" — a resumable attempt requires
-          // its own fresh explicit admission to resume; it must never be silently
-          // rediscovered and auto-readmitted by some OTHER, unrelated task's settlement
-          // draining the same durable queue (reconcileContinuation's queue-wide section).
-          if (repoRoot && capturedChangeSlug && capturedTaskId && capturedScope.kind === 'task') {
-            try {
-              const { dequeueTask } = await import('../../../../specs/workflow/queue/store.mjs');
-              dequeueTask(repoRoot, capturedChangeSlug, capturedTaskId);
-            } catch {}
-          }
-
           if (typeof onTurnTerminal === 'function') {
             await onTurnTerminal({ specId, scope: capturedScope, taskId: capturedTaskId, settled: false, outcome: 'resumable', released: relRes.released });
           }

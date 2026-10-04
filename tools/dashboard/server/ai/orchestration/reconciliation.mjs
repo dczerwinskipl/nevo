@@ -3,7 +3,8 @@
 import { resolveWorkflowPosition } from '../../../../specs/workflow/step-runner.mjs';
 import { loadWorkflowDefinition } from '../../../../specs/workflow/definitions/loader.mjs';
 import { resolveWorkflowMode } from '../../../../specs/workflow/compatibility.mjs';
-import { evaluateTaskQueue, enqueueTasks } from '../../../../specs/workflow/queue/index.mjs';
+import { evaluateExecutionReadiness, isActivationOnlyBlocker } from '../../../../specs/workflow/readiness-policy.mjs';
+import { isTaskBarriered } from '../../../../specs/workflow/queue/reservation.mjs';
 import { admitAgentExecution } from './admission.mjs';
 import { describeHumanInteraction } from '../../../../specs/workflow/human-step/projection.mjs';
 import {
@@ -96,21 +97,31 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
     return { action: 'noop', reason: 'NOT_AUTO_CONTINUATION', continuationPolicy };
   }
 
-  // Destination is agent-owned: enqueue and admit
+  // Destination is agent-owned: resolve direct single-task readiness and admit — no
+  // durable queue file involved (batch-execution-generalization, task 01).
   if (executor === 'agent') {
-    if (repoRoot) {
-      enqueueTasks(repoRoot, changeSlug, [task.id]);
+    const readiness = evaluateExecutionReadiness(task, change, 'agent', { definition, repoRoot });
+    const barriered = isTaskBarriered(change, task.id, { repoRoot });
+
+    let runnable = null;
+    if (!barriered) {
+      if (readiness.ready) {
+        runnable = { taskId: task.id, stepId: targetStepName, executor, readiness };
+      } else {
+        const isActivationOnly = isActivationOnlyBlocker(readiness, {
+          repoRoot,
+          task,
+          change,
+          record: readiness.priorRecord,
+        });
+        if (isActivationOnly) {
+          runnable = { taskId: task.id, stepId: targetStepName, executor, readiness };
+        }
+      }
     }
 
-    const queueState = evaluateTaskQueue({
-      change,
-      selectedTaskIds: [task.id],
-      definition,
-      repoRoot,
-    });
-
-    if (queueState.nextRunnable?.readiness?.ready === false) {
-      // nextRunnable is only "eligible" here because its readiness failure is
+    if (runnable?.readiness?.ready === false) {
+      // runnable is only "eligible" here because its readiness failure is
       // activation-only (dirty worktree / replayable finish) — remediation requires
       // explicit user instruction (remediation-protocol-exception.md), never automatic
       // continuation. Fail closed to a deterministic noop; an explicit admission (the
@@ -119,11 +130,11 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
         action: 'noop',
         reason: 'ACTIVATION_ONLY_BLOCKER_REQUIRES_EXPLICIT_ADMISSION',
         nextStep: targetStepName,
-        queueState,
+        readiness,
       };
     }
 
-    if (queueState.nextRunnable) {
+    if (runnable) {
       const sessionPolicy = matchedTransition?.execution?.session || 'fresh';
       const role = matchedTransition?.execution?.role;
 
@@ -178,7 +189,7 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
       const genericTrigger = options.message || options.prompt || `Start workflow step '${targetStepName}' for task '${task.id}'.`;
 
       const candidate = {
-        ...queueState.nextRunnable,
+        ...runnable,
         provider,
         ...(model ? { model } : {}),
         mode,
@@ -204,7 +215,7 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
     return {
       action: 'noop',
       reason: 'TASK_NOT_NEXT_RUNNABLE',
-      queueState,
+      readiness,
     };
   }
 
@@ -465,127 +476,23 @@ export async function reconcileBootState(options = {}) {
 }
 
 /**
- * Drives automatic workflow continuation for a change: checks single-task auto-continuation first,
- * and if none or if task is complete, checks the durable queue for the change to admit nextRunnable (D38, D42, Item 5, Item 12).
+ * Drives automatic workflow continuation for a single task (D38, D42, Item 5).
+ *
+ * The multi-task durable-queue-draining path (Item 12, D38) that used to run here when
+ * the single-task check found nothing is removed outright (batch-execution-
+ * generalization, task 01) — it had no `continuationPolicy` gate and was the mechanism
+ * responsible for the original runaway-session-creation incident. Advancing a *group*
+ * of tasks together is now the batch model's own job (one admission, one session), not
+ * an implicit side effect of an unrelated task's settlement draining a shared queue.
  *
  * @param {object} change - Change manifest
  * @param {object} [task] - Task record
  * @param {object} [options]
- * @returns {Promise<{ action: 'agent-admitted'|'queue-agent-admitted'|'human-preview'|'noop', nextStep?: string, admission?: any, nextRunnable?: any }>}
+ * @returns {Promise<{ action: 'agent-admitted'|'human-preview'|'noop', nextStep?: string, admission?: any }>}
  */
 export async function reconcileContinuation(change, task, options = {}) {
-  // 1. Single-task continuation check (if task provided)
   if (task) {
-    const taskCont = await reconcileWorkflowPosition(change, task, options);
-    if (taskCont.action === 'agent-admitted' || taskCont.action === 'human-preview') {
-      return taskCont;
-    }
+    return await reconcileWorkflowPosition(change, task, options);
   }
-
-  // 2. Multi-task durable queue continuation check (Item 12, D38)
-  const repoRoot = options.repoRoot;
-  const changeSlug = change._slug || change.slug;
-  if (!repoRoot || !changeSlug) {
-    return { action: 'noop' };
-  }
-
-  const { loadTaskQueue, dequeueTask } = await import('../../../../specs/workflow/queue/store.mjs');
-  const queueRecord = loadTaskQueue(repoRoot, changeSlug);
-  if (!queueRecord || !Array.isArray(queueRecord.taskIds) || queueRecord.taskIds.length === 0) {
-    return { action: 'noop' };
-  }
-
-  // Purge any tasks that are already terminal or completed
-  for (const tid of [...queueRecord.taskIds]) {
-    const t = change.tasks?.find((x) => x.id === tid);
-    if (t && (t.status === 'completed' || t.status === 'verified' || t.status === 'closed' || t.workflow_progress?.state === 'completed')) {
-      dequeueTask(repoRoot, changeSlug, tid);
-    }
-  }
-
-  const refreshedQueue = loadTaskQueue(repoRoot, changeSlug);
-  if (!refreshedQueue || !Array.isArray(refreshedQueue.taskIds) || refreshedQueue.taskIds.length === 0) {
-    return { action: 'noop' };
-  }
-
-  let definition = options.definition;
-  if (!definition) {
-    const resolvedMode = resolveWorkflowMode(change, options);
-    if (resolvedMode.definition) {
-      definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
-    }
-  }
-
-  const queueState = evaluateTaskQueue({
-    change,
-    selectedTaskIds: refreshedQueue.taskIds,
-    queueRecord: refreshedQueue,
-    definition,
-    repoRoot,
-  });
-
-  if (queueState.nextRunnable?.readiness?.ready === false) {
-    // Same explicit-admission-only rule as reconcileWorkflowPosition above: durable-queue
-    // draining must not auto-admit a candidate that is only eligible via an
-    // activation-only blocker.
-    return {
-      action: 'noop',
-      reason: 'ACTIVATION_ONLY_BLOCKER_REQUIRES_EXPLICIT_ADMISSION',
-      queueState,
-    };
-  }
-
-  if (queueState.nextRunnable) {
-    const specId = resolveStableSpecId(change);
-    const targetTaskId = queueState.nextRunnable.taskId;
-    const targetStep = queueState.nextRunnable.stepId;
-    const task = change.tasks?.find((t) => t.id === targetTaskId);
-    const matchResult = matchIncomingTransition(task, definition, targetStep);
-    if (matchResult.ambiguous) {
-      return { action: 'noop', reason: 'AMBIGUOUS_TRANSITION_MATCH', step: targetStep, details: matchResult.reason };
-    }
-    const role = matchResult?.transition?.execution?.role || null;
-    const sessionPolicy = matchResult?.transition?.execution?.session || 'fresh';
-
-    let policy = null;
-    try {
-      const { executionPolicyService } = await import('../sessions/execution-policy-service.mjs');
-      policy = executionPolicyService.resolveExecutionPolicy(changeSlug, targetTaskId, {
-        ...(role ? { role } : {}),
-        repoRoot,
-      });
-    } catch {}
-
-    const provider = policy ? policy.provider : options.provider;
-    const model = policy ? policy.model : options.model;
-    const mode = policy ? policy.mode : (options.mode || 'agent');
-    const genericTrigger = options.message || options.prompt || `Start workflow task '${targetTaskId}'.`;
-    const candidate = {
-      ...queueState.nextRunnable,
-      provider,
-      ...(model ? { model } : {}),
-      mode,
-      changeSlug,
-      specId,
-      sessionPolicy,
-      role,
-      parentSessionId: null, // Ordinary queued task advancement does not fabricate lineage from prior task
-      message: genericTrigger,
-      prompt: genericTrigger,
-      userMessage: genericTrigger,
-    };
-
-    const admissionRes = await admitAgentExecution(specId, candidate, {
-      ...options,
-      repoRoot,
-      changeSlug,
-    });
-    return {
-      action: 'queue-agent-admitted',
-      nextRunnable: candidate,
-      admission: admissionRes,
-    };
-  }
-
-  return { action: 'noop', queueState };
+  return { action: 'noop' };
 }

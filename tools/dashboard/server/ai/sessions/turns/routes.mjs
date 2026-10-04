@@ -363,10 +363,6 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       } = plan;
 
       const { executionPolicyService } = await import('../execution-policy-service.mjs');
-      const { enqueueTasks } = await import('../../../../../specs/workflow/queue/index.mjs');
-
-      // B. Durable mutation: persist tasks to the sequential queue
-      enqueueTasks(effectiveRepoRoot, changeSlug, selectedTaskIds);
 
       // Persist spec-level execution policy from D21 if no policy exists yet and not a one-off execution
       if (!body.oneOff && effectiveProvider && effectiveMode) {
@@ -569,8 +565,6 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         }
 
         const { executionPolicyService } = await import('../execution-policy-service.mjs');
-        const { enqueueTasks } = await import('../../../../../specs/workflow/queue/index.mjs');
-        enqueueTasks(effectiveRepoRoot, changeSlug, [targetTaskId]);
         if (!body.oneOff && effectiveProvider && effectiveMode) {
           try {
             const existing = executionPolicyService.getExecutionPolicy(changeSlug, { repoRoot: effectiveRepoRoot });

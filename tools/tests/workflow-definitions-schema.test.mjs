@@ -145,21 +145,7 @@ describe('Task 25: Workflow continuation schema validation', () => {
     assert.ok(res.errors.some(e => e.includes('execution: can only target an \'executor: agent\' step')));
   });
 
-  test('validates schedulingPriority must be an integer and consumesDependencies must be a boolean', () => {
-    const rawPrio = {
-      id: 'test-wf',
-      steps: {
-        step1: {
-          schedulingPriority: 3.14,
-          status: { active: 'a', completed: 'c' },
-          transitions: [{ to: 'verified', outcome: 'success' }],
-        },
-      },
-    };
-    const res1 = validateWorkflowDefinition(rawPrio);
-    assert.equal(res1.valid, false);
-    assert.ok(res1.errors.some(e => e.includes('schedulingPriority: must be an integer')));
-
+  test('validates consumesDependencies must be a boolean', () => {
     const rawCons = {
       id: 'test-wf',
       steps: {
@@ -231,7 +217,6 @@ describe('Task 25: Workflow continuation normalization', () => {
       id: 'sample-continuation',
       steps: {
         step1: {
-          schedulingPriority: 5,
           consumesDependencies: true,
           status: { active: 's1-act', completed: 's1-done' },
           transitions: [{
@@ -264,7 +249,6 @@ describe('Task 25: Workflow continuation normalization', () => {
     const norm = normalizeWorkflowDefinition(raw);
 
     // Step 1
-    assert.equal(norm.steps.step1.schedulingPriority, 5);
     assert.equal(norm.steps.step1.consumesDependencies, true);
     assert.deepEqual(norm.steps.step1.transitions[0], {
       to: 'step2',
@@ -274,7 +258,6 @@ describe('Task 25: Workflow continuation normalization', () => {
     });
 
     // Step 2
-    assert.equal(norm.steps.step2.schedulingPriority, 0); // default
     assert.equal(norm.steps.step2.consumesDependencies, false); // default
     // Terminal transition (pass)
     assert.deepEqual(norm.steps.step2.transitions[0], {
@@ -325,7 +308,6 @@ describe('Task 25: standard.yaml and standard-v1.yaml migrated definition confor
       // 1. implementation step
       const impl = def.steps.implementation;
       assert.equal(impl.consumesDependencies, true, 'implementation must declare consumesDependencies: true');
-      assert.equal(impl.schedulingPriority, 0, 'implementation schedulingPriority must default to 0');
       assert.equal(impl.transitions.length, 1);
       assert.deepEqual(impl.transitions[0], {
         to: 'review',
@@ -339,7 +321,6 @@ describe('Task 25: standard.yaml and standard-v1.yaml migrated definition confor
 
       // 2. review step
       const review = def.steps.review;
-      assert.equal(review.schedulingPriority, 10, 'review schedulingPriority must be 10');
       assert.equal(review.consumesDependencies, false, 'review consumesDependencies must default to false');
       assert.equal(review.transitions.length, 2);
 
@@ -366,7 +347,6 @@ describe('Task 25: standard.yaml and standard-v1.yaml migrated definition confor
 
       // 3. human-verification step
       const hv = def.steps['human-verification'];
-      assert.equal(hv.schedulingPriority, 0, 'human-verification schedulingPriority must default to 0');
       assert.equal(hv.consumesDependencies, false, 'human-verification consumesDependencies must default to false');
       assert.equal(hv.transitions.length, 2);
 

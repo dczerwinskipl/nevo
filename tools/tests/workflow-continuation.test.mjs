@@ -14,7 +14,7 @@ import {
   hasActiveAgentExecution,
   getActiveAgentExecution,
 } from '../dashboard/server/ai/orchestration/admission.mjs';
-import { evaluateTaskQueue } from '../specs/workflow/queue/evaluator.mjs';
+import { evaluateExecutionReadiness, isActivationOnlyBlocker } from '../specs/workflow/readiness-policy.mjs';
 import { loadWorkflowDefinition } from '../specs/workflow/definitions/loader.mjs';
 import {
   reconcileWorkflowPosition,
@@ -1135,14 +1135,16 @@ test('AC (Task 06): Scenario D: Non-terminal live claim rejects second admitAgen
   }
 });
 
-test('AC (Task 03): evaluateTaskQueue returns dirty-worktree and replayable-finish tasks as runnable; excludes non-replayable finish task', async () => {
+test('AC (Task 03): direct single-task readiness treats dirty-worktree and replayable-finish tasks as runnable (activation-only); excludes non-replayable finish task', async () => {
   const tmpRepo = createTempRepo();
   resetAdmissionStateForTest();
 
   try {
     const definition = loadWorkflowDefinition('standard', { repoRoot: tmpRepo });
 
-    // 1. Task with dirty worktree is returned as eligible and nextRunnable
+    // 1. Task with dirty worktree: readiness.ready is false, but it is runnable via the
+    // activation-only exception (no queue file involved — batch-execution-
+    // generalization, task 01).
     fs.writeFileSync(path.join(tmpRepo, 'dirty-queue.txt'), 'dirty content');
     const changeDirty = {
       id: 'spec-1',
@@ -1152,26 +1154,20 @@ test('AC (Task 03): evaluateTaskQueue returns dirty-worktree and replayable-fini
         { id: 't1', status: 'in-progress', order: 1 },
       ],
     };
-    const queueRecordDirty = {
-      changeSlug: 'spec-1',
-      taskIds: ['t1'],
-      eligibleAt: { t1: 100 },
-    };
-    const qStateDirty = evaluateTaskQueue({
-      change: changeDirty,
-      queueRecord: queueRecordDirty,
-      definition,
+    const task1 = changeDirty.tasks[0];
+    const readinessDirty = evaluateExecutionReadiness(task1, changeDirty, 'agent', { definition, repoRoot: tmpRepo });
+    const isActivationOnlyDirty = !readinessDirty.ready && isActivationOnlyBlocker(readinessDirty, {
       repoRoot: tmpRepo,
-      callerKind: 'agent',
+      task: task1,
+      change: changeDirty,
+      record: readinessDirty.priorRecord,
     });
-    assert.equal(qStateDirty.eligible.length, 1);
-    assert.equal(qStateDirty.eligible[0].taskId, 't1');
-    assert.equal(qStateDirty.nextRunnable?.taskId, 't1');
+    assert.ok(readinessDirty.ready || isActivationOnlyDirty, 't1 must be runnable (ready, or activation-only via dirty worktree)');
 
     // Clean up dirty file
     fs.unlinkSync(path.join(tmpRepo, 'dirty-queue.txt'));
 
-    // 2. Task with safely-replayable finish operation is returned as eligible and nextRunnable
+    // 2. Task with safely-replayable finish operation is runnable; non-replayable is not
     const changeFinish = {
       id: 'spec-1',
       _slug: 'spec-1',
@@ -1240,22 +1236,26 @@ test('AC (Task 03): evaluateTaskQueue returns dirty-worktree and replayable-fini
       ],
     });
 
-    const queueRecordFinish = {
-      changeSlug: 'spec-1',
-      taskIds: ['t-rep', 't-block'],
-      eligibleAt: { 't-rep': 100, 't-block': 200 },
-    };
-    const qStateFinish = evaluateTaskQueue({
-      change: changeFinish,
-      queueRecord: queueRecordFinish,
-      definition,
+    const tRep = changeFinish.tasks.find((t) => t.id === 't-rep');
+    const tBlock = changeFinish.tasks.find((t) => t.id === 't-block');
+
+    const readinessRep = evaluateExecutionReadiness(tRep, changeFinish, 'agent', { definition, repoRoot: tmpRepo });
+    const runnableRep = readinessRep.ready || isActivationOnlyBlocker(readinessRep, {
       repoRoot: tmpRepo,
-      callerKind: 'agent',
+      task: tRep,
+      change: changeFinish,
+      record: readinessRep.priorRecord,
     });
-    // t-rep must be eligible, t-block must be excluded
-    const eligibleIds = qStateFinish.eligible.map((e) => e.taskId);
-    assert.deepEqual(eligibleIds, ['t-rep']);
-    assert.equal(qStateFinish.nextRunnable?.taskId, 't-rep');
+    assert.ok(runnableRep, 't-rep (replayable finish) must be runnable');
+
+    const readinessBlock = evaluateExecutionReadiness(tBlock, changeFinish, 'agent', { definition, repoRoot: tmpRepo });
+    const runnableBlock = readinessBlock.ready || isActivationOnlyBlocker(readinessBlock, {
+      repoRoot: tmpRepo,
+      task: tBlock,
+      change: changeFinish,
+      record: readinessBlock.priorRecord,
+    });
+    assert.equal(runnableBlock, false, 't-block (non-replayable finish) must be excluded');
   } finally {
     resetAdmissionStateForTest();
     fs.rmSync(tmpRepo, { recursive: true, force: true });

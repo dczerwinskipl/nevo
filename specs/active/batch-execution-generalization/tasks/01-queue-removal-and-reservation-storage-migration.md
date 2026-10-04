@@ -28,10 +28,38 @@ allowed_paths:
   - .nevo-ai/workflows/standard.yaml
   - tools/specs/workflow/templates/standard.yaml
   - tools/tests/deterministic-task-queue.test.mjs
+  - tools/dashboard/server/ai/sessions/turns/routes.mjs
+  - tools/tests/workflow-continuation.test.mjs
+  - tools/tests/deterministic-status-corrective.test.mjs
+  - tools/tests/workflow-definitions-schema.test.mjs
+  - tools/dashboard/tests/execution-policy.test.mjs
 forbidden_paths:
   - src/**
   - tools/dashboard/ui/**
 ---
+
+<!--
+Scope amendment (implementation-time, legacy lifecycle — recorded here per
+references/review-policy.md "Specification scope amendment"): the task's original
+allowed_paths missed 5 files that directly, mechanically depend on the symbols this
+task's own Requirements/Acceptance-criteria mandate removing (`enqueueTasks`,
+`evaluateTaskQueue`, `schedulingPriority`, and the old co-located
+`groupReservations` storage lookup). Leaving them untouched would fail this task's own
+"Full suite has no regression" acceptance criterion, since they import/exercise exactly
+what is being deleted/moved:
+- tools/dashboard/server/ai/sessions/turns/routes.mjs — its new-session route calls
+  `enqueueTasks` (production call site outside admission.mjs/reconciliation.mjs).
+- tools/tests/workflow-continuation.test.mjs — one test imports `evaluateTaskQueue`
+  directly from queue/evaluator.mjs.
+- tools/tests/deterministic-status-corrective.test.mjs — three tests assert the
+  queue-wide drain path (`reconcileContinuation`'s `action: 'queue-agent-admitted'`)
+  this task's Requirements explicitly says to delete outright.
+- tools/tests/workflow-definitions-schema.test.mjs — asserts `schedulingPriority`
+  schema validation/normalization behavior being removed.
+- tools/dashboard/tests/execution-policy.test.mjs — reads `groupReservations` via the
+  old co-located `loadTaskQueue` storage being re-homed.
+-->
+
 
 # Task: Retire the generic sequential queue; re-home batch reservations
 

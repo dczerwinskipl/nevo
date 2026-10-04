@@ -624,12 +624,6 @@ export function validateWorkflowDefinition(definition, options = {}) {
       });
     }
 
-    if (stepConfig.schedulingPriority !== undefined) {
-      if (typeof stepConfig.schedulingPriority !== 'number' || !Number.isInteger(stepConfig.schedulingPriority)) {
-        errors.push(`${stepLabel}.schedulingPriority: must be an integer`);
-      }
-    }
-
     if (stepConfig.consumesDependencies !== undefined) {
       if (typeof stepConfig.consumesDependencies !== 'boolean') {
         errors.push(`${stepLabel}.consumesDependencies: must be a boolean`);
@@ -678,7 +672,6 @@ export function normalizeWorkflowDefinition(definition) {
   for (const [stepName, stepConfig] of Object.entries(definition.steps || {})) {
     normalizedSteps[stepName] = {
       executor: stepConfig.executor ?? 'agent',
-      schedulingPriority: typeof stepConfig.schedulingPriority === 'number' ? stepConfig.schedulingPriority : 0,
       consumesDependencies: stepConfig.consumesDependencies === true,
       entryGates: (stepConfig.entryGates || []).map(g => (typeof g === 'string' ? { type: g } : { ...g })),
       actions: (stepConfig.actions || []).map(a => (typeof a === 'string' ? { id: a } : { ...a })),
