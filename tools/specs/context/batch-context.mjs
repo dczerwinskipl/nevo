@@ -173,6 +173,9 @@ export function buildBatchContext(params = {}) {
 
   const members = sortedTasks.map((t) => {
     const stepContext = memberStepContexts[t.id] || null;
+    const dependsOn = Array.isArray(t.depends_on)
+      ? t.depends_on.filter((depId) => taskIds.includes(depId))
+      : [];
     return {
       taskId: t.id,
       title: t.title,
@@ -180,6 +183,11 @@ export function buildBatchContext(params = {}) {
       status: t.status,
       allowedPaths: t.allowed_paths || stepContext?.expectedWork?.allowedPaths || [],
       forbiddenPaths: t.forbidden_paths || stepContext?.expectedWork?.forbiddenPaths || [],
+      // In-batch dependency order (batch-execution-generalization, task 02, Gap 4):
+      // sourced directly from the task's own depends_on, filtered to ids that are also
+      // members of this same batch — external dependencies are not the agent's concern
+      // inside the session (already satisfied, or the batch wouldn't have been admitted).
+      dependsOn,
       stepContext,
     };
   });

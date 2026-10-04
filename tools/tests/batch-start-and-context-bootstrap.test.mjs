@@ -7,13 +7,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { createGroupReservation, releaseGroupReservation } from '../specs/workflow/queue/index.mjs';
+import { createGroupReservation, releaseGroupReservation, validateBatchCompatibility } from '../specs/workflow/queue/index.mjs';
 import { executeBatchStart } from '../specs/workflow/batch-start/operation.mjs';
-import { acquireWorkspaceWriter, forceReleaseWorkspaceWriterUnsafe } from '../specs/workflow/workspace-writer.mjs';
+import { acquireWorkspaceWriter } from '../specs/workflow/workspace-writer.mjs';
 import { loadBatchStartRecord } from '../specs/workflow/batch-start/record.mjs';
 import { computeWorkspaceDeltaFingerprint } from '../specs/workflow/batch-start/workspace-baseline.mjs';
 import { createAgentSessionBindingService } from '../dashboard/server/ai/sessions/binding-service.mjs';
 import { handleWorkflowStepStart } from '../specs/workflow/cli.mjs';
+import { requireChange } from '../specs/store.mjs';
+import { loadWorkflowDefinition } from '../specs/workflow/definitions/loader.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -393,48 +395,33 @@ tasks:
     execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
     execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: tmpRoot });
 
-    // Try to execute batch start when t1 is draft (unpublished)
-    const badRes = await createGroupReservation({
-      repoRoot: tmpRoot,
-      changeSlug: 'readiness-spec',
+    // A draft (unpublished) task is rejected at the real, authoritative gate —
+    // validateBatchCompatibility, run before any reservation is created (batch-
+    // execution-generalization, task 02: executeBatchStart itself deliberately no
+    // longer re-derives single-task readiness — that per-member replay was removed as
+    // redundant once batch-level compatibility became authoritative for the in-batch-
+    // dependency exception; re-deriving it here would reject a member whose only
+    // blocker is another member of the same batch).
+    const readinessChange = requireChange('readiness-spec', activeDir);
+    const readinessDefinition = loadWorkflowDefinition(readinessChange.workflow.definition, { repoRoot: tmpRoot });
+    const badCompat = validateBatchCompatibility({
+      change: readinessChange,
       taskIds: ['t1', 't2'],
-      executionConfigSnapshot: { provider: 'mock', model: 'm', contextCapacity: { status: 'unknown' } },
+      definition: readinessDefinition,
+      repoRoot: tmpRoot,
     });
-
-    const badSessionId = await setupBatchSessionAndClaim(
-      tmpRoot,
-      'aaaaaaaa-0005-4000-a000-000000000001',
-      ['t1', 't2'],
-      badRes.batchExecutionId,
-      'session-readiness-bad'
-    );
-
-    await assert.rejects(
-      async () => {
-        await executeBatchStart({
-          repoRoot: tmpRoot,
-          activeDir,
-          changeSlug: 'readiness-spec',
-          batchExecutionId: badRes.batchExecutionId,
-          sessionId: badSessionId,
-        });
-      },
-      { code: 'TASK_UNPUBLISHED' }
-    );
+    assert.equal(badCompat.compatible, false);
+    assert.equal(badCompat.incompatibleTaskId, 't1');
+    assert.match(badCompat.reason, /not eligible/);
 
     // Verify ZERO activations occurred: t2 remains in completed implementation, not active review
     const postFailRaw = fs.readFileSync(path.join(changeDir, 'change.yaml'), 'utf8');
     assert.equal(postFailRaw.includes('current_step: review'), false);
     assert.equal(postFailRaw.includes('state: active'), false);
 
-    // Now fix t1 to be valid and ready for review
-    await releaseGroupReservation({
-      repoRoot: tmpRoot,
-      changeSlug: 'readiness-spec',
-      batchExecutionId: badRes.batchExecutionId,
-    });
-    await forceReleaseWorkspaceWriterUnsafe({ repoRoot: tmpRoot });
-
+    // Now fix t1 to be valid and ready for review — no reservation/claim was ever
+    // created above (validateBatchCompatibility rejected before either existed), so
+    // nothing needs releasing.
     fs.writeFileSync(
       path.join(changeDir, 'change.yaml'),
       `id: readiness-spec

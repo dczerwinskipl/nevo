@@ -173,6 +173,7 @@ export function validateBatchCompatibility(params = {}) {
 
   let targetStepId = null;
   let targetRole = null;
+  let targetRoleEstablished = false;
 
   for (const taskId of taskIds) {
     const task = tasks.find((t) => t.id === taskId || t.file?.endsWith(`/${taskId}.md`) || t.file?.endsWith(`\\${taskId}.md`));
@@ -184,9 +185,19 @@ export function validateBatchCompatibility(params = {}) {
       };
     }
 
-    // 4. Individually eligible and runnable per base readiness
+    // 4. Individually eligible and runnable per base readiness — with the in-batch-
+    // dependency exception (batch-execution-generalization, task 02, Gap 1): a member
+    // blocked only by another member of this same candidate batch is a same-batch
+    // ordering constraint, not a compatibility failure. A dependency unsatisfied by a
+    // task outside the batch still fails exactly as before.
     const readiness = evaluateBaseExecutionReadiness(task, change, 'agent', { definition, repoRoot });
-    if (!readiness.ready) {
+    const blockedOnlyByBatchMembers = !readiness.ready
+      && readiness.code === 'DEPENDENCY_UNSATISFIED'
+      && Array.isArray(readiness.blockedBy)
+      && readiness.blockedBy.length > 0
+      && readiness.blockedBy.every((depId) => taskIds.includes(depId));
+
+    if (!readiness.ready && !blockedOnlyByBatchMembers) {
       return {
         compatible: false,
         reason: `Task '${taskId}' is not eligible: ${readiness.reason}`,
@@ -195,6 +206,9 @@ export function validateBatchCompatibility(params = {}) {
       };
     }
 
+    // A dependency-blocked task's canonical next step is populated identically whether
+    // or not it is currently blocked (task-projection.mjs) — use it directly when the
+    // ordinary readiness result carries no targetStep of its own.
     const stepId = readiness.targetStep?.id || readiness.projection?.nextStep?.id || readiness.projection?.currentStep;
     if (!targetStepId) {
       targetStepId = stepId;
@@ -207,7 +221,7 @@ export function validateBatchCompatibility(params = {}) {
     }
 
     // Target step must define executor: 'agent'
-    const executor = readiness.targetStep?.executor || 'agent';
+    const executor = readiness.targetStep?.executor || readiness.projection?.nextStep?.executor || 'agent';
     if (executor !== 'agent') {
       return {
         compatible: false,
@@ -218,38 +232,49 @@ export function validateBatchCompatibility(params = {}) {
 
     // 3 & 5. Incoming transition resolution via shared resolver (D20)
     if (definition) {
+      const history = task?.workflow_progress?.history || [];
       const incoming = resolveIncomingExecution(task, definition, stepId);
+      let role;
+
       if (!incoming.transition) {
-        return {
-          compatible: false,
-          reason: `No matching incoming transition found for task '${taskId}' to step '${stepId}' (${incoming.error || incoming.reason})`,
-          incompatibleTaskId: taskId,
-        };
+        // An entry-step member (no workflow history at all) has no incoming transition
+        // to resolve, by construction — a normal fresh-task case, not a failure. It
+        // starts fresh, by construction `session: fresh`, with no declared role to
+        // match against (batch-execution-generalization, task 02, Gap 1).
+        if (!(incoming.error === 'NO_INCOMING_TRANSITION' && history.length === 0)) {
+          return {
+            compatible: false,
+            reason: `No matching incoming transition found for task '${taskId}' to step '${stepId}' (${incoming.error || incoming.reason})`,
+            incompatibleTaskId: taskId,
+          };
+        }
+        role = null;
+      } else {
+        if (incoming.session !== 'fresh') {
+          return {
+            compatible: false,
+            reason: `Task '${taskId}' incoming transition requires session '${incoming.session}'; batch execution requires session: fresh`,
+            incompatibleTaskId: taskId,
+          };
+        }
+
+        role = incoming.role;
+        if (!role) {
+          return {
+            compatible: false,
+            reason: `Authoritative incoming transition for task '${taskId}' does not declare an agent role`,
+            incompatibleTaskId: taskId,
+          };
+        }
       }
 
-      if (incoming.session !== 'fresh') {
-        return {
-          compatible: false,
-          reason: `Task '${taskId}' incoming transition requires session '${incoming.session}'; batch execution requires session: fresh`,
-          incompatibleTaskId: taskId,
-        };
-      }
-
-      const role = incoming.role;
-      if (!role) {
-        return {
-          compatible: false,
-          reason: `Authoritative incoming transition for task '${taskId}' does not declare an agent role`,
-          incompatibleTaskId: taskId,
-        };
-      }
-
-      if (!targetRole) {
+      if (!targetRoleEstablished) {
         targetRole = role;
+        targetRoleEstablished = true;
       } else if (targetRole !== role) {
         return {
           compatible: false,
-          reason: `Incoming role mismatch: task '${taskId}' requires role '${role}', but previous tasks require '${targetRole}'`,
+          reason: `Incoming role mismatch: task '${taskId}' requires role '${role ?? 'null'}', but previous tasks require '${targetRole ?? 'null'}'`,
           incompatibleTaskId: taskId,
         };
       }
