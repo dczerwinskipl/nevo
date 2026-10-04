@@ -72,7 +72,7 @@ tasks:
   - id: batch-finish-phase-neutral-generalization
     order: 3
     file: tasks/03-batch-finish-phase-neutral-generalization.md
-    status: implemented
+    status: verified
     depends_on: [ batch-admission-generalization ]
     implementation:
       baseline_revision: bf47d47bfe8c412d6939e60732b2582bb5a99760
