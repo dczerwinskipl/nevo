@@ -14,6 +14,8 @@ import { executeBatchFinish } from '../specs/workflow/batch-finish/operation.mjs
 import { loadBatchFinishRecord } from '../specs/workflow/batch-finish/record.mjs';
 import { handleWorkflowBatchFinish } from '../specs/workflow/cli.mjs';
 import { getCanonicalBatchReportRelativePath } from '../specs/reviews/batch-report.mjs';
+import { loadDependencyConsumption } from '../specs/workflow/dependency-consumption.mjs';
+import { findInFlightStartOperation } from '../specs/workflow/start-operation.mjs';
 import * as git from '../lib/git.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -36,11 +38,13 @@ steps:
     purpose: "Implement code"
     expectedWork:
       summary: "Implement"
+    consumesDependencies: true
     entryGates: []
     exitGates: []
     finalize: []
     transitions:
       - to: review
+        releasesDependencies: true
         execution:
           session: fresh
           role: reviewer
@@ -93,6 +97,8 @@ const SPEC_IDS = {
   'identity-mismatch-spec': 'bbbbbbbb-0006-4000-b000-000000000001',
   'cli-batch-finish-spec': 'bbbbbbbb-0007-4000-b000-000000000001',
   'cross-task-findings-spec': 'bbbbbbbb-0008-4000-b000-000000000001',
+  'intra-batch-dep-spec': 'cccccccc-0001-4000-c000-000000000001',
+  'intra-batch-dep-crash-spec': 'cccccccc-0002-4000-c000-000000000001',
 };
 
 function createTasksAndBootstrap(tmpRoot, slug, taskIds = ['t1', 't2', 't3']) {
@@ -977,4 +983,232 @@ test('9. AC9: Reviewer cross-task findings with affectedTaskIds reach canonical 
   assert.ok(reportContent.includes('FINDING-VALID'));
   assert.ok(reportContent.includes('Reviewer detected shared API contract divergence'));
   assert.ok(reportContent.includes('t1, t2'));
+});
+
+test("10. AC (Task 04): Intra-batch dependency-consumption materializes T2's pending entry with T1's real releaseEpoch, using T2's own pre-allocated consumptionSequence", async () => {
+  const { tmpRoot, activeDir, changeDir, taskDir } = setupTestRepo('intra-batch-dep-spec');
+  const slug = 'intra-batch-dep-spec';
+  const taskIds = ['t1', 't2'];
+
+  // Two brand-new tasks (no workflow_progress at all) — t2 depends_on t1, both
+  // targeting the shared, unconditional entry step 'implementation'.
+  fs.writeFileSync(
+    path.join(changeDir, 'change.yaml'),
+    `id: ${slug}
+spec_id: "cccccccc-0001-4000-c000-000000000001"
+workflow:
+  mode: deterministic
+  definition: standard.yaml
+tasks:
+  - id: t1
+    order: 1
+    title: Task 1
+    status: planned
+  - id: t2
+    order: 2
+    title: Task 2
+    status: planned
+    depends_on: [t1]
+`,
+    'utf8'
+  );
+  fs.writeFileSync(path.join(taskDir, 't1.md'), '# Task 1\n', 'utf8');
+  fs.writeFileSync(path.join(taskDir, 't2.md'), '# Task 2\n', 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
+  execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: tmpRoot });
+
+  const batchExecutionId = 'batch-exec-intra-dep-1';
+  const sessionId = 'session-intra-dep-1';
+
+  await createGroupReservation({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    taskIds,
+    batchExecutionId,
+    executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+  });
+
+  writeSessionFile(tmpRoot, slug, {
+    sessionId,
+    batchExecutionId,
+    executionScope: { kind: 'task-batch', changeSlug: slug, taskIds },
+  });
+
+  await acquireWorkspaceWriter({
+    repoRoot: tmpRoot,
+    kind: 'agent',
+    specId: slug,
+    sessionId,
+    turnId: 'turn-1',
+    scope: { kind: 'task-batch', taskIds },
+    batchExecutionId,
+  });
+
+  await executeBatchStart({
+    repoRoot: tmpRoot,
+    activeDir,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId,
+  });
+
+  // Both t1 and t2 target the unconditional 'implementation' step — no result field
+  const finishRes = await executeBatchFinish({
+    repoRoot: tmpRoot,
+    activeDir,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId,
+    inputs: {
+      tasks: {},
+      'commit.title': 'feat: implement t1 and t2',
+    },
+  });
+
+  assert.equal(finishRes.status, 'completed');
+
+  // T2's dependency-consumption record names T1's real releaseEpoch, using T2's own
+  // pre-allocated consumptionSequence (never a new one) — consumptionSequence is
+  // scoped per *consuming* task (D52/D58: scanMaxConsumptionSequence scans only that
+  // task's own prior records), so T2's first-ever allocation is 1, same as T1's.
+  const t2Consumption = loadDependencyConsumption(tmpRoot, slug, 't2', 'implementation', 1);
+  assert.ok(t2Consumption, 'T2 must have a recorded dependency-consumption entry');
+  assert.deepEqual(t2Consumption.dependencies, [
+    { taskId: 't1', releaseEpoch: { step: 'implementation', attempt: 1 } },
+  ]);
+  assert.equal(t2Consumption.consumptionSequence, 1);
+
+  // T1 has no dependencies at all — unaffected by the materialization machinery, its
+  // own (empty) consumption record is still correctly recorded, exactly as the
+  // single-task path would.
+  const t1Consumption = loadDependencyConsumption(tmpRoot, slug, 't1', 'implementation', 1);
+  assert.ok(t1Consumption);
+  assert.deepEqual(t1Consumption.dependencies, []);
+
+  // Both start-operations' record-consumption stage closed (no longer in-flight)
+  assert.equal(findInFlightStartOperation(tmpRoot, slug, 't1'), null);
+  assert.equal(findInFlightStartOperation(tmpRoot, slug, 't2'), null);
+});
+
+test('11. AC (Task 04): Crash between materializing T2\'s pending entry and finishing T3 resumes without duplicating or losing the materialized entry', async () => {
+  const { tmpRoot, activeDir, changeDir, taskDir } = setupTestRepo('intra-batch-dep-crash-spec');
+  const slug = 'intra-batch-dep-crash-spec';
+  const taskIds = ['t1', 't2', 't3'];
+
+  fs.writeFileSync(
+    path.join(changeDir, 'change.yaml'),
+    `id: ${slug}
+spec_id: "cccccccc-0002-4000-c000-000000000001"
+workflow:
+  mode: deterministic
+  definition: standard.yaml
+tasks:
+  - id: t1
+    order: 1
+    title: Task 1
+    status: planned
+  - id: t2
+    order: 2
+    title: Task 2
+    status: planned
+    depends_on: [t1]
+  - id: t3
+    order: 3
+    title: Task 3
+    status: planned
+`,
+    'utf8'
+  );
+  fs.writeFileSync(path.join(taskDir, 't1.md'), '# Task 1\n', 'utf8');
+  fs.writeFileSync(path.join(taskDir, 't2.md'), '# Task 2\n', 'utf8');
+  fs.writeFileSync(path.join(taskDir, 't3.md'), '# Task 3\n', 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
+  execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: tmpRoot });
+
+  const batchExecutionId = 'batch-exec-intra-dep-crash-1';
+  const sessionId = 'session-intra-dep-crash-1';
+
+  await createGroupReservation({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    taskIds,
+    batchExecutionId,
+    executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+  });
+
+  writeSessionFile(tmpRoot, slug, {
+    sessionId,
+    batchExecutionId,
+    executionScope: { kind: 'task-batch', changeSlug: slug, taskIds },
+  });
+
+  await acquireWorkspaceWriter({
+    repoRoot: tmpRoot,
+    kind: 'agent',
+    specId: slug,
+    sessionId,
+    turnId: 'turn-1',
+    scope: { kind: 'task-batch', taskIds },
+    batchExecutionId,
+  });
+
+  await executeBatchStart({
+    repoRoot: tmpRoot,
+    activeDir,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId,
+  });
+
+  // Crash immediately after t1 finishes — its own materialization sweep already ran
+  // (which resolves t2's pending entry, since t2 depends_on t1), but t3 has not started.
+  await assert.rejects(
+    async () => {
+      await executeBatchFinish({
+        repoRoot: tmpRoot,
+        activeDir,
+        changeSlug: slug,
+        batchExecutionId,
+        sessionId,
+        inputs: {
+          tasks: {},
+          'commit.title': 'feat: implement t1, t2, t3',
+        },
+        _crashAfterMemberTaskId: 't1',
+      });
+    },
+    /Simulated crash after member task t1/
+  );
+
+  // t2's dependency-consumption entry must already be materialized from this first
+  // attempt, before the crash
+  const t2ConsumptionMid = loadDependencyConsumption(tmpRoot, slug, 't2', 'implementation', 1);
+  assert.ok(t2ConsumptionMid, "t2's dependency-consumption must be materialized before the crash");
+  assert.deepEqual(t2ConsumptionMid.dependencies, [
+    { taskId: 't1', releaseEpoch: { step: 'implementation', attempt: 1 } },
+  ]);
+
+  // Resume
+  const resumeRes = await executeBatchFinish({
+    repoRoot: tmpRoot,
+    activeDir,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId,
+    inputs: {
+      tasks: {},
+      'commit.title': 'feat: implement t1, t2, t3',
+    },
+  });
+
+  assert.equal(resumeRes.status, 'completed');
+
+  // t2's materialized entry must be neither duplicated nor lost after resume
+  const t2ConsumptionAfter = loadDependencyConsumption(tmpRoot, slug, 't2', 'implementation', 1);
+  assert.deepEqual(t2ConsumptionAfter, t2ConsumptionMid, "t2's materialized entry must be unchanged by resume — not re-materialized");
+
+  // All three members' own finishes completed exactly once
+  assert.equal(resumeRes.record.stages.memberFinishes.t1.status, 'completed');
+  assert.equal(resumeRes.record.stages.memberFinishes.t2.status, 'completed');
+  assert.equal(resumeRes.record.stages.memberFinishes.t3.status, 'completed');
 });

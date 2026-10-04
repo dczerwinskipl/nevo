@@ -11,6 +11,9 @@ import { getGroupReservation } from '../queue/reservation.mjs';
 import { finishStep } from '../finish-operation.mjs';
 import { defaultActionRegistry } from '../registry.mjs';
 import { resolveTaskScope } from '../../context.mjs';
+import { findInFlightStartOperation, saveStartOperation, completeConsumptionStage } from '../start-operation.mjs';
+import { recordDependencyConsumption } from '../dependency-consumption.mjs';
+import { evaluateDependencySatisfaction } from '../dependency-satisfaction.mjs';
 import '../actions/index.mjs';
 import { WorkflowError } from '../errors.mjs';
 import {
@@ -21,6 +24,120 @@ import {
 import { loadBatchStartRecord } from '../batch-start/record.mjs';
 import { renderBatchReport } from '../../reviews/batch-report.mjs';
 import { prevalidateBatchFinish } from './preflight.mjs';
+
+/**
+ * Orders a batch's own members by `depends_on` (filtered to ids that are members of
+ * this same batch — external dependencies already resolved or the batch would not
+ * have been admitted) so an upstream member's own transition is derived, and its
+ * release epoch created, before any downstream member that depends on it is processed
+ * (batch-execution-generalization, task 04, Gap 6 finish half). Independent members
+ * keep the batch's own declared order relative to each other. Falls back to that same
+ * declared order for whatever remains if the graph does not fully resolve (defensive
+ * only — `validateBatchCompatibility`/admission already guarantee an acyclic,
+ * in-batch-resolvable graph).
+ *
+ * @param {string[]} taskIds
+ * @param {object} change
+ * @returns {string[]}
+ */
+function topoSortBatchMembers(taskIds, change) {
+  const idSet = new Set(taskIds);
+  const remaining = new Set(taskIds);
+  const result = [];
+
+  while (remaining.size > 0) {
+    let progressed = false;
+    for (const id of taskIds) {
+      if (!remaining.has(id)) continue;
+      let task;
+      try {
+        task = requireTask(change, id);
+      } catch {
+        task = null;
+      }
+      const deps = (Array.isArray(task?.depends_on) ? task.depends_on : []).filter((d) => idSet.has(d));
+      if (deps.every((d) => !remaining.has(d))) {
+        result.push(id);
+        remaining.delete(id);
+        progressed = true;
+      }
+    }
+    if (!progressed) {
+      for (const id of taskIds) {
+        if (remaining.has(id)) result.push(id);
+      }
+      break;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Materializes a member's own pending intra-batch dependency-consumption entries (Gap
+ * 6, finish half — batch-execution-generalization, task 04): for each pending entry
+ * (`releaseEpoch: null, pending: true`, allocated at batch-start by task 02), re-reads
+ * the named dependency task's *current* workflow history and fills in its real release
+ * epoch once that dependency's own transition has actually landed. Once every entry in
+ * the snapshot is resolved (pending or always-external), records the consumption using
+ * the exact `consumptionSequence` already allocated at batch-start (never a new one —
+ * this is what preserves `planStart`'s frozen-snapshot invariant) and closes the
+ * start-operation's own `record-consumption` stage. A no-op, safe to call repeatedly,
+ * for a task with no start-operation at all (not a `consumesDependencies` member) or
+ * whose consumption stage already completed — this is what makes resuming after a
+ * crash between materializing one entry and finishing the next member neither
+ * re-materialize nor lose anything.
+ *
+ * @param {string} repoRoot
+ * @param {string} changeSlug
+ * @param {string} taskId
+ * @param {object} currentChange - Freshly loaded change (reflects latest transitions)
+ * @param {object} definition
+ */
+function tryCompleteDependencyConsumption(repoRoot, changeSlug, taskId, currentChange, definition) {
+  const startOp = findInFlightStartOperation(repoRoot, changeSlug, taskId);
+  if (!startOp) return;
+
+  const consumeStage = startOp.stages?.find((s) => s.id === 'record-consumption');
+  if (consumeStage?.status === 'completed') return;
+
+  let changed = false;
+  const resolvedSnapshot = (startOp.dependencySnapshot || []).map((dep) => {
+    if (dep.releaseEpoch || !dep.pending) return dep;
+    let depTask;
+    try {
+      depTask = requireTask(currentChange, dep.taskId);
+    } catch {
+      depTask = null;
+    }
+    if (!depTask) return dep;
+    const resolved = evaluateDependencySatisfaction(depTask, currentChange, definition);
+    if (resolved.releaseEpoch) {
+      changed = true;
+      return { taskId: dep.taskId, releaseEpoch: resolved.releaseEpoch };
+    }
+    return dep;
+  });
+
+  if (changed) {
+    startOp.dependencySnapshot = resolvedSnapshot;
+    saveStartOperation(repoRoot, startOp);
+  }
+
+  const stillPending = resolvedSnapshot.some((dep) => !dep.releaseEpoch);
+  if (stillPending) return;
+
+  recordDependencyConsumption({
+    repoRoot,
+    change: changeSlug,
+    consumingTaskId: taskId,
+    consumingStep: startOp.step,
+    consumingAttempt: startOp.attempt,
+    consumptionSequence: startOp.consumptionSequence,
+    dependencies: resolvedSnapshot,
+  });
+  completeConsumptionStage(repoRoot, startOp);
+}
 
 /**
  * Executes the batch-finish operation as a durable, idempotent saga (D21).
@@ -160,11 +277,16 @@ export async function executeBatchFinish(params = {}) {
   // explicitly disabled for this per-member call — its own `commit`/`push` stages must
   // not execute per member (batch-execution-generalization, task 03, Gap 2/5); Stage 5
   // below performs the one shared commit/push covering every member's changes instead.
+  // Members are processed in `depends_on` topological order (task 04, Gap 6 finish
+  // half) so an upstream member's own release epoch exists before any downstream
+  // member's pending dependency-consumption entry is materialized below.
   if (!record.stages.memberFinishes) {
     record.stages.memberFinishes = {};
   }
 
-  for (const taskId of taskIds) {
+  const orderedTaskIds = topoSortBatchMembers(taskIds, change);
+
+  for (const taskId of orderedTaskIds) {
     if (record.stages.memberFinishes[taskId]?.status === 'completed') {
       continue; // Skip already completed member finishes
     }
@@ -202,6 +324,20 @@ export async function executeBatchFinish(params = {}) {
       completedAt: new Date().toISOString(),
     };
     saveBatchFinishRecord(repoRoot, changeSlug, record);
+
+    // Materialize dependency-consumption (Gap 6, finish half — batch-execution-
+    // generalization, task 04): this member's own transition, just applied above, may
+    // have created a release epoch other (not-yet-finished or already-finished)
+    // members' pending entries were waiting on. Re-checked for every member on every
+    // iteration — not just the one that pointed at `taskId` — so a member depending on
+    // two different siblings converges correctly regardless of which one just finished,
+    // and so a crash immediately after this point (before the next member starts) never
+    // leaves a materializable entry un-recorded on resume (`tryCompleteDependencyConsumption`
+    // is itself idempotent: a no-op for a non-consuming task or an already-completed stage).
+    const changeAfterMemberFinish = requireChange(changeSlug, activeDir);
+    for (const id of taskIds) {
+      tryCompleteDependencyConsumption(repoRoot, changeSlug, id, changeAfterMemberFinish, definition);
+    }
 
     if (_crashAfterMemberTaskId === taskId) {
       throw new Error(`[test-hook] Simulated crash after member task ${taskId}`);
