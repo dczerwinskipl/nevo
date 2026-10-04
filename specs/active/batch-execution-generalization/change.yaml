@@ -49,7 +49,26 @@ tasks:
   - id: batch-admission-generalization
     order: 2
     file: tasks/02-batch-admission-generalization.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: 64faf3a1a71d667d48aaa0ec16c09938669acdb7
+      review_revision: b6c6cf2dd5c95529bfbfaaee14eb9e1fb5bb4075
+      changed_paths:
+        - tools/specs/context/batch-context.mjs
+        - tools/specs/workflow/batch-start/operation.mjs
+        - tools/specs/workflow/queue/reservation.mjs
+        - tools/tests/batch-start-and-context-bootstrap.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 47e17e75378534246222b89246a0546b74dded9d597764ec001b31ad3c946f8e
+      revision: b6c6cf2dd5c95529bfbfaaee14eb9e1fb5bb4075
+      commands:
+        - command: node --test tools/tests/batch-queue-reservation.test.mjs
+            tools/tests/batch-start-and-context-bootstrap.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: batch-finish-phase-neutral-generalization
     order: 3
     file: tasks/03-batch-finish-phase-neutral-generalization.md
