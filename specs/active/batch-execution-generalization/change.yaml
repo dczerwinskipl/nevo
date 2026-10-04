@@ -49,7 +49,7 @@ tasks:
   - id: batch-admission-generalization
     order: 2
     file: tasks/02-batch-admission-generalization.md
-    status: draft
+    status: approved
   - id: batch-finish-phase-neutral-generalization
     order: 3
     file: tasks/03-batch-finish-phase-neutral-generalization.md

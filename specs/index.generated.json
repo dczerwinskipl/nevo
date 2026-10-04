@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-04T14:36:36.565Z",
+  "generated": "2026-10-04T14:36:45.784Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -244,7 +244,7 @@
           "id": "batch-admission-generalization",
           "order": 2,
           "file": "tasks/02-batch-admission-generalization.md",
-          "status": "draft"
+          "status": "approved"
         },
         {
           "id": "batch-finish-phase-neutral-generalization",
