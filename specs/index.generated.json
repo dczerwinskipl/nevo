@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-04T03:46:55.666Z",
+  "generated": "2026-10-04T07:40:17.669Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -199,7 +199,7 @@
           "id": "queue-removal-and-reservation-storage-migration",
           "order": 1,
           "file": "tasks/01-queue-removal-and-reservation-storage-migration.md",
-          "status": "draft"
+          "status": "approved"
         },
         {
           "id": "batch-admission-generalization",
