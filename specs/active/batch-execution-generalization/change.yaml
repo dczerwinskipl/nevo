@@ -98,7 +98,7 @@ tasks:
   - id: intra-batch-dependency-consumption-materialization
     order: 4
     file: tasks/04-intra-batch-dependency-consumption-materialization.md
-    status: implemented
+    status: verified
     depends_on: [ batch-admission-generalization, batch-finish-phase-neutral-generalization ]
     implementation:
       baseline_revision: 8b51948564b92d4ad556a2b7b7c846524d60779d
