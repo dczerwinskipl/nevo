@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-04T20:09:01.940Z",
+  "generated": "2026-10-04T20:13:58.789Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -313,7 +313,7 @@
           "id": "intra-batch-dependency-consumption-materialization",
           "order": 4,
           "file": "tasks/04-intra-batch-dependency-consumption-materialization.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "batch-admission-generalization",
             "batch-finish-phase-neutral-generalization"

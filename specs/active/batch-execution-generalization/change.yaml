@@ -98,7 +98,7 @@ tasks:
   - id: intra-batch-dependency-consumption-materialization
     order: 4
     file: tasks/04-intra-batch-dependency-consumption-materialization.md
-    status: draft
+    status: approved
     depends_on: [ batch-admission-generalization, batch-finish-phase-neutral-generalization ]
   - id: batch-completion-handover-partitioning
     order: 5
