@@ -72,8 +72,29 @@ tasks:
   - id: batch-finish-phase-neutral-generalization
     order: 3
     file: tasks/03-batch-finish-phase-neutral-generalization.md
-    status: approved
+    status: implemented
     depends_on: [ batch-admission-generalization ]
+    implementation:
+      baseline_revision: bf47d47bfe8c412d6939e60732b2582bb5a99760
+      review_revision: bfeb42e66b98793e27e24dbf88d4cb5821383096
+      changed_paths:
+        - tools/specs/context/batch-context.mjs
+        - tools/specs/workflow/batch-finish/operation.mjs
+        - tools/specs/workflow/batch-finish/preflight.mjs
+        - tools/tests/batch-cli-and-security.test.mjs
+        - tools/tests/batch-finish-operation.test.mjs
+        - tools/tests/batch-lifecycle-assembled.test.mjs
+      worktree_patch_fingerprint: 2e9ced0fc4a0a8c51886274af31f1668dc772c16275297c0d3f6df34947fc5ef
+    self_check:
+      fingerprint: 876cd9029658513cbb54d641d58b4585babc835ef77d6867d84da0ade94a2897
+      revision: bfeb42e66b98793e27e24dbf88d4cb5821383096
+      commands:
+        - command: node --test tools/tests/batch-finish-operation.test.mjs
+            tools/tests/batch-claim-release-ordering.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: intra-batch-dependency-consumption-materialization
     order: 4
     file: tasks/04-intra-batch-dependency-consumption-materialization.md
