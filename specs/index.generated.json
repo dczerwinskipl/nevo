@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-05T16:46:20.574Z",
+  "generated": "2026-10-05T16:46:55.508Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -489,7 +489,7 @@
           "id": "batch-finish-gate-correctness",
           "order": 9,
           "file": "tasks/09-batch-finish-gate-correctness.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "batch-finish-phase-neutral-generalization",
             "intra-batch-dependency-consumption-materialization"

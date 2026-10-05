@@ -221,7 +221,7 @@ tasks:
   - id: batch-finish-gate-correctness
     order: 9
     file: tasks/09-batch-finish-gate-correctness.md
-    status: implemented
+    status: verified
     depends_on:
       [
         batch-finish-phase-neutral-generalization,
