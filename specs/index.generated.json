@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-05T08:41:54.081Z",
+  "generated": "2026-10-05T08:42:12.373Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -347,7 +347,7 @@
           "id": "batch-completion-handover-partitioning",
           "order": 5,
           "file": "tasks/05-batch-completion-handover-partitioning.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "batch-finish-phase-neutral-generalization",
             "intra-batch-dependency-consumption-materialization"

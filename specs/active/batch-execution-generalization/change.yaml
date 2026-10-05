@@ -119,7 +119,7 @@ tasks:
   - id: batch-completion-handover-partitioning
     order: 5
     file: tasks/05-batch-completion-handover-partitioning.md
-    status: implemented
+    status: verified
     depends_on:
       [
         batch-finish-phase-neutral-generalization,
