@@ -17,7 +17,7 @@ task_fingerprints:
   batch-completion-handover-partitioning: b22a5db73315e67d31cf4f411a542abd3d7287a278b470ad2834cd8626c24b0c
   ui-canonical-dependency-projection: e87120a81cc7414b0533083fac6b13f732042282b855b942530ffb69a09a8cde
   acceptance-initial-implementation-batch: 6ff1256cd0c9b6ada8994a60364d2b9194d8c2395b439a1707942ce9a6d0f6bc
-  single-task-convergence-verification: 056fcfe8713389f5508089b9a5059c20cfd016f29d4412d409f171e3cf2dc540
+  single-task-convergence-verification: e516de6ab1c206a7fdaff544a98d976c61f4d54dde7431f403514e21d22f274c
 ---
 
 # Review: batch-execution-generalization
