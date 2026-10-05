@@ -194,7 +194,7 @@ tasks:
   - id: single-task-convergence-verification
     order: 8
     file: tasks/08-single-task-convergence-verification.md
-    status: implemented
+    status: verified
     depends_on:
       [
         queue-removal-and-reservation-storage-migration,
