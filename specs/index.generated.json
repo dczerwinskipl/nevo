@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-05T18:38:38.761Z",
+  "generated": "2026-10-05T18:39:03.975Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -528,7 +528,7 @@
           "id": "production-batch-admission-generalization",
           "order": 10,
           "file": "tasks/10-production-batch-admission-generalization.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "queue-removal-and-reservation-storage-migration",
             "batch-admission-generalization",

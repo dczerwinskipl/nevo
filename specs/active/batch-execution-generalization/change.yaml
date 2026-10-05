@@ -249,7 +249,7 @@ tasks:
   - id: production-batch-admission-generalization
     order: 10
     file: tasks/10-production-batch-admission-generalization.md
-    status: implemented
+    status: verified
     depends_on:
       [
         queue-removal-and-reservation-storage-migration,
