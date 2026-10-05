@@ -22,21 +22,6 @@ forbidden_paths:
 depends_on: [queue-removal-and-reservation-storage-migration, batch-admission-generalization, batch-finish-phase-neutral-generalization]
 ---
 
-<!--
-Scope amendment (implementation-time, legacy lifecycle — same pattern as tasks 01, 03,
-05, and 07's own amendments, references/review-policy.md "Specification scope
-amendment"): this task's own `## Verification` section's second command, `node --test
-tools/tests/*.test.mjs`, reliably hangs forever when run via `tools/specs.mjs
-self-check`/`verify` — confirmed directly while executing task 07 (see that task's own
-identical amendment for the full root-cause writeup: `runVerificationCommand` passes
-the literal glob to `execFileSync`/`node --test` unexpanded, no shell to expand the
-`*`, and this Node version hangs rather than erroring on it). Changed to `tools/tests/`
-(a directory, routes through `runVerificationCommand`'s own working directory-expansion
-instead) — identical set of files, zero change to what this task actually verifies.
-Pre-existing, environment-level tooling gap, unrelated to tasks 01-03's own scope; not
-patched in `verify/operation.mjs` itself (out of this task's scope).
--->
-
 # Task: Verify single-task execution converges on shared primitives without a separate scheduler
 
 ## Goal
@@ -83,7 +68,7 @@ Write tests that directly exercise, after tasks 01-03 land:
 
 ```bash
 node --test tools/tests/single-task-convergence.test.mjs
-node --test tools/tests/
+node --test tools/tests/*.test.mjs
 node tools/specs.mjs validate
 ```
 
