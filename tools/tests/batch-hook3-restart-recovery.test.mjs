@@ -173,9 +173,12 @@ test('Scenario A: Hook 3 resumes executeBatchCompletionSettlement when batch-fin
 
     // 6. Assertions on workspace claim & reservation
     const claimAfter = getWorkspaceWriterClaim(tmpRoot);
-    // The batch workspace claim was released; t1's continuation was admitted and holds a single-task claim
-    assert.notEqual(claimAfter?.scope?.kind, 'task-batch', 'Batch workspace claim must be released');
-    assert.notEqual(claimAfter?.batchExecutionId, batchExecutionId, 'Batch claim must no longer be held');
+    // The original batch workspace claim was released. t1 and t2 share an identical
+    // resulting continuation contract (both transition from implementation to the same
+    // review step with the same role), so task 05's grouped handover admits ONE new
+    // batch covering both members, not two independent single-task claims.
+    assert.equal(claimAfter?.scope?.kind, 'task-batch', 'Continuation claim should be a new task-batch claim covering both members');
+    assert.notEqual(claimAfter?.batchExecutionId, batchExecutionId, 'Must be a new batch execution, not the original one');
 
     const resAfter = getGroupReservation(tmpRoot, changeSlug, batchExecutionId);
     assert.equal(resAfter?.status, 'released', 'Group reservation must be released');

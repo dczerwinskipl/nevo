@@ -6,6 +6,7 @@
 // 4. per-member continuation dispatch (refiners get parentSessionId = batch session id)
 // 5. completed
 
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WorkflowError } from '../../../../specs/workflow/errors.mjs';
@@ -17,13 +18,89 @@ import {
 import {
   getGroupReservation,
   releaseGroupReservation,
+  createGroupReservation,
+  rollbackReservationSynchronously,
 } from '../../../../specs/workflow/queue/reservation.mjs';
 import { loadBatchFinishRecord } from '../../../../specs/workflow/batch-finish/record.mjs';
-import { getActiveAgentExecution, clearActiveAgentExecution } from './admission.mjs';
-import { reconcileContinuation } from './reconciliation.mjs';
+import { getActiveAgentExecution, clearActiveAgentExecution, admitAgentExecution } from './admission.mjs';
+import { reconcileContinuation, matchIncomingTransition } from './reconciliation.mjs';
+import { resolveWorkflowPosition } from '../../../../specs/workflow/step-runner.mjs';
+import { loadWorkflowDefinition } from '../../../../specs/workflow/definitions/loader.mjs';
+import { resolveWorkflowMode } from '../../../../specs/workflow/compatibility.mjs';
 import { requireChange, requireTask, ACTIVE_DIR } from '../../../../specs/store.mjs';
 import { arraysEqual } from '../../../../specs/workflow/execution-identity.mjs';
 import { resolveStableSpecId } from '../../../../specs/identity.mjs';
+
+/**
+ * Resolves a just-finished member's own actual resulting destination (batch-execution-
+ * generalization, task 05, Gap 6 handover correction): the same canonical, read-only
+ * data `reconcileWorkflowPosition`'s single-task path already reads — never a second,
+ * independently-derived readiness/transition concept. Every member's own transition
+ * was already applied and persisted by `BatchFinish` (task 03/04); this only reads the
+ * result.
+ *
+ * @param {object} task - Freshly reloaded task (reflects its own just-applied transition)
+ * @param {object} definition
+ * @returns {{ hasAgentExecutor: boolean, continuationPolicy?: string|null, targetStepId?: string, executor?: string, role?: string|null, sessionPolicy?: string }}
+ */
+function resolveMemberDestination(task, definition) {
+  const position = resolveWorkflowPosition(definition, task);
+
+  // Mirrors reconcileWorkflowPosition's own phase handling (reconciliation.mjs) —
+  // 'new' and 'completed' resolve to the step about to start, 'active' resolves to
+  // the step the member is already sitting on (the normal case right after a batch
+  // member's own finish just transitioned it into its next step, which is persisted
+  // as that step, attempt 1, state 'active', no history yet). Only 'terminal' has
+  // nothing further to dispatch.
+  let nextStepId = null;
+  if (position.phase === 'new') {
+    nextStepId = definition.entryStep;
+  } else if (position.phase === 'completed') {
+    nextStepId = position.nextStep;
+  } else if (position.phase === 'active') {
+    nextStepId = position.step;
+  } else {
+    return { hasAgentExecutor: false };
+  }
+
+  const stepDef = definition.steps?.[nextStepId];
+  if (!stepDef) {
+    // `nextStepId` names a terminal status (e.g. 'verified'), not a declared step —
+    // nothing further to execute, human-owned by construction.
+    return { hasAgentExecutor: false, terminal: true };
+  }
+
+  const matchResult = matchIncomingTransition(task, definition, nextStepId);
+  if (matchResult.ambiguous) {
+    return { hasAgentExecutor: false, ambiguous: true, reason: matchResult.reason };
+  }
+
+  const transition = matchResult.transition;
+  const continuationPolicy = transition?.continuation || null;
+  if (continuationPolicy !== 'auto') {
+    // Human-owned destination, or a destination requiring explicit owner action —
+    // never produces a session regardless of executor (Gap 6: "Human destinations
+    // never produce a session regardless").
+    return { hasAgentExecutor: false, continuationPolicy, targetStepId: nextStepId };
+  }
+
+  const executor = stepDef.executor || 'agent';
+  if (executor !== 'agent') {
+    return { hasAgentExecutor: false, continuationPolicy, targetStepId: nextStepId, executor };
+  }
+
+  const role = matchResult.role ?? transition?.execution?.role ?? null;
+  const sessionPolicy = matchResult.session ?? transition?.execution?.session ?? 'fresh';
+
+  return {
+    hasAgentExecutor: true,
+    continuationPolicy,
+    targetStepId: nextStepId,
+    executor,
+    role,
+    sessionPolicy,
+  };
+}
 
 /**
  * Exact matcher for live batch workspace-writer claim (D35, Item 3, 4).
@@ -648,45 +725,212 @@ export async function executeBatchCompletionSettlement(params = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Stage 4: Per-member continuation dispatch (D35 Step 4, D40)
+  // Stage 4: Continuation dispatch partitioned by full execution contract (D35 Step 4,
+  // D40; batch-execution-generalization, task 05, Gap 6 handover correction). Members
+  // sharing the identical resulting {continuation policy, target step/executor, role,
+  // session policy, resolved execution policy} tuple are dispatched together as ONE new
+  // agent session — never one independent session per member. Every member's own
+  // transition is already applied and persisted (task 03/04); this stage only changes
+  // how many/which sessions get admitted from that already-resolved data.
   // -------------------------------------------------------------------------
   if (settlement.stages.continuationDispatch.status !== 'completed') {
     if (!settlement.stages.continuationDispatch.members) {
       settlement.stages.continuationDispatch.members = {};
     }
 
-    for (const taskId of taskIds) {
-      if (settlement.stages.continuationDispatch.members[taskId]?.status === 'completed') {
-        continue; // Skip already dispatched member
-      }
+    const pendingTaskIds = taskIds.filter(
+      (taskId) => settlement.stages.continuationDispatch.members[taskId]?.status !== 'completed'
+    );
 
-      const currentChange = requireChange(changeSlug, activeDir);
-      let task = null;
-      try {
-        task = requireTask(currentChange, taskId);
-      } catch {}
+    if (pendingTaskIds.length > 0) {
+      const currentChangeForGrouping = requireChange(changeSlug, activeDir);
+      const resolvedMode = resolveWorkflowMode(currentChangeForGrouping, { repoRoot });
+      const definition = resolvedMode.definition
+        ? loadWorkflowDefinition(resolvedMode.definition, { repoRoot })
+        : null;
+      const { executionPolicyService } = await import('../sessions/execution-policy-service.mjs');
 
-      if (task) {
-        // Dispatch via single-task continuation mechanism.
-        // A fresh refiner gets parentSessionId equal to the batch reviewer session id (D8, D35).
-        const dispatchResult = await reconcileContinuation(currentChange, task, {
-          ...options,
-          repoRoot,
-          activeDir,
-          parentSessionId: effectiveSessionId,
+      // Partition pending members by their full resulting execution-contract tuple —
+      // continuation policy, target step/executor, role, session policy, and resolved
+      // execution policy (provider/model/mode, including any taskOverrides) — not
+      // destination transition alone.
+      const groups = new Map(); // tupleKey -> { taskIds: [], destination, resolvedPolicy }
+      const noDispatchTaskIds = [];
+
+      for (const taskId of pendingTaskIds) {
+        let task = null;
+        try {
+          task = requireTask(currentChangeForGrouping, taskId);
+        } catch {}
+
+        if (!task || !definition) {
+          noDispatchTaskIds.push(taskId);
+          continue;
+        }
+
+        const destination = resolveMemberDestination(task, definition);
+        if (!destination.hasAgentExecutor) {
+          // Human-owned destination, or no automatic continuation: this group simply
+          // produces its human interaction(s), already handled by the per-task
+          // transition itself — no session to admit.
+          noDispatchTaskIds.push(taskId);
+          continue;
+        }
+
+        let resolvedPolicy = null;
+        try {
+          resolvedPolicy = executionPolicyService.resolveExecutionPolicy(changeSlug, taskId, {
+            ...(destination.role ? { role: destination.role } : {}),
+            repoRoot,
+          });
+        } catch {}
+
+        const tupleKey = JSON.stringify({
+          continuationPolicy: destination.continuationPolicy,
+          targetStepId: destination.targetStepId,
+          executor: destination.executor,
+          role: destination.role,
+          sessionPolicy: destination.sessionPolicy,
+          provider: resolvedPolicy?.provider || null,
+          model: resolvedPolicy?.model || null,
+          mode: resolvedPolicy?.mode || null,
         });
 
+        if (!groups.has(tupleKey)) {
+          groups.set(tupleKey, { taskIds: [], destination, resolvedPolicy });
+        }
+        groups.get(tupleKey).taskIds.push(taskId);
+      }
+
+      // Human-only / no-agent-executor members: nothing to dispatch. Processed one at a
+      // time (save, then crash-hook check) — same sequencing granularity as the
+      // per-group dispatch below — so a crash hook on any one member reflects state as
+      // of exactly that member, never a sibling processed in the same batched write.
+      for (const taskId of noDispatchTaskIds) {
         settlement.stages.continuationDispatch.members[taskId] = {
           status: 'completed',
-          action: dispatchResult?.action || 'noop',
-          admission: dispatchResult?.admission || null,
-          nextStep: dispatchResult?.nextStep || null,
+          action: 'noop',
+          admission: null,
+          nextStep: null,
           completedAt: new Date().toISOString(),
         };
         saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
 
         if (_crashAfterMemberDispatchTaskId === taskId) {
           throw new Error(`[test-hook] Simulated crash after member dispatch for task ${taskId}`);
+        }
+      }
+
+      for (const { taskIds: groupTaskIds, destination, resolvedPolicy } of groups.values()) {
+        if (groupTaskIds.length === 1) {
+          // A single member needing continuation still gets exactly one session, via
+          // the existing single-task path — no batch machinery for a group of one.
+          const taskId = groupTaskIds[0];
+          const currentChange = requireChange(changeSlug, activeDir);
+          const task = requireTask(currentChange, taskId);
+
+          const dispatchResult = await reconcileContinuation(currentChange, task, {
+            ...options,
+            repoRoot,
+            activeDir,
+            parentSessionId: effectiveSessionId,
+          });
+
+          settlement.stages.continuationDispatch.members[taskId] = {
+            status: 'completed',
+            action: dispatchResult?.action || 'noop',
+            admission: dispatchResult?.admission || null,
+            nextStep: dispatchResult?.nextStep || null,
+            completedAt: new Date().toISOString(),
+          };
+          saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+
+          if (_crashAfterMemberDispatchTaskId === taskId) {
+            throw new Error(`[test-hook] Simulated crash after member dispatch for task ${taskId}`);
+          }
+          continue;
+        }
+
+        // Two or more members share the identical resulting contract: admit ONE new
+        // batch covering all of them, rather than one independent session per member.
+        const newBatchExecutionId = randomUUID();
+        const genericTrigger = options.message || options.prompt
+          || `Execute batched ${destination.targetStepId} for tasks: ${groupTaskIds.join(', ')}.`;
+
+        await createGroupReservation({
+          repoRoot,
+          changeSlug,
+          taskIds: groupTaskIds,
+          batchExecutionId: newBatchExecutionId,
+          executionConfigSnapshot: {
+            provider: resolvedPolicy?.provider,
+            model: resolvedPolicy?.model,
+            mode: resolvedPolicy?.mode || 'agent',
+            contextCapacity: { status: 'unknown', reason: 'batch-completion-handover' },
+          },
+        });
+
+        const candidate = {
+          scope: { kind: 'task-batch', taskIds: groupTaskIds },
+          taskIds: groupTaskIds,
+          batchExecutionId: newBatchExecutionId,
+          stepId: destination.targetStepId,
+          role: destination.role,
+          provider: resolvedPolicy?.provider,
+          mode: resolvedPolicy?.mode || 'agent',
+          model: resolvedPolicy?.model,
+          changeSlug,
+          specId: canonicalSpecId,
+          sessionPolicy: 'fresh',
+          parentSessionId: effectiveSessionId,
+          message: genericTrigger,
+          userMessage: genericTrigger,
+          prompt: genericTrigger,
+        };
+
+        let admissionRes;
+        try {
+          admissionRes = await admitAgentExecution(canonicalSpecId, candidate, {
+            ...options,
+            repoRoot,
+            activeDir,
+          });
+        } catch (err) {
+          await rollbackReservationSynchronously({
+            repoRoot,
+            changeSlug,
+            batchExecutionId: newBatchExecutionId,
+            error: err,
+          });
+          admissionRes = { admitted: false, reason: err?.message || String(err) };
+        }
+
+        if (!admissionRes.admitted) {
+          await rollbackReservationSynchronously({
+            repoRoot,
+            changeSlug,
+            batchExecutionId: newBatchExecutionId,
+            error: new Error(admissionRes.reason || 'ADMISSION_BLOCKED'),
+          }).catch(() => {});
+        }
+
+        for (const taskId of groupTaskIds) {
+          settlement.stages.continuationDispatch.members[taskId] = {
+            status: 'completed',
+            action: admissionRes.admitted ? 'agent-admitted' : 'noop',
+            admission: admissionRes,
+            nextStep: destination.targetStepId,
+            batchExecutionId: newBatchExecutionId,
+            groupTaskIds,
+            completedAt: new Date().toISOString(),
+          };
+        }
+        saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+
+        for (const taskId of groupTaskIds) {
+          if (_crashAfterMemberDispatchTaskId === taskId) {
+            throw new Error(`[test-hook] Simulated crash after member dispatch for task ${taskId}`);
+          }
         }
       }
     }

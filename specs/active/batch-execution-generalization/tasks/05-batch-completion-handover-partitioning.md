@@ -17,12 +17,26 @@ semantic_references:
 allowed_paths:
   - tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs
   - tools/tests/batch-completion-orchestration.test.mjs
+  - tools/tests/batch-hook3-restart-recovery.test.mjs
 forbidden_paths:
   - src/**
   - tools/dashboard/ui/**
   - tools/specs/workflow/**
 depends_on: [batch-finish-phase-neutral-generalization, intra-batch-dependency-consumption-materialization]
 ---
+
+<!--
+Scope amendment (implementation-time, legacy lifecycle — same pattern as tasks 01 and
+03's own amendments, references/review-policy.md "Specification scope amendment"):
+tools/tests/batch-hook3-restart-recovery.test.mjs's "Scenario A" asserted that a
+member's post-batch-finish continuation always lands as a single-task workspace claim
+— true only under the pre-task-05 Stage 4, which dispatched one independent session
+per member regardless of destination. Its two members (t1, t2) share an identical
+resulting continuation contract by this task's own fixture, so this task's grouped
+handover now correctly admits ONE new task-batch claim covering both, superseding that
+assumption as a mechanical, necessary consequence of this task's own requirements, not
+a scope expansion of what the task does.
+-->
 
 # Task: Partition batch-completion handover by full execution contract
 
