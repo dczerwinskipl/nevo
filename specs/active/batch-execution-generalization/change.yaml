@@ -119,12 +119,29 @@ tasks:
   - id: batch-completion-handover-partitioning
     order: 5
     file: tasks/05-batch-completion-handover-partitioning.md
-    status: approved
+    status: implemented
     depends_on:
       [
         batch-finish-phase-neutral-generalization,
         intra-batch-dependency-consumption-materialization
       ]
+    implementation:
+      baseline_revision: 0605f7f2d2b08a63be2a776821e9076f00a407f5
+      review_revision: 93fa6f8328931fee06da988d6e10da3f3ceccf02
+      changed_paths:
+        - tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs
+        - tools/tests/batch-completion-orchestration.test.mjs
+        - tools/tests/batch-hook3-restart-recovery.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 53071ff5872bbb2d15f1b99cc8ccbfb866d293a592751523f4adb6977112b49d
+      revision: 93fa6f8328931fee06da988d6e10da3f3ceccf02
+      commands:
+        - command: node --test tools/tests/batch-completion-orchestration.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: ui-canonical-dependency-projection
     order: 6
     file: tasks/06-ui-canonical-dependency-projection.md
