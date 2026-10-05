@@ -221,12 +221,31 @@ tasks:
   - id: batch-finish-gate-correctness
     order: 9
     file: tasks/09-batch-finish-gate-correctness.md
-    status: approved
+    status: in-implementation
     depends_on:
       [
         batch-finish-phase-neutral-generalization,
         intra-batch-dependency-consumption-materialization
       ]
+    implementation:
+      baseline_revision: cca783dda2ba68034e4ba9eaad4cd11832823b63
+      review_revision: 483356cd067407c16e9221eec190267734bdb97c
+      changed_paths:
+        - tools/specs/workflow/batch-finish/operation.mjs
+        - tools/tests/batch-cli-and-security.test.mjs
+        - tools/tests/batch-finish-gate-correctness.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: b5f1f567b015f2a417b409e8396c502cbc047a971f248c4bf5d45dedd313b08b
+      revision: 483356cd067407c16e9221eec190267734bdb97c
+      commands:
+        - command: node --test tools/tests/batch-finish-gate-correctness.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/batch-finish-operation.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: production-batch-admission-generalization
     order: 10
     file: tasks/10-production-batch-admission-generalization.md
