@@ -145,7 +145,9 @@ tasks:
   - id: ui-canonical-dependency-projection
     order: 6
     file: tasks/06-ui-canonical-dependency-projection.md
-    status: approved
+    status: in-implementation
+    implementation:
+      baseline_revision: d80455ff1bc665541c277cf9dc1033df408a070e
   - id: acceptance-initial-implementation-batch
     order: 7
     file: tasks/07-acceptance-initial-implementation-batch.md
