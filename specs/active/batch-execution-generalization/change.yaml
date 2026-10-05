@@ -145,9 +145,23 @@ tasks:
   - id: ui-canonical-dependency-projection
     order: 6
     file: tasks/06-ui-canonical-dependency-projection.md
-    status: in-implementation
+    status: implemented
     implementation:
       baseline_revision: d80455ff1bc665541c277cf9dc1033df408a070e
+      review_revision: 028cd6cbeb6d06cda0ce5c11e374c04839f9bb98
+      changed_paths:
+        - tools/dashboard/tests/specification-overview-dependency-projection.test.tsx
+        - tools/dashboard/ui/screens/specification-detail/specification-overview.tsx
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: e87120a81cc7414b0533083fac6b13f732042282b855b942530ffb69a09a8cde
+      revision: 028cd6cbeb6d06cda0ce5c11e374c04839f9bb98
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: acceptance-initial-implementation-batch
     order: 7
     file: tasks/07-acceptance-initial-implementation-batch.md
