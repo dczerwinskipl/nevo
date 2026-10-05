@@ -201,5 +201,11 @@ tasks:
         batch-admission-generalization,
         batch-finish-phase-neutral-generalization
       ]
+    execution:
+      suspension:
+        kind: confirm-required
+        code: REC-07
+        previous_action: approve
+        created_at: 2026-10-05T10:34:14.071Z
 
 spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea
