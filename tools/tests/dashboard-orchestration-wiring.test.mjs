@@ -406,10 +406,17 @@ test('T08 AC 2: reviewTogether flag routes to batch handler (not individual) via
     'routes.mjs must gate batch execution on reviewTogether, batchReview, or scope.kind=task-batch',
   );
 
-  // Batch handler enforces role=reviewer
+  // Batch handler is generalized (batch-execution-generalization, task 10): it must
+  // NOT hardcode-reject any resolved role other than 'reviewer' — the full execution
+  // contract (role, possibly null for a brand-new entry-step batch) comes from
+  // validateBatchCompatibility's own result, not a route-local restriction.
   assert.ok(
-    routesCode.includes("compat.role !== 'reviewer'"),
-    'routes.mjs batch handler must reject non-reviewer roles (D13)',
+    !routesCode.includes("compat.role !== 'reviewer'") && !routesCode.includes("role: 'reviewer'"),
+    'routes.mjs batch handler must not hardcode-restrict batch execution to the reviewer role',
+  );
+  assert.ok(
+    routesCode.includes('const resolvedRole = compat.role;'),
+    'routes.mjs batch handler must resolve role from validateBatchCompatibility\'s own result',
   );
 
   // Batch handler calls admitAgentExecution (not a second session creation path)

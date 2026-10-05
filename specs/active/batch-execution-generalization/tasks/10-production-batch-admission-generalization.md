@@ -15,7 +15,7 @@ allowed_paths:
   - tools/dashboard/server/ai/sessions/turns/routes.mjs
   - tools/dashboard/tests/execution-policy.test.mjs
   - tools/tests/dashboard-orchestration-wiring.test.mjs
-  - tools/tests/production-batch-admission.test.mjs
+  - tools/dashboard/tests/production-batch-admission.test.mjs
 forbidden_paths:
   - src/**
   - tools/dashboard/ui/**
@@ -91,17 +91,17 @@ never exercised against a real implementation batch.
 - A request selecting 3 brand-new, dependency-ordered tasks with no incoming role
   (`compat.role === null`) is accepted by the route, creates a group reservation, and
   starts a batch — not rejected.
-  `automated: node --test tools/tests/production-batch-admission.test.mjs`
+  `automated: node --test tools/dashboard/tests/production-batch-admission.test.mjs`
 - A request selecting tasks with a genuinely incompatible mixed resulting contract is
   still rejected, naming the incompatible task, exactly as today.
-  `automated: node --test tools/tests/production-batch-admission.test.mjs`
+  `automated: node --test tools/dashboard/tests/production-batch-admission.test.mjs`
 - A request where one selected task has an unsatisfied dependency *outside* the
   selected batch is still rejected (external dependencies still block).
-  `automated: node --test tools/tests/production-batch-admission.test.mjs`
+  `automated: node --test tools/dashboard/tests/production-batch-admission.test.mjs`
 - A request where a selected task's only unsatisfied dependency is another *member of
   the same batch* is still accepted (same-batch dependency exception, task 02,
   unaffected by this task).
-  `automated: node --test tools/tests/production-batch-admission.test.mjs`
+  `automated: node --test tools/dashboard/tests/production-batch-admission.test.mjs`
 - The existing `'reviewer'`-role "Review together" path (execution-policy resolution,
   policy-conflict detection, `oneOff` override) behaves identically to before this
   task's change.
@@ -110,7 +110,7 @@ never exercised against a real implementation batch.
 ## Verification
 
 ```bash
-node --test tools/tests/production-batch-admission.test.mjs
+node --test tools/dashboard/tests/production-batch-admission.test.mjs
 node --test tools/dashboard/tests/execution-policy.test.mjs
 node --test tools/tests/dashboard-orchestration-wiring.test.mjs
 node tools/specs.mjs validate

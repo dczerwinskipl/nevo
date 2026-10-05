@@ -119,7 +119,13 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         }
       }
 
-      // Batch review execution ("Review together", Task 08, D6, D12, D13, D26, D33, D34, D38)
+      // Explicit multi-task batch execution ("Review together", Task 08, D6, D12, D13,
+      // D26, D33, D34, D38) — generalized beyond review (batch-execution-
+      // generalization, task 10) to any compatible, homogeneous-by-contract group
+      // validateBatchCompatibility accepts, including a brand-new implementation
+      // batch with no incoming role. The trigger condition's own naming
+      // (reviewTogether/batchReview) is unchanged; only what happens once a batch is
+      // accepted is generalized.
       if (body.reviewTogether === true || body.batchReview === true || body.scope?.kind === 'task-batch') {
         if (selectedTaskIds.length < 2) {
           throw new AiValidationError('Batch review requires at least 2 tasks.');
@@ -143,15 +149,18 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           throw new AiValidationError(compat.reason || compat.error || `Incompatible batch review selection: task '${compat.incompatibleTaskId}'`);
         }
 
-        if (compat.role !== 'reviewer') {
-          throw new AiValidationError(`Batch execution is restricted to the 'reviewer' role in v1 (resolved role: '${compat.role}').`);
-        }
+        // Generalized (batch-execution-generalization, task 10): the full execution
+        // contract — role (possibly null for a brand-new, entry-step batch),
+        // target step, and session policy — comes entirely from compat, the same
+        // canonical validateBatchCompatibility result BatchStart itself trusts. No
+        // second, route-local restriction to a single hardcoded role.
+        const resolvedRole = compat.role;
 
         const { executionPolicyService } = await import('../execution-policy-service.mjs');
         // D12: Detect task override conflicts across selected tasks
         const resolvedPolicies = selectedTaskIds.map((tId) =>
           executionPolicyService.resolveExecutionPolicy(changeSlug, tId, {
-            role: 'reviewer',
+            role: resolvedRole,
             repoRoot: effectiveRepoRoot,
           })
         );
@@ -221,7 +230,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         }
 
         if (!effectiveProvider) {
-          throw new AiValidationError('No execution provider specified or configured in execution policy for reviewer.');
+          throw new AiValidationError(`No execution provider specified or configured in execution policy for role '${resolvedRole ?? 'default'}'.`);
         }
 
         // Context capacity snapshot (D26, D34, D38):
@@ -264,21 +273,21 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         });
 
         const batchExecutionId = reservation.batchExecutionId;
-        const batchPrompt = `Execute batched review for tasks: ${selectedTaskIds.join(', ')}. Batch execution ID: ${batchExecutionId}.`;
+        const batchPrompt = `Execute batched ${compat.targetStepId} for tasks: ${selectedTaskIds.join(', ')}. Batch execution ID: ${batchExecutionId}.`;
 
         const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
         const candidate = {
           scope: { kind: 'task-batch', taskIds: selectedTaskIds },
           taskIds: selectedTaskIds,
           batchExecutionId,
-          stepId: compat.step || 'review',
-          role: 'reviewer',
+          stepId: compat.targetStepId,
+          role: resolvedRole,
           provider: effectiveProvider,
           mode: effectiveMode,
           model: effectiveModel,
           changeSlug,
           specId: canonicalSpecId,
-          sessionPolicy: 'fresh',
+          sessionPolicy: compat.session,
           parentSessionId: null,
           message: batchPrompt,
           userMessage: batchPrompt,
