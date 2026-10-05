@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-05T08:42:12.373Z",
+  "generated": "2026-10-05T08:42:29.010Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -382,7 +382,7 @@
           "id": "ui-canonical-dependency-projection",
           "order": 6,
           "file": "tasks/06-ui-canonical-dependency-projection.md",
-          "status": "draft"
+          "status": "approved"
         },
         {
           "id": "acceptance-initial-implementation-batch",
