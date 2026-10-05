@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-05T18:56:44.222Z",
+  "generated": "2026-10-05T18:56:52.876Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -611,7 +611,7 @@
           "id": "real-end-to-end-corrective-acceptance",
           "order": 12,
           "file": "tasks/12-real-end-to-end-corrective-acceptance.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "batch-finish-gate-correctness",
             "production-batch-admission-generalization",
