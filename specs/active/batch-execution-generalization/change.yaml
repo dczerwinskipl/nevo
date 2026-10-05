@@ -145,7 +145,7 @@ tasks:
   - id: ui-canonical-dependency-projection
     order: 6
     file: tasks/06-ui-canonical-dependency-projection.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: d80455ff1bc665541c277cf9dc1033df408a070e
       review_revision: 028cd6cbeb6d06cda0ce5c11e374c04839f9bb98
