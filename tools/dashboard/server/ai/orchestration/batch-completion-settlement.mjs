@@ -20,6 +20,7 @@ import {
   releaseGroupReservation,
   createGroupReservation,
   rollbackReservationSynchronously,
+  validateBatchCompatibility,
 } from '../../../../specs/workflow/queue/reservation.mjs';
 import { loadBatchFinishRecord } from '../../../../specs/workflow/batch-finish/record.mjs';
 import { getActiveAgentExecution, clearActiveAgentExecution, admitAgentExecution } from './admission.mjs';
@@ -100,6 +101,57 @@ function resolveMemberDestination(task, definition) {
     role,
     sessionPolicy,
   };
+}
+
+/**
+ * Durable grouped-handover retry (batch-execution-generalization, task 11, gap 1):
+ * finds another settlement for this same `changeSlug` whose own Stage 4 still has
+ * durable pending dispatch units (the one-active-execution-per-spec invariant blocked
+ * admitting them in some earlier pass) — never a new cross-batch scheduler, only a scan
+ * over this module's own already-persisted, already-determined saga state, the exact
+ * same kind of durable-state scan Hook 3 boot reconciliation already performs over
+ * workspace-writer claims. Called right after a settlement's own Stage 2 frees the
+ * one-active-execution-per-spec slot — the only moment a sibling's pending unit could
+ * newly become admittable.
+ *
+ * @param {object} params
+ * @returns {Promise<void>} Never throws — a failed resume attempt is retried by the
+ *   next natural trigger (another settlement's own Stage 2, or Hook 3).
+ */
+async function resumePendingHandoverForSpec({ repoRoot, changeSlug, excludeBatchExecutionId, activeDir, options }) {
+  try {
+    const dir = getBatchCompletionSettlementDir(repoRoot, changeSlug);
+    if (!fs.existsSync(dir)) return;
+
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json') && !f.includes('.tmp'));
+    for (const file of files) {
+      const candidateBatchExecutionId = file.replace(/\.json$/, '');
+      if (candidateBatchExecutionId === excludeBatchExecutionId) continue;
+
+      const candidate = loadBatchCompletionSettlement(repoRoot, changeSlug, candidateBatchExecutionId);
+      const pendingUnits = candidate?.stages?.continuationDispatch?.pendingUnits;
+      const hasPendingUnit = Array.isArray(pendingUnits) && pendingUnits.some((u) => u.status === 'pending');
+      if (!candidate || candidate.status === 'completed' || !hasPendingUnit) continue;
+
+      // Found durable pending handover work for this spec — resume it. Recurses
+      // naturally (this resumed call's own Stage 2 is already-cleared/no-op, so it
+      // goes straight to Stage 4 and may itself free the slot again for a third
+      // sibling, etc.) and bottoms out once no settlement has pending units left.
+      await executeBatchCompletionSettlement({
+        repoRoot,
+        changeSlug,
+        batchExecutionId: candidateBatchExecutionId,
+        sessionId: candidate.sessionId,
+        activeDir,
+        options: options || {},
+      });
+      return; // One resume per call; a still-pending remainder is picked up by the
+      // resumed settlement's own next Stage 2 (if it dispatches something) or by
+      // the next natural trigger otherwise.
+    }
+  } catch {
+    // Best-effort: never let a resume attempt fail the settlement that triggered it.
+  }
 }
 
 /**
@@ -630,6 +682,16 @@ export async function executeBatchCompletionSettlement(params = {}) {
           completedAt: new Date().toISOString(),
         };
         saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+
+        // The one-active-execution-per-spec slot just freed — a sibling settlement's
+        // own durable pending handover group (task 11, gap 1) may now be admittable.
+        await resumePendingHandoverForSpec({
+          repoRoot,
+          changeSlug,
+          excludeBatchExecutionId: batchExecutionId,
+          activeDir,
+          options,
+        });
       } else {
         // If the active execution does NOT match this batch, do not clear it!
         // But if it is an ambiguous match (e.g. same batchId but wrong session/scope):
@@ -726,12 +788,25 @@ export async function executeBatchCompletionSettlement(params = {}) {
 
   // -------------------------------------------------------------------------
   // Stage 4: Continuation dispatch partitioned by full execution contract (D35 Step 4,
-  // D40; batch-execution-generalization, task 05, Gap 6 handover correction). Members
+  // D40; batch-execution-generalization, task 05 Gap 6, corrected by task 11). Members
   // sharing the identical resulting {continuation policy, target step/executor, role,
   // session policy, resolved execution policy} tuple are dispatched together as ONE new
   // agent session — never one independent session per member. Every member's own
   // transition is already applied and persisted (task 03/04); this stage only changes
   // how many/which sessions get admitted from that already-resolved data.
+  //
+  // Task 11 correction: the one-active-execution-per-spec invariant (D33, admission.mjs)
+  // means at most ONE dispatch unit (a single member or a fresh multi-member group) can
+  // actually be admitted per settlement pass — attempting a second immediately after the
+  // first succeeds always hits ACTIVE_EXECUTION_EXISTS. Dispatch units are resolved once
+  // and persisted as `pendingUnits`; each pass admits at most one eligible unit and
+  // leaves the rest durably `pending` (never silently 'noop'/completed) for a later pass
+  // — triggered by `resumePendingHandoverForSpec` once the slot frees again, or by any
+  // other natural re-invocation (Hook 3, a retry). A destination whose sessionPolicy is
+  // not 'fresh' is never grouped — multi-member batch admission is a 'fresh'-only v1
+  // concept (task 02); such a member always dispatches via the single-task path, which
+  // already supports `session: reuse` via its own exact predecessor-session resolution,
+  // so no cross-member reuse-identity ambiguity can arise.
   // -------------------------------------------------------------------------
   if (settlement.stages.continuationDispatch.status !== 'completed') {
     if (!settlement.stages.continuationDispatch.members) {
@@ -743,104 +818,84 @@ export async function executeBatchCompletionSettlement(params = {}) {
     );
 
     if (pendingTaskIds.length > 0) {
-      const currentChangeForGrouping = requireChange(changeSlug, activeDir);
-      const resolvedMode = resolveWorkflowMode(currentChangeForGrouping, { repoRoot });
-      const definition = resolvedMode.definition
-        ? loadWorkflowDefinition(resolvedMode.definition, { repoRoot })
-        : null;
-      const { executionPolicyService } = await import('../sessions/execution-policy-service.mjs');
+      // Resolve dispatch units once per settlement (idempotent: only computed the first
+      // time pendingUnits is absent; a resumed pass reuses the already-persisted list).
+      if (!Array.isArray(settlement.stages.continuationDispatch.pendingUnits)) {
+        const currentChangeForGrouping = requireChange(changeSlug, activeDir);
+        const resolvedMode = resolveWorkflowMode(currentChangeForGrouping, { repoRoot });
+        const definition = resolvedMode.definition
+          ? loadWorkflowDefinition(resolvedMode.definition, { repoRoot })
+          : null;
+        const { executionPolicyService } = await import('../sessions/execution-policy-service.mjs');
 
-      // Partition pending members by their full resulting execution-contract tuple —
-      // continuation policy, target step/executor, role, session policy, and resolved
-      // execution policy (provider/model/mode, including any taskOverrides) — not
-      // destination transition alone.
-      const groups = new Map(); // tupleKey -> { taskIds: [], destination, resolvedPolicy }
-      const noDispatchTaskIds = [];
+        // Partition pending members by their full resulting execution-contract tuple —
+        // continuation policy, target step/executor, role, session policy, and resolved
+        // execution policy (provider/model/mode, including any taskOverrides) — not
+        // destination transition alone. Non-'fresh' destinations are never grouped.
+        const freshGroups = new Map(); // tupleKey -> { taskIds: [], destination, resolvedPolicy }
+        const singleUnits = []; // [{ taskIds: [id], destination, resolvedPolicy }]
+        const noDispatchTaskIds = [];
 
-      for (const taskId of pendingTaskIds) {
-        let task = null;
-        try {
-          task = requireTask(currentChangeForGrouping, taskId);
-        } catch {}
+        for (const taskId of pendingTaskIds) {
+          let task = null;
+          try {
+            task = requireTask(currentChangeForGrouping, taskId);
+          } catch {}
 
-        if (!task || !definition) {
-          noDispatchTaskIds.push(taskId);
-          continue;
-        }
+          if (!task || !definition) {
+            noDispatchTaskIds.push(taskId);
+            continue;
+          }
 
-        const destination = resolveMemberDestination(task, definition);
-        if (!destination.hasAgentExecutor) {
-          // Human-owned destination, or no automatic continuation: this group simply
-          // produces its human interaction(s), already handled by the per-task
-          // transition itself — no session to admit.
-          noDispatchTaskIds.push(taskId);
-          continue;
-        }
+          const destination = resolveMemberDestination(task, definition);
+          if (!destination.hasAgentExecutor) {
+            // Human-owned destination, or no automatic continuation: this member simply
+            // produces its human interaction(s), already handled by the per-task
+            // transition itself — no session to admit, no contention risk.
+            noDispatchTaskIds.push(taskId);
+            continue;
+          }
 
-        let resolvedPolicy = null;
-        try {
-          resolvedPolicy = executionPolicyService.resolveExecutionPolicy(changeSlug, taskId, {
-            ...(destination.role ? { role: destination.role } : {}),
-            repoRoot,
-          });
-        } catch {}
+          let resolvedPolicy = null;
+          try {
+            resolvedPolicy = executionPolicyService.resolveExecutionPolicy(changeSlug, taskId, {
+              ...(destination.role ? { role: destination.role } : {}),
+              repoRoot,
+            });
+          } catch {}
 
-        const tupleKey = JSON.stringify({
-          continuationPolicy: destination.continuationPolicy,
-          targetStepId: destination.targetStepId,
-          executor: destination.executor,
-          role: destination.role,
-          sessionPolicy: destination.sessionPolicy,
-          provider: resolvedPolicy?.provider || null,
-          model: resolvedPolicy?.model || null,
-          mode: resolvedPolicy?.mode || null,
-        });
+          if (destination.sessionPolicy !== 'fresh') {
+            // Gap 3: never grouped — dispatched individually via the reuse-capable
+            // single-task path, which resolves its own exact predecessor session.
+            singleUnits.push({ taskIds: [taskId], destination, resolvedPolicy });
+            continue;
+          }
 
-        if (!groups.has(tupleKey)) {
-          groups.set(tupleKey, { taskIds: [], destination, resolvedPolicy });
-        }
-        groups.get(tupleKey).taskIds.push(taskId);
-      }
-
-      // Human-only / no-agent-executor members: nothing to dispatch. Processed one at a
-      // time (save, then crash-hook check) — same sequencing granularity as the
-      // per-group dispatch below — so a crash hook on any one member reflects state as
-      // of exactly that member, never a sibling processed in the same batched write.
-      for (const taskId of noDispatchTaskIds) {
-        settlement.stages.continuationDispatch.members[taskId] = {
-          status: 'completed',
-          action: 'noop',
-          admission: null,
-          nextStep: null,
-          completedAt: new Date().toISOString(),
-        };
-        saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
-
-        if (_crashAfterMemberDispatchTaskId === taskId) {
-          throw new Error(`[test-hook] Simulated crash after member dispatch for task ${taskId}`);
-        }
-      }
-
-      for (const { taskIds: groupTaskIds, destination, resolvedPolicy } of groups.values()) {
-        if (groupTaskIds.length === 1) {
-          // A single member needing continuation still gets exactly one session, via
-          // the existing single-task path — no batch machinery for a group of one.
-          const taskId = groupTaskIds[0];
-          const currentChange = requireChange(changeSlug, activeDir);
-          const task = requireTask(currentChange, taskId);
-
-          const dispatchResult = await reconcileContinuation(currentChange, task, {
-            ...options,
-            repoRoot,
-            activeDir,
-            parentSessionId: effectiveSessionId,
+          const tupleKey = JSON.stringify({
+            continuationPolicy: destination.continuationPolicy,
+            targetStepId: destination.targetStepId,
+            executor: destination.executor,
+            role: destination.role,
+            sessionPolicy: destination.sessionPolicy,
+            provider: resolvedPolicy?.provider || null,
+            model: resolvedPolicy?.model || null,
+            mode: resolvedPolicy?.mode || null,
           });
 
+          if (!freshGroups.has(tupleKey)) {
+            freshGroups.set(tupleKey, { taskIds: [], destination, resolvedPolicy });
+          }
+          freshGroups.get(tupleKey).taskIds.push(taskId);
+        }
+
+        // Human-only / no-agent-executor members: nothing to dispatch, no contention
+        // risk — processed immediately, one at a time (save, then crash-hook check).
+        for (const taskId of noDispatchTaskIds) {
           settlement.stages.continuationDispatch.members[taskId] = {
             status: 'completed',
-            action: dispatchResult?.action || 'noop',
-            admission: dispatchResult?.admission || null,
-            nextStep: dispatchResult?.nextStep || null,
+            action: 'noop',
+            admission: null,
+            nextStep: null,
             completedAt: new Date().toISOString(),
           };
           saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
@@ -848,90 +903,203 @@ export async function executeBatchCompletionSettlement(params = {}) {
           if (_crashAfterMemberDispatchTaskId === taskId) {
             throw new Error(`[test-hook] Simulated crash after member dispatch for task ${taskId}`);
           }
-          continue;
         }
 
-        // Two or more members share the identical resulting contract: admit ONE new
-        // batch covering all of them, rather than one independent session per member.
-        const newBatchExecutionId = randomUUID();
-        const genericTrigger = options.message || options.prompt
-          || `Execute batched ${destination.targetStepId} for tasks: ${groupTaskIds.join(', ')}.`;
-
-        await createGroupReservation({
-          repoRoot,
-          changeSlug,
-          taskIds: groupTaskIds,
-          batchExecutionId: newBatchExecutionId,
-          executionConfigSnapshot: {
-            provider: resolvedPolicy?.provider,
-            model: resolvedPolicy?.model,
-            mode: resolvedPolicy?.mode || 'agent',
-            contextCapacity: { status: 'unknown', reason: 'batch-completion-handover' },
-          },
-        });
-
-        const candidate = {
-          scope: { kind: 'task-batch', taskIds: groupTaskIds },
-          taskIds: groupTaskIds,
-          batchExecutionId: newBatchExecutionId,
-          stepId: destination.targetStepId,
-          role: destination.role,
-          provider: resolvedPolicy?.provider,
-          mode: resolvedPolicy?.mode || 'agent',
-          model: resolvedPolicy?.model,
-          changeSlug,
-          specId: canonicalSpecId,
-          sessionPolicy: 'fresh',
-          parentSessionId: effectiveSessionId,
-          message: genericTrigger,
-          userMessage: genericTrigger,
-          prompt: genericTrigger,
-        };
-
-        let admissionRes;
-        try {
-          admissionRes = await admitAgentExecution(canonicalSpecId, candidate, {
-            ...options,
-            repoRoot,
-            activeDir,
+        // A fresh group of exactly one member still gets exactly one session via the
+        // single-task path — no batch machinery for a group of one.
+        const units = [...singleUnits];
+        for (const { taskIds: groupTaskIds, destination, resolvedPolicy } of freshGroups.values()) {
+          units.push({
+            taskIds: groupTaskIds,
+            destination,
+            resolvedPolicy,
+            isGroup: groupTaskIds.length > 1,
           });
-        } catch (err) {
-          await rollbackReservationSynchronously({
-            repoRoot,
-            changeSlug,
-            batchExecutionId: newBatchExecutionId,
-            error: err,
-          });
-          admissionRes = { admitted: false, reason: err?.message || String(err) };
         }
 
-        if (!admissionRes.admitted) {
-          await rollbackReservationSynchronously({
-            repoRoot,
-            changeSlug,
-            batchExecutionId: newBatchExecutionId,
-            error: new Error(admissionRes.reason || 'ADMISSION_BLOCKED'),
-          }).catch(() => {});
-        }
-
-        for (const taskId of groupTaskIds) {
-          settlement.stages.continuationDispatch.members[taskId] = {
-            status: 'completed',
-            action: admissionRes.admitted ? 'agent-admitted' : 'noop',
-            admission: admissionRes,
-            nextStep: destination.targetStepId,
-            batchExecutionId: newBatchExecutionId,
-            groupTaskIds,
-            completedAt: new Date().toISOString(),
-          };
-        }
+        settlement.stages.continuationDispatch.pendingUnits = units.map((u) => ({
+          taskIds: u.taskIds,
+          destination: u.destination,
+          resolvedPolicy: u.resolvedPolicy,
+          isGroup: !!u.isGroup,
+          status: 'pending',
+        }));
         saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+      }
 
-        for (const taskId of groupTaskIds) {
-          if (_crashAfterMemberDispatchTaskId === taskId) {
-            throw new Error(`[test-hook] Simulated crash after member dispatch for task ${taskId}`);
+      // Admit at most ONE eligible pending unit this pass, respecting the one-active-
+      // execution-per-spec invariant — never attempt a second admission in the same pass.
+      const pendingUnits = settlement.stages.continuationDispatch.pendingUnits.filter((u) => u.status === 'pending');
+
+      if (pendingUnits.length > 0) {
+        const alreadyActive = getActiveAgentExecution(canonicalSpecId);
+        if (!alreadyActive) {
+          const unit = pendingUnits[0];
+
+          if (!unit.isGroup) {
+            const taskId = unit.taskIds[0];
+            const currentChange = requireChange(changeSlug, activeDir);
+            const task = requireTask(currentChange, taskId);
+
+            const dispatchResult = await reconcileContinuation(currentChange, task, {
+              ...options,
+              repoRoot,
+              activeDir,
+              parentSessionId: effectiveSessionId,
+            });
+
+            settlement.stages.continuationDispatch.members[taskId] = {
+              status: 'completed',
+              action: dispatchResult?.action || 'noop',
+              admission: dispatchResult?.admission || null,
+              nextStep: dispatchResult?.nextStep || null,
+              completedAt: new Date().toISOString(),
+            };
+            unit.status = 'completed';
+            saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+
+            if (_crashAfterMemberDispatchTaskId === taskId) {
+              throw new Error(`[test-hook] Simulated crash after member dispatch for task ${taskId}`);
+            }
+          } else {
+            const { taskIds: groupTaskIds, destination, resolvedPolicy } = unit;
+
+            // Gap 2: run the same canonical compatibility/readiness validation every
+            // other reservation-creation call site runs, before creating a reservation
+            // for this handover group — never skip it just because the members already
+            // passed it once, at a prior, independent admission.
+            const currentChangeForCompat = requireChange(changeSlug, activeDir);
+            const resolvedModeForCompat = resolveWorkflowMode(currentChangeForCompat, { repoRoot });
+            const definitionForCompat = resolvedModeForCompat.definition
+              ? loadWorkflowDefinition(resolvedModeForCompat.definition, { repoRoot })
+              : null;
+            const compat = validateBatchCompatibility({
+              change: currentChangeForCompat,
+              taskIds: groupTaskIds,
+              definition: definitionForCompat,
+              repoRoot,
+            });
+
+            if (!compat.compatible) {
+              // Genuinely incompatible/blocked (e.g. an external unsatisfied
+              // dependency) — a real failure, never silently 'noop' as if nothing
+              // needed to happen.
+              for (const taskId of groupTaskIds) {
+                settlement.stages.continuationDispatch.members[taskId] = {
+                  status: 'completed',
+                  action: 'failed',
+                  reason: compat.reason,
+                  admission: null,
+                  nextStep: destination.targetStepId,
+                  groupTaskIds,
+                  completedAt: new Date().toISOString(),
+                };
+              }
+              unit.status = 'failed';
+              saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+            } else {
+              const newBatchExecutionId = randomUUID();
+              const genericTrigger = options.message || options.prompt
+                || `Execute batched ${destination.targetStepId} for tasks: ${groupTaskIds.join(', ')}.`;
+
+              await createGroupReservation({
+                repoRoot,
+                changeSlug,
+                taskIds: groupTaskIds,
+                batchExecutionId: newBatchExecutionId,
+                executionConfigSnapshot: {
+                  provider: resolvedPolicy?.provider,
+                  model: resolvedPolicy?.model,
+                  mode: resolvedPolicy?.mode || 'agent',
+                  contextCapacity: { status: 'unknown', reason: 'batch-completion-handover' },
+                },
+              });
+
+              const candidate = {
+                scope: { kind: 'task-batch', taskIds: groupTaskIds },
+                taskIds: groupTaskIds,
+                batchExecutionId: newBatchExecutionId,
+                stepId: destination.targetStepId,
+                role: destination.role,
+                provider: resolvedPolicy?.provider,
+                mode: resolvedPolicy?.mode || 'agent',
+                model: resolvedPolicy?.model,
+                changeSlug,
+                specId: canonicalSpecId,
+                sessionPolicy: destination.sessionPolicy,
+                parentSessionId: effectiveSessionId,
+                message: genericTrigger,
+                userMessage: genericTrigger,
+                prompt: genericTrigger,
+              };
+
+              let admissionRes;
+              try {
+                admissionRes = await admitAgentExecution(canonicalSpecId, candidate, {
+                  ...options,
+                  repoRoot,
+                  activeDir,
+                });
+              } catch (err) {
+                await rollbackReservationSynchronously({
+                  repoRoot,
+                  changeSlug,
+                  batchExecutionId: newBatchExecutionId,
+                  error: err,
+                });
+                admissionRes = { admitted: false, reason: err?.message || String(err) };
+              }
+
+              if (!admissionRes.admitted) {
+                await rollbackReservationSynchronously({
+                  repoRoot,
+                  changeSlug,
+                  batchExecutionId: newBatchExecutionId,
+                  error: new Error(admissionRes.reason || 'ADMISSION_BLOCKED'),
+                }).catch(() => {});
+              }
+
+              if (!admissionRes.admitted && admissionRes.reason === 'ACTIVE_EXECUTION_EXISTS') {
+                // Transient contention despite the pre-check above (a race with another
+                // process) — leave this unit durably pending, do not mark it done; a
+                // later pass retries it once the slot is actually free.
+              } else {
+                for (const taskId of groupTaskIds) {
+                  settlement.stages.continuationDispatch.members[taskId] = {
+                    status: 'completed',
+                    action: admissionRes.admitted ? 'agent-admitted' : 'noop',
+                    admission: admissionRes,
+                    nextStep: destination.targetStepId,
+                    batchExecutionId: newBatchExecutionId,
+                    groupTaskIds,
+                    completedAt: new Date().toISOString(),
+                  };
+                }
+                unit.status = admissionRes.admitted ? 'completed' : 'failed';
+                saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+
+                if (admissionRes.admitted) {
+                  for (const taskId of groupTaskIds) {
+                    if (_crashAfterMemberDispatchTaskId === taskId) {
+                      throw new Error(`[test-hook] Simulated crash after member dispatch for task ${taskId}`);
+                    }
+                  }
+                }
+              }
+            }
           }
         }
+      }
+
+      const stillPending = settlement.stages.continuationDispatch.pendingUnits.some((u) => u.status === 'pending');
+      if (stillPending) {
+        saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+        return {
+          settled: false,
+          status: 'pending',
+          reason: 'CONTINUATION_DISPATCH_PENDING',
+          settlement,
+        };
       }
     }
 

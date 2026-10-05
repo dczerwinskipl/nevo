@@ -24,6 +24,7 @@ import {
 import {
   acquireWorkspaceWriter,
   getWorkspaceWriterClaim,
+  releaseWorkspaceWriterIfOwned,
 } from '../specs/workflow/workspace-writer.mjs';
 import {
   createGroupReservation,
@@ -33,7 +34,7 @@ import {
 import {
   saveBatchFinishRecord,
 } from '../specs/workflow/batch-finish/record.mjs';
-import { requireChange, requireTask } from '../specs/store.mjs';
+import { requireChange, requireTask, setTaskWorkflowState } from '../specs/store.mjs';
 import { executionPolicyService } from '../dashboard/server/ai/sessions/execution-policy-service.mjs';
 
 const workflowYaml = `id: test-orchestration-wf
@@ -487,11 +488,23 @@ function setupHandoverRepo(slug, memberSpecs) {
 
   const specId = randomUUID();
   const tasksYaml = memberSpecs.map((m, idx) => {
+    if (m.external) {
+      // A task deliberately NOT part of any batch/group — exists only to be an
+      // unsatisfied external dependency for a batch member (task 11, gap 2).
+      return `  - id: ${m.id}
+    order: ${idx + 1}
+    title: Task ${m.id}
+    status: approved
+    allowed_paths:
+      - src/${m.id}.js
+`;
+    }
     const transitionedTo = m.result === 'pass' ? 'verified' : 'implementation';
+    const dependsOn = m.dependsOn?.length ? `\n    depends_on: [${m.dependsOn.join(', ')}]` : '';
     return `  - id: ${m.id}
     order: ${idx + 1}
     title: Task ${m.id}
-    status: in-review
+    status: in-review${dependsOn}
     allowed_paths:
       - src/${m.id}.js
     workflow_progress:
@@ -653,7 +666,10 @@ test('AC (Task 05): 2 members fail with identical contracts and 1 fails with a t
 
   const mockSessionService = makeMockSessionService();
 
-  const outcome = await executeBatchCompletionSettlement({
+  // Pass 1 (task 11): the one-active-execution-per-spec invariant means only ONE
+  // dispatch unit can be admitted this pass. {tA,tB}'s group (inserted first) is
+  // admitted; tC's own unit is left durably pending — not silently 'noop'/completed.
+  const firstOutcome = await executeBatchCompletionSettlement({
     repoRoot: tmpRoot,
     changeSlug: slug,
     batchExecutionId,
@@ -663,25 +679,69 @@ test('AC (Task 05): 2 members fail with identical contracts and 1 fails with a t
     options: { sessionService: mockSessionService },
   });
 
-  assert.equal(outcome.settled, true);
-  assert.equal(outcome.status, 'completed');
+  assert.equal(firstOutcome.settled, false);
+  assert.equal(firstOutcome.status, 'pending');
+  assert.equal(firstOutcome.reason, 'CONTINUATION_DISPATCH_PENDING');
 
-  const settlement = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
-  const tAGroup = settlement.stages.continuationDispatch.members.tA.batchExecutionId;
-  const tBGroup = settlement.stages.continuationDispatch.members.tB.batchExecutionId;
-  const tCGroup = settlement.stages.continuationDispatch.members.tC.batchExecutionId;
-
+  const afterFirstPass = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+  const tAGroup = afterFirstPass.stages.continuationDispatch.members.tA?.batchExecutionId;
+  const tBGroup = afterFirstPass.stages.continuationDispatch.members.tB?.batchExecutionId;
   assert.equal(tAGroup, tBGroup, 'tA and tB share the identical contract and must be grouped together');
-  assert.notEqual(tCGroup, tAGroup, 'tC diverges via taskOverrides and must not be grouped with tA/tB');
-  // tC went through the single-task path (no new batch reservation), tA/tB through a new 2-member batch
-  assert.equal(tCGroup, undefined, 'tC dispatches via the single-task path, not a fabricated one-member batch');
+  assert.ok(tAGroup, 'tA/tB group must have been admitted in pass 1');
+  assert.equal(
+    afterFirstPass.stages.continuationDispatch.members.tC,
+    undefined,
+    'tC must remain durably pending after pass 1, not recorded as completed/noop',
+  );
+  const pendingUnitsAfterFirstPass = afterFirstPass.stages.continuationDispatch.pendingUnits.filter((u) => u.status === 'pending');
+  assert.equal(pendingUnitsAfterFirstPass.length, 1, 'Exactly tC\'s own unit must remain pending');
+  assert.deepEqual(pendingUnitsAfterFirstPass[0].taskIds, ['tC']);
 
   const refinerReservation = getGroupReservation(tmpRoot, slug, tAGroup);
   assert.ok(refinerReservation);
   assert.deepEqual([...refinerReservation.taskIds].sort(), ['tA', 'tB']);
 
-  // Exactly two sessions total: one shared batch session for {tA,tB}, one single-task session for tC
-  assert.equal(mockSessionService.createdSessions.length, 1, 'Only the 2-member group goes through admitAgentExecution/createSession directly');
+  // Simulate the admitted {tA,tB} group's own execution settling (the real trigger is
+  // that group's own batch-finish + batch-completion-settlement reaching its own
+  // Stage 1/2, exercised end-to-end in the dedicated durable-resume test below) —
+  // here, directly free both the one-active-execution-per-spec slot and the
+  // workspace-writer claim pass 1's admission acquired.
+  assert.ok(getActiveAgentExecution(specId), 'the admitted group must hold the active-execution slot after pass 1');
+  clearActiveAgentExecution(specId);
+  const groupClaim = getWorkspaceWriterClaim(tmpRoot);
+  if (groupClaim) {
+    await releaseWorkspaceWriterIfOwned({
+      repoRoot: tmpRoot,
+      expectedOwnerId: groupClaim.ownerId,
+      expectedKind: groupClaim.kind,
+      expectedScope: groupClaim.scope,
+      expectedSessionId: groupClaim.sessionId,
+    });
+  }
+
+  // Pass 2: tC's own unit is now eligible and gets admitted for real.
+  const secondOutcome = await executeBatchCompletionSettlement({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId: batchSessionId,
+    ownerId: acq.ownerId,
+    activeDir,
+    options: { sessionService: mockSessionService },
+  });
+
+  assert.equal(secondOutcome.settled, true);
+  assert.equal(secondOutcome.status, 'completed');
+
+  const settlement = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+  const tCMember = settlement.stages.continuationDispatch.members.tC;
+  assert.equal(tCMember.action, 'agent-admitted', 'tC must be genuinely admitted, not silently noop\'d');
+  assert.equal(tCMember.batchExecutionId, undefined, 'tC dispatches via the single-task path, not a fabricated one-member batch');
+  assert.notEqual(tCMember, tAGroup);
+
+  // Exactly two sessions total: one shared batch session for {tA,tB}, one single-task
+  // session for tC — both created via the same mock sessionService.
+  assert.equal(mockSessionService.createdSessions.length, 2);
 });
 
 test('AC (Task 05): Some members pass (human-verification) and others fail (refiner) — zero sessions for the passing group, correctly-grouped session(s) for the failing group', async () => {
@@ -807,4 +867,368 @@ test('AC (Task 05): A single failed member still gets exactly one session, via t
   // No new group reservation was created for a group of one
   const anyNewReservations = getGroupReservation(tmpRoot, slug, tBDispatch.batchExecutionId || 'none');
   assert.equal(anyNewReservations, null);
+});
+
+test('AC (Task 11, gap 2): a grouped-handover group whose member carries an independent admission-blocking state is rejected before any reservation is created for it', async () => {
+  const slug = 'test-handover-suspended-member';
+  const memberIds = ['tA', 'tB'];
+  const { tmpRoot, activeDir, specId } = setupHandoverRepo(slug, [
+    { id: 'tA', result: 'fail' },
+    { id: 'tB', result: 'fail' },
+  ]);
+
+  // tB independently picked up an active, non-advisory remediation suspension between
+  // its own batch-finish transition and this settlement running (task 11, gap 2) — a
+  // real admission-blocking state validateBatchCompatibility's own readiness check
+  // must still catch, exactly as it would for a manually started batch.
+  const { createRemediationRecord } = await import('../specs/workflow/remediation-record.mjs');
+  createRemediationRecord({
+    repoRoot: tmpRoot,
+    change: slug,
+    invalidatedDependency: { taskId: 'some-upstream-task', releaseEpoch: { step: 'implementation', attempt: 1 } },
+    members: [{ taskId: 'tB', role: 'consumer', terminal: false }],
+  });
+
+  const batchExecutionId = `batch-${randomUUID()}`;
+  const batchSessionId = `session-rev-batch-${randomUUID()}`;
+
+  await createGroupReservation({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    taskIds: memberIds,
+    batchExecutionId,
+    executionConfigSnapshot: { provider: 'mock', mode: 'agent' },
+  });
+  const acq = await acquireWorkspaceWriter({
+    repoRoot: tmpRoot,
+    kind: 'agent',
+    specId,
+    changeSlug: slug,
+    scope: { kind: 'task-batch', taskIds: memberIds },
+    sessionId: batchSessionId,
+    batchExecutionId,
+  });
+  saveBatchFinishRecord(tmpRoot, slug, {
+    batchExecutionId,
+    changeSlug: slug,
+    sessionId: batchSessionId,
+    taskIds: memberIds,
+    status: 'completed',
+    results: Object.fromEntries(memberIds.map((id) => [id, { value: 'fail' }])),
+  });
+
+  const mockSessionService = makeMockSessionService();
+
+  const outcome = await executeBatchCompletionSettlement({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId: batchSessionId,
+    ownerId: acq.ownerId,
+    activeDir,
+    options: { sessionService: mockSessionService },
+  });
+
+  // Genuinely incompatible (external unsatisfied dependency) is a real failure, not a
+  // transient pending — the settlement itself reaches 'completed' with a recorded
+  // failure, not 'pending' waiting for another pass.
+  assert.equal(outcome.settled, true);
+  assert.equal(outcome.status, 'completed');
+
+  const settlement = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+  assert.equal(settlement.stages.continuationDispatch.members.tA.action, 'failed');
+  assert.equal(settlement.stages.continuationDispatch.members.tB.action, 'failed');
+  assert.match(settlement.stages.continuationDispatch.members.tB.reason || '', /tB/);
+
+  // No reservation and no session were ever created for the rejected group.
+  assert.equal(mockSessionService.createdSessions.length, 0);
+});
+
+test('AC (Task 11, gap 3): a destination resolving to sessionPolicy "reuse" is dispatched via the single-task reuse-capable path, never silently admitted as fresh', async () => {
+  const slug = 'test-handover-reuse-policy';
+  const reuseWorkflowYaml = `id: test-handover-reuse-wf
+title: "Test Handover Reuse Workflow"
+type: standard
+version: 1
+entryStep: implementation
+sourceControl:
+  enabled: true
+  push: false
+steps:
+  implementation:
+    status:
+      active: implementing
+      completed: implemented
+    purpose: "Implement code"
+    expectedWork:
+      summary: "Implement"
+    transitions:
+      - to: review
+        continuation: auto
+        execution:
+          session: reuse
+          role: reviewer
+  review:
+    status:
+      active: reviewing
+      completed: reviewed
+    purpose: "Review code"
+    expectedWork:
+      summary: "Review"
+    transitions:
+      - to: verified
+        outcome: success
+`;
+
+  resetAdmissionStateForTest();
+  const tmpRoot = fs.mkdtempSync(path.join(tmpdir(), 'nevo-test-batch-reuse-'));
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: tmpRoot });
+    execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: tmpRoot });
+    execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpRoot });
+
+    const activeDir = path.join(tmpRoot, 'specs', 'active');
+    const changeDir = path.join(activeDir, slug);
+    const taskDir = path.join(changeDir, 'tasks');
+    const workflowDir = path.join(tmpRoot, '.nevo-ai', 'workflows');
+    fs.mkdirSync(taskDir, { recursive: true });
+    fs.mkdirSync(workflowDir, { recursive: true });
+    fs.writeFileSync(path.join(workflowDir, 'test-handover-reuse-wf.yaml'), reuseWorkflowYaml, 'utf8');
+
+    const specId = randomUUID();
+    const implSessionId = 'session-impl-shared';
+    // t1's destination resolves to session: reuse (implementation -> review). t2 is
+    // already terminal (review -> verified already recorded) — no agent executor, no
+    // dispatch, no contention risk — isolating t1 as the only agent-dispatch unit this
+    // settlement must process.
+    const changeYaml = `id: ${slug}
+spec_id: ${specId}
+title: "Test Handover Reuse Change"
+status: in-progress
+workflow:
+  mode: deterministic
+  version: 1
+  definition: test-handover-reuse-wf
+tasks:
+  - id: t1
+    order: 1
+    title: Task 1
+    status: in-implementation
+    allowed_paths:
+      - src/t1.js
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          sessionId: ${implSessionId}
+          transitioned_to: review
+  - id: t2
+    order: 2
+    title: Task 2
+    status: verified
+    allowed_paths:
+      - src/t2.js
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: review
+          attempt: 1
+          sessionId: session-rev-t2
+          result: pass
+          transitioned_to: verified
+`;
+    fs.writeFileSync(path.join(changeDir, 'change.yaml'), changeYaml, 'utf8');
+    fs.writeFileSync(path.join(taskDir, 't1.md'), '# Task 1\n', 'utf8');
+    fs.writeFileSync(path.join(taskDir, 't2.md'), '# Task 2\n', 'utf8');
+    execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
+    execFileSync('git', ['commit', '-m', 'Fixture setup'], { cwd: tmpRoot });
+
+    const batchExecutionId = `batch-${randomUUID()}`;
+    const batchSessionId = implSessionId;
+    const memberIds = ['t1', 't2'];
+
+    await createGroupReservation({
+      repoRoot: tmpRoot,
+      changeSlug: slug,
+      taskIds: memberIds,
+      batchExecutionId,
+      executionConfigSnapshot: { provider: 'mock', mode: 'agent' },
+    });
+    const acq = await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId,
+      changeSlug: slug,
+      scope: { kind: 'task-batch', taskIds: memberIds },
+      sessionId: batchSessionId,
+      batchExecutionId,
+    });
+    saveBatchFinishRecord(tmpRoot, slug, {
+      batchExecutionId,
+      changeSlug: slug,
+      sessionId: batchSessionId,
+      taskIds: memberIds,
+      status: 'completed',
+      results: {},
+    });
+
+    const mockSessionService = makeMockSessionService();
+
+    const outcome = await executeBatchCompletionSettlement({
+      repoRoot: tmpRoot,
+      changeSlug: slug,
+      batchExecutionId,
+      sessionId: batchSessionId,
+      ownerId: acq.ownerId,
+      activeDir,
+      options: { sessionService: mockSessionService },
+    });
+
+    assert.equal(outcome.settled, true);
+    assert.equal(outcome.status, 'completed');
+
+    const settlement = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+    const t1Dispatch = settlement.stages.continuationDispatch.members.t1;
+    const t2Dispatch = settlement.stages.continuationDispatch.members.t2;
+
+    assert.equal(t2Dispatch.action, 'noop', 't2 is already terminal — no dispatch');
+    assert.equal(t1Dispatch.batchExecutionId, undefined, 'session: reuse is never grouped into a fabricated multi-member batch');
+    assert.equal(t1Dispatch.action, 'agent-admitted');
+
+    // The single-task continuation path resolved the exact predecessor session
+    // (session: reuse) rather than creating a fresh one via the mock sessionService.
+    assert.equal(mockSessionService.createdSessions.length, 0, 'session: reuse must resume the predecessor session, never create a fresh one');
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 11, gap 1): the second, durably pending group is admitted automatically once the first group\'s own settlement frees the active-execution slot — no manual intervention, no re-processing the first group', async () => {
+  const slug = 'test-handover-durable-resume';
+  const memberIds = ['tA', 'tB', 'tC'];
+  const { tmpRoot, activeDir, specId } = setupHandoverRepo(slug, memberIds.map((id) => ({ id, result: 'fail' })));
+
+  // tC diverges via taskOverrides (same role, different provider) so the review pass
+  // produces two groups: {tA,tB} (inserted first) and {tC} (inserted second).
+  executionPolicyService.saveExecutionPolicy(
+    slug,
+    {
+      provider: 'claude',
+      mode: 'agent',
+      roles: { refiner: { provider: 'claude', mode: 'agent' } },
+      taskOverrides: { tC: { provider: 'gemini', mode: 'agent' } },
+    },
+    { repoRoot: tmpRoot },
+  );
+
+  const parentBatchExecutionId = `batch-${randomUUID()}`;
+  const parentSessionId = `session-rev-batch-${randomUUID()}`;
+
+  await createGroupReservation({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    taskIds: memberIds,
+    batchExecutionId: parentBatchExecutionId,
+    executionConfigSnapshot: { provider: 'mock', mode: 'agent' },
+  });
+  const acq = await acquireWorkspaceWriter({
+    repoRoot: tmpRoot,
+    kind: 'agent',
+    specId,
+    changeSlug: slug,
+    scope: { kind: 'task-batch', taskIds: memberIds },
+    sessionId: parentSessionId,
+    batchExecutionId: parentBatchExecutionId,
+  });
+  saveBatchFinishRecord(tmpRoot, slug, {
+    batchExecutionId: parentBatchExecutionId,
+    changeSlug: slug,
+    sessionId: parentSessionId,
+    taskIds: memberIds,
+    status: 'completed',
+    results: Object.fromEntries(memberIds.map((id) => [id, { value: 'fail' }])),
+  });
+
+  const mockSessionService = makeMockSessionService();
+
+  // Pass 1: {tA,tB} is admitted as a new group; {tC} is left durably pending.
+  const firstOutcome = await executeBatchCompletionSettlement({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    batchExecutionId: parentBatchExecutionId,
+    sessionId: parentSessionId,
+    ownerId: acq.ownerId,
+    activeDir,
+    options: { sessionService: mockSessionService },
+  });
+  assert.equal(firstOutcome.settled, false);
+  assert.equal(firstOutcome.status, 'pending');
+
+  const afterFirstPass = loadBatchCompletionSettlement(tmpRoot, slug, parentBatchExecutionId);
+  const childBatchExecutionId = afterFirstPass.stages.continuationDispatch.members.tA.batchExecutionId;
+  assert.ok(childBatchExecutionId, 'the {tA,tB} group must have been admitted in pass 1');
+  assert.equal(
+    afterFirstPass.stages.continuationDispatch.members.tC,
+    undefined,
+    'tC must remain durably pending, not completed, after pass 1',
+  );
+
+  // Fast-forward: {tA,tB}'s own admitted work is done (both reach a terminal state
+  // with no further agent executor) — set up its own real batch-finish record so its
+  // settlement has genuine durable state to read, exactly as a real completed child
+  // batch would.
+  const childChange = requireChange(slug, activeDir);
+  for (const taskId of ['tA', 'tB']) {
+    const task = requireTask(childChange, taskId);
+    setTaskWorkflowState(childChange, taskId, {
+      status: 'verified',
+      workflowProgress: {
+        current_step: 'review',
+        current_attempt: task.workflow_progress.current_attempt,
+        state: 'completed',
+        history: [
+          ...task.workflow_progress.history,
+          { step: 'review', attempt: task.workflow_progress.current_attempt, result: 'pass', transitioned_to: 'verified' },
+        ],
+      },
+    });
+  }
+  saveBatchFinishRecord(tmpRoot, slug, {
+    batchExecutionId: childBatchExecutionId,
+    changeSlug: slug,
+    sessionId: afterFirstPass.stages.continuationDispatch.members.tA.admission?.sessionId || 'session-child',
+    taskIds: ['tA', 'tB'],
+    status: 'completed',
+    results: {},
+  });
+
+  // Resume the ORIGINAL (parent) settlement via the child's own settlement reaching
+  // its own Stage 2 — this is the real, automatic trigger (resumePendingHandoverForSpec),
+  // not a manual re-invocation of the parent settlement by the test itself.
+  const childOutcome = await executeBatchCompletionSettlement({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    batchExecutionId: childBatchExecutionId,
+    sessionId: afterFirstPass.stages.continuationDispatch.members.tA.admission?.sessionId,
+    activeDir,
+    options: { sessionService: mockSessionService },
+  });
+  assert.equal(childOutcome.settled, true, 'the child {tA,tB} batch must settle on its own terms');
+
+  // The parent settlement must now ALSO be 'completed' — resumed automatically as a
+  // side effect of the child's own Stage 2 freeing the active-execution slot, not
+  // because the test itself called executeBatchCompletionSettlement for the parent
+  // a second time.
+  const parentAfterResume = loadBatchCompletionSettlement(tmpRoot, slug, parentBatchExecutionId);
+  assert.equal(parentAfterResume.status, 'completed', 'the parent settlement must be auto-resumed and completed');
+  assert.equal(parentAfterResume.stages.continuationDispatch.members.tC.action, 'agent-admitted');
+  assert.equal(parentAfterResume.stages.continuationDispatch.members.tA.batchExecutionId, childBatchExecutionId);
+
+  // tA/tB's own original group dispatch is untouched/not re-processed by the resume.
+  assert.equal(parentAfterResume.stages.continuationDispatch.members.tA.action, 'agent-admitted');
 });
