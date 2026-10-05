@@ -165,7 +165,7 @@ tasks:
   - id: acceptance-initial-implementation-batch
     order: 7
     file: tasks/07-acceptance-initial-implementation-batch.md
-    status: draft
+    status: approved
     depends_on:
       [
         batch-admission-generalization,
