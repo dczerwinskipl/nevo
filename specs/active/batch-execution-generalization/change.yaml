@@ -280,7 +280,7 @@ tasks:
   - id: durable-grouped-handover-dispatch
     order: 11
     file: tasks/11-durable-grouped-handover-dispatch.md
-    status: draft
+    status: approved
     depends_on:
       [
         batch-admission-generalization,
