@@ -1,14 +1,14 @@
 ---
 review-of: spec
 change: batch-execution-generalization
-generated: 2026-10-04
+generated: 2026-10-05
 verdict: ready-for-approval
 ready_for_approval: true
 implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: b167f27a79ae4544ff2184ccfb08c7be7be07f8d3408cb7026aa1da963b82ee5
+spec_fingerprint: da3bfa0131e2ed6a2226619973fccd3e3ccf78a67b5a6aa17d9bc3276e035445
 task_fingerprints:
   queue-removal-and-reservation-storage-migration: 47af91f69da5d79b43f402c18e041a418efa81f4ebd664f28b70c9a4c47544b0
   batch-admission-generalization: 47e17e75378534246222b89246a0546b74dded9d597764ec001b31ad3c946f8e
@@ -18,62 +18,90 @@ task_fingerprints:
   ui-canonical-dependency-projection: e87120a81cc7414b0533083fac6b13f732042282b855b942530ffb69a09a8cde
   acceptance-initial-implementation-batch: 6ff1256cd0c9b6ada8994a60364d2b9194d8c2395b439a1707942ce9a6d0f6bc
   single-task-convergence-verification: e516de6ab1c206a7fdaff544a98d976c61f4d54dde7431f403514e21d22f274c
+  batch-finish-gate-correctness: d413f3ec547d5a90affc6b41bc5020959ba7dbacc0da057f4d894c2e70e66070
+  production-batch-admission-generalization: b87e40c5c507fac32a17df1c6c155e72e1095e075a2d8692e15447e289202061
+  durable-grouped-handover-dispatch: 825e71a2c9fe05520f2fbc9f3d2fd80ac8bd88dcb65fa3a7a8bdd9cce80b9cd0
+  real-end-to-end-corrective-acceptance: f82caf131ef5f398abeca9897f47fab5b54fc6125cc1f3c462c904c94fc4ff83
 ---
 
 # Review: batch-execution-generalization
 
 ## Verdict
 
-`ready-for-approval` — no unresolved `AUTO_FIX`/`OWNER_DECISION`/`NEEDS_CLARIFICATION`
-findings against any of the 8 tasks; none of them carries `status: approved` yet in
-`change.yaml`.
+`ready-for-approval` — scoped re-review (`--changed`) covering only the 4 newly added
+corrective tasks (09-12); no unresolved `AUTO_FIX`/`OWNER_DECISION`/`NEEDS_CLARIFICATION`
+findings against any of them. Tasks 01-08 are **not** re-graded by this run — their own
+`task_fingerprints` entries above are carried forward unchanged from the prior review,
+per the context-vs-review-scope boundary (`references/review-policy.md`); they remain
+`verified` in `change.yaml`, untouched by this correction, exactly as the owner
+instructed when requesting it.
 
-No reliable previous-file baseline is available. Performing a fresh review of the
-current specification.
+## Post-implementation correction (this review's own reason for existing)
+
+This spec was previously reviewed and all 8 original tasks were implemented and
+individually verified. A separate, change-level review (full diff against the
+pre-change baseline) then found that tasks 1-8, while correct against their own scoped
+acceptance criteria, did not in aggregate prove two of the change-wide acceptance
+criteria in real production behavior, and surfaced two further gaps — one in
+already-verified task 05's own file, one in pre-existing, never-generalized production
+code (`routes.mjs`). Full writeup: `overview.md` § "Post-implementation review
+correction". Tasks 09-12 were added as corrective work in response, to be implemented
+in order (09 → 10 → 11 → 12) before this change can be considered ready for final
+approval. This review's only job is to confirm tasks 09-12 themselves are ready for
+*implementation* to begin — it does not, and cannot, confirm the underlying production
+gaps are actually fixed; that is what tasks 09-12's own verification, and task 12
+specifically, exists to prove.
 
 ## Implementation readiness
 
 - May implementation start now? No — `implementation_allowed: false`.
-- Are the relevant tasks `approved` in `change.yaml`? No, all 8 are currently `draft`.
-- What has to happen first? Nothing blocking remains — each task needs its own
-  `/nevo-ai:spec-approve` transition to `approved`.
+- Are tasks 09-12 `approved` in `change.yaml`? No, all 4 are currently `draft`.
+- What has to happen first? Nothing blocking remains — each of tasks 09-12 needs its
+  own `/nevo-ai:spec-approve` transition, in order (09 before 10, 10 before 11, 11
+  before 12 — enforced by each task's own `depends_on`).
 
 Gating validation: passed (`node tools/specs.mjs validate` — 31 changes, no errors).
-Non-gating repository check: passed (`node tools/specs.mjs check`, `node tools/docs.mjs validate`).
 
 ## Findings
 
-No findings.
+No findings against tasks 09-12.
 
-Readiness criteria checked directly against the current file contents (`overview.md`,
-`discovery.md`, all 8 `tasks/*.md`), per `references/review-policy.md` § "Specification
-readiness criteria":
+Readiness criteria checked directly against the current file contents (`overview.md`'s
+new "Post-implementation review correction" section and updated "Implementation
+decomposition" list, and `tasks/09-*.md` through `tasks/12-*.md` in full), per
+`references/review-policy.md` § "Specification readiness criteria":
 
-- `depends_on` graph resolves and is acyclic (`node tools/specs.mjs validate`).
-- Every task declares specific, non-overlapping-in-intent `allowed_paths`/
-  `forbidden_paths` (`src/**` and the UI directory are forbidden everywhere production
-  workflow code is touched; the two test-only tasks 07/08 forbid every production path
-  their own acceptance text relies on, by design — "report the gap, don't patch it").
-- Every acceptance criterion names a concrete `automated:`/`inspection:` check (a test
-  file or a `grep`/direct-read instruction) — none is aspirational.
-- The constraint "legacy lifecycle for this change" (`overview.md` § Constraints) is a
-  closed owner decision carried from `deterministic-flow-hardening-pt3`'s own precedent,
-  consistent with `change.yaml` carrying no `workflow:` field (defaults to legacy) — not
-  an open `OWNER_DECISION` finding.
-- Documentation impact identified: `overview.md` § "ADR impact" explicitly defers a new
-  ADR as optional, not silently omitted.
-- No open owner decision blocks the next task: `discovery.md` § "Owner decisions" lists
-  8 decisions, explicitly marked "recorded, not re-opened"; the 3-round discovery
-  history (two rejected drafts, with reasons) already constitutes the option-analysis
-  record this architectural change's gate requires.
-- Semantic-reference completeness: no task's own prose names an owner-decision number
-  it fails to declare in `semantic_references.decisions` — this spec's own decisions are
-  carried via required `discovery.md`/`overview.md` context reads, not a `D`-numbered
-  registry; cross-spec invariants (`D31`/`D33`/`D36`/`D37`/`D45`/`D52`/`D53`/`D58`) are
-  cited only in `discovery.md`'s own prose, never restated unattributed in a task body.
+- `depends_on` graph resolves and is acyclic, including the new 09→10→11→12 chain
+  (`node tools/specs.mjs validate`).
+- Each of 09-12 declares specific, non-overlapping-in-intent `allowed_paths`/
+  `forbidden_paths`: 09 owns `batch-finish/operation.mjs` and forbids
+  `finish-operation.mjs`/`queue/**`/`routes.mjs`/`batch-completion-settlement.mjs`; 10
+  owns `routes.mjs` and forbids `tools/specs/workflow/**`/`batch-completion-settlement.mjs`;
+  11 owns `batch-completion-settlement.mjs` and forbids `tools/specs/workflow/**`/
+  `routes.mjs`; 12 is test-only (new file, no production path in `allowed_paths`),
+  forbidding every production file the other three touch — same "report the gap, don't
+  patch it" discipline tasks 07/08 already established.
+- Every acceptance criterion in 09-12 names a concrete `automated:`/`inspection:` check
+  (a specific test file, several of them new and named for this task) — none is
+  aspirational.
+- No open owner decision blocks 09-12: each explicitly stays within the architecture
+  the owner already decided (homogeneous-by-contract batches, no `ExecutionRun`, no
+  second scheduler, one session per batch) — each task's own "Implementation
+  constraints"/closing paragraph repeats the specific prohibitions (no queue
+  reintroduction, no new scheduler) the corrective-task request itself specified, so
+  there is nothing new here requiring a fresh option analysis.
+- Documentation impact identified: `overview.md`'s new "Post-implementation review
+  correction" section is the documentation impact for this correction itself; no
+  further ADR impact beyond what the original review already recorded (deferred,
+  optional).
+- Semantic-reference completeness: none of 09-12 names an owner-decision number in
+  prose it fails to declare in `semantic_references.decisions` (all four correctly
+  carry `decisions: []` — they reference this change's own existing architecture via
+  required `overview.md` context, not a new `D`-numbered decision).
 
 ## Architecture and documentation
 
 No existing ADR documents the sequential-queue/batch-reservation architecture
-(confirmed in `discovery.md`); no conflict with `docs/development/` found for the
-tasks' declared scope.
+(confirmed in `discovery.md`); tasks 09-12 fix production behavior within that same,
+already-decided architecture — no new architectural decision, no ADR impact beyond
+what the original review already recorded.
