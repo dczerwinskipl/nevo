@@ -221,18 +221,12 @@ tasks:
   - id: batch-finish-gate-correctness
     order: 9
     file: tasks/09-batch-finish-gate-correctness.md
-    status: draft
+    status: approved
     depends_on:
       [
         batch-finish-phase-neutral-generalization,
         intra-batch-dependency-consumption-materialization
       ]
-    execution:
-      suspension:
-        kind: confirm-required
-        code: REC-07
-        previous_action: approve
-        created_at: 2026-10-05T16:03:33.879Z
   - id: production-batch-admission-generalization
     order: 10
     file: tasks/10-production-batch-admission-generalization.md

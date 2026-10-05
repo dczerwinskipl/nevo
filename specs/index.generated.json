@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-05T11:02:58.818Z",
+  "generated": "2026-10-05T16:06:56.518Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -484,6 +484,49 @@
             ],
             "status": "passed"
           }
+        },
+        {
+          "id": "batch-finish-gate-correctness",
+          "order": 9,
+          "file": "tasks/09-batch-finish-gate-correctness.md",
+          "status": "approved",
+          "depends_on": [
+            "batch-finish-phase-neutral-generalization",
+            "intra-batch-dependency-consumption-materialization"
+          ]
+        },
+        {
+          "id": "production-batch-admission-generalization",
+          "order": 10,
+          "file": "tasks/10-production-batch-admission-generalization.md",
+          "status": "draft",
+          "depends_on": [
+            "queue-removal-and-reservation-storage-migration",
+            "batch-admission-generalization",
+            "batch-finish-gate-correctness"
+          ]
+        },
+        {
+          "id": "durable-grouped-handover-dispatch",
+          "order": 11,
+          "file": "tasks/11-durable-grouped-handover-dispatch.md",
+          "status": "draft",
+          "depends_on": [
+            "batch-admission-generalization",
+            "batch-completion-handover-partitioning",
+            "production-batch-admission-generalization"
+          ]
+        },
+        {
+          "id": "real-end-to-end-corrective-acceptance",
+          "order": 12,
+          "file": "tasks/12-real-end-to-end-corrective-acceptance.md",
+          "status": "draft",
+          "depends_on": [
+            "batch-finish-gate-correctness",
+            "production-batch-admission-generalization",
+            "durable-grouped-handover-dispatch"
+          ]
         }
       ]
     },
