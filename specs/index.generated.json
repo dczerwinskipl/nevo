@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-05T08:54:48.766Z",
+  "generated": "2026-10-05T09:17:16.276Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -412,13 +412,16 @@
           "id": "acceptance-initial-implementation-batch",
           "order": 7,
           "file": "tasks/07-acceptance-initial-implementation-batch.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "batch-admission-generalization",
             "batch-finish-phase-neutral-generalization",
             "intra-batch-dependency-consumption-materialization",
             "batch-completion-handover-partitioning"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "9d30fc6a66850005afec1b611c7e853b0958ac62"
+          }
         },
         {
           "id": "single-task-convergence-verification",

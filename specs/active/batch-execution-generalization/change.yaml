@@ -165,7 +165,7 @@ tasks:
   - id: acceptance-initial-implementation-batch
     order: 7
     file: tasks/07-acceptance-initial-implementation-batch.md
-    status: approved
+    status: in-implementation
     depends_on:
       [
         batch-admission-generalization,
@@ -173,6 +173,8 @@ tasks:
         intra-batch-dependency-consumption-materialization,
         batch-completion-handover-partitioning
       ]
+    implementation:
+      baseline_revision: 9d30fc6a66850005afec1b611c7e853b0958ac62
   - id: single-task-convergence-verification
     order: 8
     file: tasks/08-single-task-convergence-verification.md
