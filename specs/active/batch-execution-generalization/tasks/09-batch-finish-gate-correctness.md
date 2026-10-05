@@ -15,6 +15,7 @@ allowed_paths:
   - tools/specs/workflow/batch-finish/operation.mjs
   - tools/tests/batch-finish-operation.test.mjs
   - tools/tests/batch-finish-gate-correctness.test.mjs
+  - tools/tests/batch-cli-and-security.test.mjs
 forbidden_paths:
   - src/**
   - tools/dashboard/**
@@ -23,6 +24,22 @@ forbidden_paths:
   - tools/specs/workflow/queue/**
 depends_on: [batch-finish-phase-neutral-generalization, intra-batch-dependency-consumption-materialization]
 ---
+
+<!--
+Scope amendment (implementation-time, legacy lifecycle — same pattern as tasks 01, 03,
+05, 07, and 08's own amendments, references/review-policy.md "Specification scope
+amendment"): tools/tests/batch-cli-and-security.test.mjs's `setupTestRepo` copies the
+real .nevo-ai/workflows/standard.yaml, whose `implementation` step declares a real
+`action: test` exit gate. Before this task's fix, that gate was silently never
+evaluated for real (the exact bug this task fixes), so 3 of its tests passed despite
+never actually exercising a working gate. With the fix, the gate genuinely runs `npm
+test` — and the fixture had no package.json, so it genuinely fails (ENOENT), correctly
+blocking those 3 tests now that the gate is real — a mechanical, necessary consequence
+of this task's own fix, not a scope expansion of what the task does. Added a real
+package.json with a trivial passing test script, matching every other gate-correctness
+fixture in this task's own new test file.
+-->
+
 
 # Task: Make `BatchFinish`'s per-member finish use real gate infrastructure and respect its own outcome
 

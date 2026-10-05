@@ -48,6 +48,16 @@ function setupTestRepo(slug, { omitSpecId = false, specId = randomUUID() } = {})
     path.join(REPO_ROOT, '.nevo-ai', 'workflows', 'standard.yaml'),
     path.join(workflowDir, 'standard.yaml')
   );
+  // A real package.json is required now that batch-finish actually wires up the real
+  // gate registry and evaluates the real standard.yaml's `action: test` exit gate
+  // (batch-execution-generalization, task 09) — matching what any real project
+  // fixture would have, same reasoning as batch-finish-gate-correctness.test.mjs's
+  // own fixtures.
+  fs.writeFileSync(
+    path.join(tmpRoot, 'package.json'),
+    JSON.stringify({ name: 'batch-cli-fixture', version: '1.0.0', scripts: { test: 'node -e "process.exit(0)"' } }, null, 2),
+    'utf8'
+  );
 
   const specIdField = omitSpecId ? '' : `spec_id: ${specId}\n`;
   const changeYaml = `id: ${slug}

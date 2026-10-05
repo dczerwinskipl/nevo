@@ -9,6 +9,7 @@ import { loadWorkflowDefinition } from '../definitions/loader.mjs';
 import { normalizeSourceControlConfig } from '../definitions/schema.mjs';
 import { getGroupReservation } from '../queue/reservation.mjs';
 import { finishStep } from '../finish-operation.mjs';
+import { buildWorkflowGateRegistry } from '../cli.mjs';
 import { defaultActionRegistry } from '../registry.mjs';
 import { resolveTaskScope } from '../../context.mjs';
 import { findInFlightStartOperation, saveStartOperation, completeConsumptionStage } from '../start-operation.mjs';
@@ -301,6 +302,15 @@ export async function executeBatchFinish(params = {}) {
     };
     const { allowedPaths } = resolveTaskScope(currentChange, task, { repoRoot, activeDir });
 
+    // Real gate infrastructure (batch-execution-generalization, task 09): the same kind
+    // of gateRegistry the single-task CLI finish path builds — a fresh
+    // MemoryCommandVerificationStore plus a real FileHumanVerificationStore, keyed to
+    // this exact member/attempt — so a real `command`-type exit gate (e.g. the real
+    // standard.yaml's `implementation`/`review` steps) is actually executed and its
+    // result actually recorded, rather than silently failing closed against the
+    // verification-store-less default registry.
+    const gateRegistry = buildWorkflowGateRegistry(repoRoot, changeSlug, taskId, task);
+
     const finishResult = await finishStep({
       change: currentChange,
       task,
@@ -315,7 +325,29 @@ export async function executeBatchFinish(params = {}) {
       },
       inputs: taskInputs,
       activeDir,
+      gateRegistry,
     });
+
+    // Only a genuine terminal completion (this call finished it, or it was already
+    // finished by a prior attempt) may be recorded as this member's own finish stage
+    // being done. Any other returned status ('blocked', 'input-required',
+    // 'reconciliation-required', or any future non-terminal value) means this member's
+    // transition did NOT actually happen — batch-execution-generalization, task 09.
+    // Fail closed: do not record completion, do not materialize this member's (or any
+    // other member's) dependency-consumption, and do not proceed to the shared commit.
+    // The existing memberFinishes[taskId]?.status === 'completed' resume check above
+    // means a later retry of executeBatchFinish simply re-attempts this exact member's
+    // finishStep call fresh — finishStep's own operation record is itself idempotent/
+    // resumable, so no additional bookkeeping is needed here for that retry to work.
+    const isGenuineCompletion = finishResult.status === 'completed'
+      || finishResult.status === 'already-complete'
+      || finishResult.status === 'already-completed';
+    if (!isGenuineCompletion) {
+      throw new WorkflowError(
+        `Batch member '${taskId}' did not reach a genuine finish completion (finishStep status: '${finishResult.status}') — batch finish halted, shared commit/push not attempted.`,
+        { code: 'BATCH_MEMBER_FINISH_INCOMPLETE', taskId, batchExecutionId, finishStatus: finishResult.status, finishResult }
+      );
+    }
 
     record.stages.memberFinishes[taskId] = {
       status: 'completed',
