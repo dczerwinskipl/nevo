@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-05T09:17:16.276Z",
+  "generated": "2026-10-05T10:31:50.157Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -420,7 +420,31 @@
             "batch-completion-handover-partitioning"
           ],
           "implementation": {
-            "baseline_revision": "9d30fc6a66850005afec1b611c7e853b0958ac62"
+            "baseline_revision": "9d30fc6a66850005afec1b611c7e853b0958ac62",
+            "review_revision": "7c14072a284b4d597d1af326eb69e27495047ec2",
+            "changed_paths": [
+              "tools/tests/acceptance-initial-implementation-batch.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "c4a404f9bd6dafe5fc5732dc736f2f8cd1fadc4a8efecf50b335bfd79d5c7cf1",
+            "revision": "7c14072a284b4d597d1af326eb69e27495047ec2",
+            "commands": [
+              {
+                "command": "node --test tools/tests/acceptance-initial-implementation-batch.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
           }
         },
         {
