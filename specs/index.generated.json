@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-05T18:56:19.591Z",
+  "generated": "2026-10-05T18:56:44.222Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -572,7 +572,7 @@
           "id": "durable-grouped-handover-dispatch",
           "order": 11,
           "file": "tasks/11-durable-grouped-handover-dispatch.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "batch-admission-generalization",
             "batch-completion-handover-partitioning",
