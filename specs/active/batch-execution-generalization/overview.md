@@ -97,7 +97,11 @@ shape. Not restated here — this file decomposes it into tasks.
 
 ## Implementation decomposition
 
-Eight tasks, ordered by dependency (see each task's own `depends_on`):
+Twelve tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8 were
+the original decomposition; tasks 9-12 are corrective work appended after a
+post-implementation, change-level review found that tasks 1-8's own scoped acceptance
+did not, in aggregate, prove the change-wide acceptance criteria in real production
+behavior — see "Post-implementation review correction" below.
 
 1. `tasks/01-queue-removal-and-reservation-storage-migration.md` — independent.
 2. `tasks/02-batch-admission-generalization.md` — independent.
@@ -107,6 +111,13 @@ Eight tasks, ordered by dependency (see each task's own `depends_on`):
 6. `tasks/06-ui-canonical-dependency-projection.md` — independent.
 7. `tasks/07-acceptance-initial-implementation-batch.md` — depends on 2, 3, 4, 5.
 8. `tasks/08-single-task-convergence-verification.md` — depends on 1, 2, 3.
+9. `tasks/09-batch-finish-gate-correctness.md` — depends on 3, 4.
+10. `tasks/10-production-batch-admission-generalization.md` — depends on 1, 2, 9
+    (explicit sequencing per the review's own corrective ordering, not only a
+    technical necessity).
+11. `tasks/11-durable-grouped-handover-dispatch.md` — depends on 2, 5, 10 (explicit
+    sequencing, same reason).
+12. `tasks/12-real-end-to-end-corrective-acceptance.md` — depends on 9, 10, 11.
 
 ## Change-wide acceptance criteria
 
@@ -123,6 +134,59 @@ Eight tasks, ordered by dependency (see each task's own `depends_on`):
   cross-task selection, `schedulingPriority`) is removed, not merely unused.
 - `node tools/specs.mjs validate`, the full `tools/tests/*.test.mjs` suite, and the
   dashboard test suites all pass.
+
+## Post-implementation review correction
+
+After tasks 1-8 were each individually implemented and verified against their own
+scoped acceptance criteria, a separate change-level review (full diff against the
+pre-change baseline, `982180d`) found that two of the change-wide acceptance criteria
+above were not actually proven in production behavior, and found two further gaps in
+already-"verified" or pre-existing production code. None of this is a claim that tasks
+1-8 did the wrong thing against their own stated scope — each is retained as `verified`
+exactly as completed. The finding is that the aggregate did not yet establish what the
+change as a whole claims.
+
+1. **Batch finish never exercises real gate infrastructure, and silently proceeds past
+   a non-terminal member outcome.** `executeBatchFinish` (`batch-finish/operation.mjs`)
+   calls `finishStep` without the same `gateRegistry` the single-task CLI finish path
+   builds (`buildWorkflowGateRegistry`, `cli.mjs`) — falling back to the default
+   registry, whose `CommandGate` has no verification store configured, so the real
+   `standard-v1` workflow's `command`-type exit gates can never pass through the batch
+   path regardless of whether the underlying command actually succeeds. Independently,
+   the per-member loop records `memberFinishes[taskId].status = 'completed'`
+   unconditionally, without checking `finishStep`'s own returned `status` — so a
+   `'blocked'`/`'input-required'`/`'reconciliation-required'` result is silently treated
+   as a successfully finished member. Task 07's own acceptance test discovered and
+   documented the first half of this as a FINDING, and worked around it with a test
+   fixture using `exitGates: []` — correct and transparent for that task's own
+   test-only scope, but it means the change-wide claim "a real brand-new implementation
+   batch finishes end-to-end" was never actually exercised against real gates. Task 09
+   fixes this in production; task 12 re-proves it against the real `standard-v1`.
+2. **No production path starts a generalized batch.** The only two production callers
+   of `createGroupReservation`/`executeBatchStart` are the auto-handover inside
+   `batch-completion-settlement.mjs` and the `reviewTogether`/`batchReview` route in
+   `tools/dashboard/server/ai/sessions/turns/routes.mjs` — which hardcodes
+   `compat.role !== 'reviewer'` as a rejection, predating this change. A fresh,
+   dependency-ordered implementation batch (`role: null`, the exact case task 02's own
+   `validateBatchCompatibility` was generalized to accept) is rejected by the real API.
+   Tasks 02-08's own tests all call `createGroupReservation`/`executeBatchStart`
+   directly, never through this route, so this gap was never caught. Task 10 fixes this.
+3. **Grouped handover cannot actually admit a second contract group, and skips
+   compatibility/readiness validation entirely.** When post-finish handover partitions
+   members into 2+ execution-contract groups (task 05), every group is admitted in the
+   same pass; the first group's `admitAgentExecution` call sets the in-process
+   single-active-execution guard for the spec, so the second group's own call
+   immediately gets `ACTIVE_EXECUTION_EXISTS` — and is still recorded as a completed,
+   `noop` dispatch, permanently losing that group rather than retrying it once the first
+   settles. Separately, this path calls `createGroupReservation` directly, never running
+   `validateBatchCompatibility` first (every other reservation-creation call site does),
+   and hardcodes `sessionPolicy: 'fresh'` on the admission candidate despite grouping
+   members by `destination.sessionPolicy` upstream — silently coercing a `'reuse'`
+   destination to `'fresh'` were one ever to occur. Task 11 fixes all three.
+
+Corrective tasks 09-12 (added below) resolve these in production behavior, not by
+loosening the acceptance criteria or the test fixtures used to prove them. The change
+is not ready for approval until tasks 09-12 are each independently verified.
 
 ## Verification strategy
 
