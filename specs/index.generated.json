@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-05T16:47:09.720Z",
+  "generated": "2026-10-05T18:38:38.761Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -528,12 +528,45 @@
           "id": "production-batch-admission-generalization",
           "order": 10,
           "file": "tasks/10-production-batch-admission-generalization.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "queue-removal-and-reservation-storage-migration",
             "batch-admission-generalization",
             "batch-finish-gate-correctness"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "d64b520c795d2c6559c99878d02bf4e0106dd40d",
+            "review_revision": "5bf238b9288e59dfda1d8f1bf9449ca79d40429b",
+            "changed_paths": [
+              "tools/dashboard/server/ai/sessions/turns/routes.mjs",
+              "tools/dashboard/tests/production-batch-admission.test.mjs",
+              "tools/tests/dashboard-orchestration-wiring.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "1386be088a93816bb95294ecbcd28e2d59dddfe21e0ab90d342654526ba16467",
+            "revision": "5bf238b9288e59dfda1d8f1bf9449ca79d40429b",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/production-batch-admission.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/dashboard/tests/execution-policy.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/dashboard-orchestration-wiring.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "durable-grouped-handover-dispatch",
