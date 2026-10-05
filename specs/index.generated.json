@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-05T18:39:11.746Z",
+  "generated": "2026-10-05T18:56:19.591Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -572,12 +572,40 @@
           "id": "durable-grouped-handover-dispatch",
           "order": 11,
           "file": "tasks/11-durable-grouped-handover-dispatch.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "batch-admission-generalization",
             "batch-completion-handover-partitioning",
             "production-batch-admission-generalization"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "659fad0adaf0a87d9192d95972265c027b037528",
+            "review_revision": "44d5af000f95c06a018a0a936d7659f88be37206",
+            "changed_paths": [
+              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
+              "tools/tests/batch-completion-orchestration.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "825e71a2c9fe05520f2fbc9f3d2fd80ac8bd88dcb65fa3a7a8bdd9cce80b9cd0",
+            "revision": "44d5af000f95c06a018a0a936d7659f88be37206",
+            "commands": [
+              {
+                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/batch-hook3-restart-recovery.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "real-end-to-end-corrective-acceptance",
