@@ -25,6 +25,28 @@ forbidden_paths:
 depends_on: [batch-admission-generalization, batch-finish-phase-neutral-generalization, intra-batch-dependency-consumption-materialization, batch-completion-handover-partitioning]
 ---
 
+<!--
+Scope amendment (implementation-time, legacy lifecycle — same pattern as tasks 01, 03,
+and 05's own amendments, references/review-policy.md "Specification scope amendment"):
+this task's own `## Verification` section's second command, `node --test
+tools/tests/*.test.mjs`, reliably hangs forever when run via `tools/specs.mjs
+self-check`/`verify` (confirmed by direct reproduction: `execFileSync('node', ['--test',
+'tools/tests/*.test.mjs'], ...)` never returns). Root cause: `runVerificationCommand`
+(tools/specs/verify/operation.mjs) invokes commands via `execFileSync`, which never goes
+through a shell, so the literal glob `tools/tests/*.test.mjs` is passed to `node --test`
+unexpanded (no shell to expand the `*`); this exact Node version does not error on an
+unmatched glob-like positional argument, it hangs. `runVerificationCommand`'s own special
+case already handles a bare *directory* argument by expanding it into an explicit file
+list itself (reading the directory, filtering `.test.mjs`/`.test.js`) — it just never
+matches a glob string. The command below is changed from `tools/tests/*.test.mjs` to
+`tools/tests/` (a directory, not a glob) to route through that already-working
+expansion instead — identical set of files run, same net effect as the shell-expanded
+form, zero change to what this task actually verifies. Pre-existing, environment-level
+tooling gap, unrelated to tasks 02-05's own scope; not patched in `verify/operation.mjs`
+itself (forbidden path, out of this task's scope) — reported here and in the new test
+file's own FINDING comment instead.
+-->
+
 # Task: End-to-end acceptance — a real initial implementation batch
 
 ## Goal
@@ -75,7 +97,7 @@ Write one comprehensive test (or a small, tightly-scoped suite) that:
 
 ```bash
 node --test tools/tests/acceptance-initial-implementation-batch.test.mjs
-node --test tools/tests/*.test.mjs
+node --test tools/tests/
 node tools/specs.mjs validate
 ```
 
