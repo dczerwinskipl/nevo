@@ -12,7 +12,7 @@ context:
 semantic_references:
   decisions: []
 allowed_paths:
-  - tools/tests/real-end-to-end-corrective-acceptance.test.mjs
+  - tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs
 forbidden_paths:
   - src/**
   - tools/dashboard/ui/**
@@ -86,7 +86,7 @@ same discipline task 07's own AC2 already established.
 
 - The full sequence above passes as one coherent test run, using real gate
   infrastructure throughout.
-  `automated: node --test tools/tests/real-end-to-end-corrective-acceptance.test.mjs`
+  `automated: node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs`
 - Every one of `overview.md`'s original change-wide acceptance criteria, and every one
   of the post-implementation review's five findings, is traceable to a specific passing
   assertion (here or in an explicitly-named earlier task's test).
@@ -95,7 +95,7 @@ same discipline task 07's own AC2 already established.
 ## Verification
 
 ```bash
-node --test tools/tests/real-end-to-end-corrective-acceptance.test.mjs
+node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs
 node --test tools/tests/
 npm --prefix tools/dashboard test
 node tools/specs.mjs validate
