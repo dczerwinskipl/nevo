@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-06T19:32:39.183Z",
+  "generated": "2026-10-06T19:35:10.972Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -697,7 +697,35 @@
             "durable-grouped-handover-resume-generalization"
           ],
           "implementation": {
-            "baseline_revision": "334e10d832eb71d89ff25b704b0c279db8ddfb13"
+            "baseline_revision": "334e10d832eb71d89ff25b704b0c279db8ddfb13",
+            "review_revision": "a839272167d299d76e42a234c06124f666fa666e",
+            "changed_paths": [
+              "tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "b1f0f0f185970488078a705760dfb4549afd7fc1483ee62132eb84951902aa42",
+            "revision": "a839272167d299d76e42a234c06124f666fa666e",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
           }
         }
       ]
