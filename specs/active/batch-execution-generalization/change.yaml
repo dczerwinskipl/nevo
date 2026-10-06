@@ -391,7 +391,7 @@ tasks:
   - id: resume-trigger-scope-guard-and-coverage-hardening
     order: 15
     file: tasks/15-resume-trigger-scope-guard-and-coverage-hardening.md
-    status: implemented
+    status: verified
     depends_on:
       [
         durable-grouped-handover-resume-generalization,
