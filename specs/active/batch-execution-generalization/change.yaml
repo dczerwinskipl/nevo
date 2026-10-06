@@ -342,6 +342,23 @@ tasks:
     depends_on: [ durable-grouped-handover-dispatch ]
     implementation:
       baseline_revision: 0aa90c65246340da3574806b68c2b948d4f8e446
+      review_revision: 71c6eedda8fa7941f202b4c3176eed0de9c5c03f
+      changed_paths:
+        - tools/dashboard/server/ai/orchestration/admission.mjs
+        - tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs
+        - tools/tests/batch-completion-orchestration.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: d0f211868582f8248f24d0d142b9b77c813002faeee3f905c0a8ab500d517e0e
+      revision: 71c6eedda8fa7941f202b4c3176eed0de9c5c03f
+      commands:
+        - command: node --test tools/tests/batch-completion-orchestration.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/batch-hook3-restart-recovery.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: real-end-to-end-automatic-resume-proof
     order: 14
     file: tasks/14-real-end-to-end-automatic-resume-proof.md
