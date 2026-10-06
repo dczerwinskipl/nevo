@@ -97,14 +97,16 @@ shape. Not restated here — this file decomposes it into tasks.
 
 ## Implementation decomposition
 
-Fourteen tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8 were
+Fifteen tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8 were
 the original decomposition; tasks 9-12 are corrective work appended after a
 post-implementation, change-level review found that tasks 1-8's own scoped acceptance
 did not, in aggregate, prove the change-wide acceptance criteria in real production
 behavior — see "Post-implementation review correction" below. Tasks 13-14 are further
 corrective work appended after a second review round found task 11's landed fix still
 incomplete and task 12's own proof of automatic resume not actually automatic — see
-"Second-round review correction" below.
+"Second-round review correction" below. Task 15 is further hardening appended after a
+third review round found task 13's own resume trigger insufficiently scope-guarded and
+its own test coverage incomplete — see "Third-round review correction" below.
 
 1. `tasks/01-queue-removal-and-reservation-storage-migration.md` — independent.
 2. `tasks/02-batch-admission-generalization.md` — independent.
@@ -125,6 +127,9 @@ incomplete and task 12's own proof of automatic resume not actually automatic �
     (second-round corrective fix to task 11's own landed code).
 14. `tasks/14-real-end-to-end-automatic-resume-proof.md` — depends on 12, 13
     (second-round corrective fix to task 12's own Test D).
+15. `tasks/15-resume-trigger-scope-guard-and-coverage-hardening.md` — depends on 13, 14
+    (third-round hardening fix to task 13's own landed code and test coverage, plus a
+    wording reconciliation to task 14's own requirements).
 
 ## Change-wide acceptance criteria
 
@@ -237,6 +242,41 @@ Tasks 13-14 (added below) resolve these in production behavior. The change is no
 for approval until tasks 09-14 are each independently verified and all five original
 review findings plus these three second-round findings are genuinely resolved in
 production behavior, not merely hidden by test fixtures.
+
+## Third-round review correction
+
+A third review round, run against head `97b50d0` (tasks 13-14 landed and verified),
+confirmed the singleton-first deadlock and the transient/terminal misclassification are
+genuinely fixed, and that Test D/D2 now prove real automatic resume without any manual
+`clearActiveAgentExecution` call. It found three further issues.
+
+1. **MAJOR — the resume trigger is not scope-guarded to singletons in two of its three
+   call sites.** Task 13 explicitly required `capturedScope.kind === 'task'` and said
+   "do not duplicate the trigger for task-batch." The `'completed'` branch is safe only
+   because `task-batch` already returns early before reaching it; the `'resumable'`
+   branch and the final `else` (`'recovery-required'`) branch have no such guard at all
+   — they run for both scopes. A child batch failing closed to `recovery-required`
+   could, in a race where its own recovery-required claim marking does not hold, wake a
+   sibling group while its own batch is still unresolved — contrary to fail-closed
+   semantics. Task 15 fixes this.
+2. **MAJOR verification gap — task 13 is `verified` but several of its own declared
+   `automated:` acceptance criteria are not actually exercised.** Covered: singleton-
+   first automatic resume; a grouped admission attempt that *throws*. Not covered: a
+   grouped or singleton admission attempt blocked by a genuine (non-exception)
+   transient reason value; a reason outside the transient set remaining terminally
+   failed via the admission path itself. Task 15 closes this gap.
+3. **Task 14's Test D/D2 do not literally satisfy their own written requirement** to
+   settle the first dispatch unit via real `executeBatchStart`/`executeBatchFinish` —
+   they advance `workflow_progress` and save a batch-finish record directly instead,
+   the same fidelity task 11/13's own tests already use. The automatic-resume proof
+   itself is real and unaffected; only task 14's own requirement wording overstates what
+   was exercised. Task 15 reconciles the wording (real `BatchStart`/`BatchFinish` is
+   already proven by Test A and tasks 09/10/12) rather than re-engineering D/D2 to
+   duplicate that proof.
+
+Task 15 (added below) resolves these. The change is not ready for approval until task
+15 is independently verified and all findings across all three review rounds are
+genuinely resolved in production behavior, not merely hidden by test fixtures.
 
 ## Verification strategy
 

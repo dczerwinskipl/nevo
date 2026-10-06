@@ -1,14 +1,14 @@
 ---
 review-of: spec
 change: batch-execution-generalization
-generated: 2026-10-06
+generated: 2026-10-06T20:08
 verdict: ready-for-approval
 ready_for_approval: true
 implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 64481fc58d6d248c46dd037d7568d3f3702cbc5b12ed5c2d2529c942a536371b
+spec_fingerprint: 91e5b14392d96005a60d416d8287731cbd975e61197635c42bda5c8460c8fa5a
 task_fingerprints:
   queue-removal-and-reservation-storage-migration: 47af91f69da5d79b43f402c18e041a418efa81f4ebd664f28b70c9a4c47544b0
   batch-admission-generalization: 47e17e75378534246222b89246a0546b74dded9d597764ec001b31ad3c946f8e
@@ -24,81 +24,82 @@ task_fingerprints:
   real-end-to-end-corrective-acceptance: f82caf131ef5f398abeca9897f47fab5b54fc6125cc1f3c462c904c94fc4ff83
   durable-grouped-handover-resume-generalization: d0f211868582f8248f24d0d142b9b77c813002faeee3f905c0a8ab500d517e0e
   real-end-to-end-automatic-resume-proof: b1f0f0f185970488078a705760dfb4549afd7fc1483ee62132eb84951902aa42
+  resume-trigger-scope-guard-and-coverage-hardening: 7263041294483c85b09ba0e36d204b22453034c46066656d6cd6f1fb57f38d78
 ---
 
 # Review: batch-execution-generalization
 
 ## Verdict
 
-`ready-for-approval` — scoped re-review (`--changed`) covering only the 2 newly added
-second-round corrective tasks (13-14); no unresolved `AUTO_FIX`/`OWNER_DECISION`/
-`NEEDS_CLARIFICATION` findings against either. Tasks 01-12 are **not** re-graded by
-this run — their own `task_fingerprints` entries above are carried forward unchanged
-from the prior review, per the context-vs-review-scope boundary
+`ready-for-approval` — scoped re-review (`--changed`) covering only the 1 newly added
+third-round corrective task (15); no unresolved `AUTO_FIX`/`OWNER_DECISION`/
+`NEEDS_CLARIFICATION` findings against it. Tasks 01-14 are **not** re-graded by this
+run — their own `task_fingerprints` entries above are carried forward unchanged from
+the prior review, per the context-vs-review-scope boundary
 (`references/review-policy.md`); they remain `verified` in `change.yaml`, untouched by
 this correction, exactly as the owner instructed when requesting it.
 
 ## Post-implementation correction (this review's own reason for existing)
 
-This spec was previously reviewed and tasks 01-12 were each implemented and
-individually verified, including a first round of corrective tasks (09-12). A second
-review round, run against head `300593a` (tasks 09-12 landed), confirmed tasks 09-10
-are correct, but found task 11's own fix still has two real blockers (the pending-
-handover resume trigger only fires from a batch settlement's own Stage 2, not from a
-singleton's own settlement; only `ACTIVE_EXECUTION_EXISTS` is treated as a transient
-admission failure, every other equally-transient reason is recorded as terminal), and
-found task 12's own Test D proves durability of the pending record, not that resume is
-actually automatic. Full writeup: `overview.md` § "Second-round review correction".
-Tasks 13-14 were added as corrective work in response, to be implemented in order
-(13 → 14) before this change can be considered ready for final approval. This review's
-only job is to confirm tasks 13-14 themselves are ready for *implementation* to begin —
-it does not, and cannot, confirm the underlying production gaps are actually fixed;
-that is what tasks 13-14's own verification exists to prove.
+This spec was previously reviewed and tasks 01-14 were each implemented and
+individually verified, including two rounds of corrective tasks (09-12, then 13-14). A
+third review round, run against head `97b50d0` (tasks 13-14 landed), confirmed the
+singleton-first deadlock and the transient/terminal misclassification are genuinely
+fixed, and that Test D/D2 prove real automatic resume without manual
+`clearActiveAgentExecution`. It found task 13's own resume trigger is not
+scope-guarded to singletons in two of its three call sites (contrary to task 13's own
+explicit requirement), found task 13's own declared acceptance criteria are not fully
+exercised by a dedicated test, and found task 14's Test D/D2 do not literally use real
+`executeBatchStart`/`executeBatchFinish` as task 14's own wording required. Full
+writeup: `overview.md` § "Third-round review correction". Task 15 was added as
+corrective work in response, before this change can be considered ready for final
+approval. This review's only job is to confirm task 15 itself is ready for
+*implementation* to begin — it does not, and cannot, confirm the underlying production
+gaps are actually fixed; that is what task 15's own verification exists to prove.
 
 ## Implementation readiness
 
 - May implementation start now? No — `implementation_allowed: false`.
-- Are tasks 13-14 `approved` in `change.yaml`? No, both are currently `draft`.
-- What has to happen first? Nothing blocking remains — each of tasks 13-14 needs its
-  own `/nevo-ai:spec-approve` transition, in order (13 before 14 — enforced by task
-  14's own `depends_on`).
+- Is task 15 `approved` in `change.yaml`? No, currently `draft`.
+- What has to happen first? Nothing blocking remains — task 15 needs its own
+  `/nevo-ai:spec-approve` transition.
 
 Gating validation: passed (`node tools/specs.mjs validate` — 31 changes, no errors).
 
 ## Findings
 
-No findings against tasks 13-14.
+No findings against task 15.
 
 Readiness criteria checked directly against the current file contents (`overview.md`'s
-new "Second-round review correction" section and updated "Implementation decomposition"
-list, and `tasks/13-*.md`/`tasks/14-*.md` in full), per `references/review-policy.md`
+new "Third-round review correction" section and updated "Implementation decomposition"
+list, and `tasks/15-*.md` in full), per `references/review-policy.md`
 § "Specification readiness criteria":
 
-- `depends_on` graph resolves and is acyclic, including the new 13→14 chain
+- `depends_on` graph resolves and is acyclic, including the new 13,14→15 chain
   (`node tools/specs.mjs validate`).
-- Each of 13-14 declares specific, non-overlapping-in-intent `allowed_paths`/
-  `forbidden_paths`: 13 owns `batch-completion-settlement.mjs` and `admission.mjs` and
-  forbids `tools/specs/workflow/**`/`routes.mjs`/`reconciliation.mjs`; 14 is test-only
-  (existing test file, no production path in `allowed_paths`), forbidding every
-  production file 13 touches — same "report the gap, don't patch it" discipline tasks
-  07/08/12 already established.
-- Every acceptance criterion in 13-14 names a concrete `automated:` check (a specific
-  test file) — none is aspirational.
-- No open owner decision blocks 13-14: both explicitly stay within the architecture the
-  owner already decided (no new scheduler, no cross-spec scan, additive fix only to an
-  already-decided mechanism) — each task's own "Implementation constraints"/closing
-  paragraph repeats the specific prohibitions the corrective-task request itself
-  specified, so there is nothing new here requiring a fresh option analysis.
-- Documentation impact identified: `overview.md`'s new "Second-round review correction"
-  section is the documentation impact for this correction itself; no further ADR impact
-  beyond what the original review already recorded (deferred, optional).
-- Semantic-reference completeness: neither 13 nor 14 names an owner-decision number in
-  prose it fails to declare in `semantic_references.decisions` (both correctly carry
+- Task 15 declares specific `allowed_paths`/`forbidden_paths`: it owns
+  `admission.mjs`, `batch-completion-settlement.mjs`, the orchestration test file, and
+  task 14's own `.md` file (wording-only), and forbids `tools/specs/workflow/**`,
+  `routes.mjs`, `reconciliation.mjs`, and the real-end-to-end test file itself (task
+  14's own scope) — same "report the gap, don't patch it" discipline already
+  established.
+- Every acceptance criterion in task 15 names a concrete `automated:`/`inspection:`
+  check — none is aspirational.
+- No open owner decision blocks task 15: it explicitly stays within the architecture
+  the owner already decided (no new scheduler, no cross-spec scan, additive fix only
+  to an already-decided mechanism; the task-14 wording reconciliation is documentation-
+  only). Its own "Implementation constraints"/closing paragraph repeats the specific
+  prohibitions, so there is nothing new here requiring a fresh option analysis.
+- Documentation impact identified: `overview.md`'s new "Third-round review correction"
+  section is the documentation impact for this correction itself; no further ADR
+  impact beyond what the original review already recorded (deferred, optional).
+- Semantic-reference completeness: task 15 does not name an owner-decision number in
+  prose it fails to declare in `semantic_references.decisions` (it correctly carries
   `decisions: []`).
 
 ## Architecture and documentation
 
 No existing ADR documents the sequential-queue/batch-reservation architecture
-(confirmed in `discovery.md`); tasks 13-14 fix production behavior within that same,
-already-decided architecture — no new architectural decision, no ADR impact beyond
-what the original review already recorded.
+(confirmed in `discovery.md`); task 15 fixes production behavior and test coverage
+within that same, already-decided architecture — no new architectural decision, no ADR
+impact beyond what the original review already recorded.
