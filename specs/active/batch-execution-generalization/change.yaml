@@ -338,7 +338,7 @@ tasks:
   - id: durable-grouped-handover-resume-generalization
     order: 13
     file: tasks/13-durable-grouped-handover-resume-generalization.md
-    status: in-implementation
+    status: implemented
     depends_on: [ durable-grouped-handover-dispatch ]
     implementation:
       baseline_revision: 0aa90c65246340da3574806b68c2b948d4f8e446
