@@ -308,12 +308,32 @@ tasks:
   - id: real-end-to-end-corrective-acceptance
     order: 12
     file: tasks/12-real-end-to-end-corrective-acceptance.md
-    status: approved
+    status: in-implementation
     depends_on:
       [
         batch-finish-gate-correctness,
         production-batch-admission-generalization,
         durable-grouped-handover-dispatch
       ]
+    implementation:
+      baseline_revision: e3c24229b0f8c196ab1e567b319d18c4ef2d6b98
+      review_revision: 8e0fa3f0a2f7a24d2411d2d80a467922e75440cd
+      changed_paths:
+        - tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: a4b1cfeb3b30e19813780193b91e5fb46817d9b759368cb93ae2fe9b3dc40499
+      revision: 8e0fa3f0a2f7a24d2411d2d80a467922e75440cd
+      commands:
+        - command: node --test
+            tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
 
 spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea
