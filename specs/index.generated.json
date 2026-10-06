@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-06T20:08:24.337Z",
+  "generated": "2026-10-06T20:15:41.149Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -732,11 +732,14 @@
           "id": "resume-trigger-scope-guard-and-coverage-hardening",
           "order": 15,
           "file": "tasks/15-resume-trigger-scope-guard-and-coverage-hardening.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "durable-grouped-handover-resume-generalization",
             "real-end-to-end-automatic-resume-proof"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "a6ef72f83a91fa10b1c66e9ff1c862bddf5acf6b"
+          }
         }
       ]
     },

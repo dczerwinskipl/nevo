@@ -715,8 +715,12 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
 
           // The slot just freed here too — a sibling's durable pending handover group
           // (task 11/13, gap 1) may now be admittable even though this task itself is
-          // merely resumable, not finished.
-          if (slotFreedByResumable && repoRoot && capturedChangeSlug) {
+          // merely resumable, not finished. Scope-guarded to 'task' (task 15,
+          // third-round review finding 1) — a task-batch scope must never trigger this
+          // directly; its own settlement (executeBatchCompletionSettlement, Stage 2)
+          // is the only correct trigger for a batch scope, preserving fail-closed
+          // semantics while that batch's own outcome is still unresolved.
+          if (capturedScope.kind === 'task' && slotFreedByResumable && repoRoot && capturedChangeSlug) {
             await triggerPendingHandoverResume({
               repoRoot,
               changeSlug: capturedChangeSlug,
@@ -749,8 +753,12 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
 
           // The slot just freed here too — a sibling's durable pending handover group
           // (task 11/13, gap 1) may now be admittable even though this task itself now
-          // requires recovery.
-          if (slotFreedByRecovery && repoRoot && capturedChangeSlug) {
+          // requires recovery. Scope-guarded to 'task' (task 15, third-round review
+          // finding 1) — see the matching comment in the 'resumable' branch above; a
+          // task-batch scope reaching recovery-required must never trigger this
+          // directly, or a sibling group could be woken while this batch's own
+          // outcome is still unresolved, violating fail-closed semantics.
+          if (capturedScope.kind === 'task' && slotFreedByRecovery && repoRoot && capturedChangeSlug) {
             await triggerPendingHandoverResume({
               repoRoot,
               changeSlug: capturedChangeSlug,

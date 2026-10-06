@@ -111,7 +111,7 @@ function resolveMemberDestination(task, definition) {
  * durably `'pending'`, never recorded as a terminal `'failed'`/`'completed'` outcome
  * (batch-execution-generalization, task 13, second-round review finding 2).
  */
-const TRANSIENT_ADMISSION_REASONS = new Set([
+export const TRANSIENT_ADMISSION_REASONS = new Set([
   'ACTIVE_EXECUTION_EXISTS',
   'DEFERRED_TO_PENDING_WORKSPACE_REQUEST',
   'WORKSPACE_WRITER_CONTENDED',

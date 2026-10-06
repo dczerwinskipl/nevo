@@ -42,6 +42,20 @@ This task re-proves both orderings at the same real, end-to-end level Test A-C a
 operate at — through the real production admission route and real settlement, with
 nothing manually forced.
 
+> **Third-round scope clarification (2026-10-06, task 15):** a third review round found
+> that the landed Test D/D2 do not literally settle the first dispatch unit via real
+> `executeBatchStart`/`executeBatchFinish` as the bullet below originally required —
+> they advance `workflow_progress` and save a batch-finish record directly (for D) or
+> drive `admission.mjs`'s own `releaseAdmittedExecution` (for D2), then call the real
+> `executeBatchCompletionSettlement`. This is the same settlement-level fidelity task
+> 11's and 13's own dedicated tests already use, and it is sufficient to prove the
+> *resume* mechanism specifically (D/D2's actual job). Real `BatchStart`/`BatchFinish`
+> execution for a brand-new batch is a separate claim, already proven exhaustively by
+> Test A (this task's own sibling) and tasks 09/10/12. This note reconciles the bullet
+> below with what D/D2 actually — and sufficiently — exercise; it does not reopen task
+> 14's recorded status or verification history. See `overview.md` § "Third-round review
+> correction", finding 3.
+
 ## Requirements
 
 - Rewrite Test D in `real-end-to-end-corrective-acceptance.test.mjs` so the resume is
@@ -51,6 +65,10 @@ nothing manually forced.
   (the real admission route from task 10, real `executeBatchStart`/`executeBatchFinish`,
   real `executeBatchCompletionSettlement`) to actually settle the first dispatch unit and
   observe the second, previously-pending unit become admitted as a natural side effect.
+  **(See the third-round scope clarification above — in practice, settling the first
+  dispatch unit at the same settlement-level fidelity task 11/13 already use is
+  sufficient; re-running full `BatchStart`/`BatchFinish` for the first unit is not
+  required, since that is proven separately by Test A and tasks 09/10/12.)**
 - Add a second scenario covering the reverse ordering the second review round
   specifically asked for: a singleton dispatched first, a multi-member group left durably
   pending second, the singleton settles for real (through `admission.mjs`'s own turn-
