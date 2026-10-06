@@ -391,17 +391,11 @@ tasks:
   - id: resume-trigger-scope-guard-and-coverage-hardening
     order: 15
     file: tasks/15-resume-trigger-scope-guard-and-coverage-hardening.md
-    status: draft
+    status: approved
     depends_on:
       [
         durable-grouped-handover-resume-generalization,
         real-end-to-end-automatic-resume-proof
       ]
-    execution:
-      suspension:
-        kind: confirm-required
-        code: REC-07
-        previous_action: approve
-        created_at: 2026-10-06T20:07:19.212Z
 
 spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea
