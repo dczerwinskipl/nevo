@@ -308,7 +308,7 @@ tasks:
   - id: real-end-to-end-corrective-acceptance
     order: 12
     file: tasks/12-real-end-to-end-corrective-acceptance.md
-    status: implemented
+    status: verified
     depends_on:
       [
         batch-finish-gate-correctness,
