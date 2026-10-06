@@ -362,7 +362,7 @@ tasks:
   - id: real-end-to-end-automatic-resume-proof
     order: 14
     file: tasks/14-real-end-to-end-automatic-resume-proof.md
-    status: implemented
+    status: verified
     depends_on:
       [
         real-end-to-end-corrective-acceptance,
