@@ -340,6 +340,12 @@ tasks:
     file: tasks/13-durable-grouped-handover-resume-generalization.md
     status: draft
     depends_on: [ durable-grouped-handover-dispatch ]
+    execution:
+      suspension:
+        kind: confirm-required
+        code: REC-07
+        previous_action: approve
+        created_at: 2026-10-06T18:34:03.068Z
   - id: real-end-to-end-automatic-resume-proof
     order: 14
     file: tasks/14-real-end-to-end-automatic-resume-proof.md
