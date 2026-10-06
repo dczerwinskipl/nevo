@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-06T11:51:57.617Z",
+  "generated": "2026-10-06T18:35:44.458Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -648,6 +648,25 @@
             ],
             "status": "passed"
           }
+        },
+        {
+          "id": "durable-grouped-handover-resume-generalization",
+          "order": 13,
+          "file": "tasks/13-durable-grouped-handover-resume-generalization.md",
+          "status": "approved",
+          "depends_on": [
+            "durable-grouped-handover-dispatch"
+          ]
+        },
+        {
+          "id": "real-end-to-end-automatic-resume-proof",
+          "order": 14,
+          "file": "tasks/14-real-end-to-end-automatic-resume-proof.md",
+          "status": "draft",
+          "depends_on": [
+            "real-end-to-end-corrective-acceptance",
+            "durable-grouped-handover-resume-generalization"
+          ]
         }
       ]
     },
