@@ -58,10 +58,14 @@ import {
   executeBatchCompletionSettlement,
   loadBatchCompletionSettlement,
 } from '../server/ai/orchestration/batch-completion-settlement.mjs';
-import { getActiveAgentExecution, clearActiveAgentExecution, resetAdmissionStateForTest } from '../server/ai/orchestration/admission.mjs';
+import {
+  getActiveAgentExecution,
+  resetAdmissionStateForTest,
+  releaseAdmittedExecution,
+} from '../server/ai/orchestration/admission.mjs';
 import { handleWorkflowStepStart } from '../../specs/workflow/cli.mjs';
 import { loadBatchStartRecord } from '../../specs/workflow/batch-start/record.mjs';
-import { requireChange, requireTask } from '../../specs/store.mjs';
+import { requireChange, requireTask, setTaskWorkflowState } from '../../specs/store.mjs';
 import '../../specs/workflow/actions/index.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
@@ -462,25 +466,138 @@ test('D. Post-review handover producing 2 distinct contract groups loses neither
     );
     const childBatchExecutionId = afterFirstPass.stages.continuationDispatch.members.t1.batchExecutionId;
     assert.ok(childBatchExecutionId);
-
-    // Free the slot the way the real system would — the child group's own execution
-    // settles — and confirm the second group is picked up automatically (point 7: no
-    // group is ever lost).
     assert.ok(getActiveAgentExecution(specId));
-    clearActiveAgentExecution(specId);
-    const groupClaim = getWorkspaceWriterClaim(tmpRoot);
-    if (groupClaim) {
-      const { releaseWorkspaceWriterIfOwned } = await import('../../specs/workflow/workspace-writer.mjs');
-      await releaseWorkspaceWriterIfOwned({
-        repoRoot: tmpRoot,
-        expectedOwnerId: groupClaim.ownerId,
-        expectedKind: groupClaim.kind,
-        expectedScope: groupClaim.scope,
-        expectedSessionId: groupClaim.sessionId,
+
+    // Settle the {t1,t2} child group FOR REAL — its own execution genuinely concludes
+    // (both members reach a terminal workflow position) and its own real batch-finish
+    // record is saved, exactly as the real system would produce. The second group must
+    // then be picked up automatically, as a side effect of the CHILD's own settlement
+    // (task 13's generalized resume trigger) — never by this test manually clearing the
+    // slot and manually re-invoking the parent settlement a second time (that would only
+    // prove the pending record's durability, not that resume is actually automatic).
+    const childChange = requireChange(changeSlug, activeDir);
+    for (const taskId of ['t1', 't2']) {
+      const task = requireTask(childChange, taskId);
+      setTaskWorkflowState(childChange, taskId, {
+        status: 'verified',
+        workflowProgress: {
+          current_step: 'review',
+          current_attempt: task.workflow_progress.current_attempt,
+          state: 'completed',
+          history: [
+            ...task.workflow_progress.history,
+            { step: 'review', attempt: task.workflow_progress.current_attempt, result: 'pass', transitioned_to: 'verified' },
+          ],
+        },
       });
     }
+    saveBatchFinishRecord(tmpRoot, changeSlug, {
+      batchExecutionId: childBatchExecutionId,
+      changeSlug,
+      sessionId: afterFirstPass.stages.continuationDispatch.members.t1.admission?.sessionId || 'session-child',
+      taskIds: ['t1', 't2'],
+      status: 'completed',
+      results: {},
+    });
 
-    const secondOutcome = await executeBatchCompletionSettlement({
+    const childOutcome = await executeBatchCompletionSettlement({
+      repoRoot: tmpRoot,
+      changeSlug,
+      batchExecutionId: childBatchExecutionId,
+      sessionId: afterFirstPass.stages.continuationDispatch.members.t1.admission?.sessionId,
+      activeDir,
+      options: { sessionService: mockSessionService },
+    });
+    assert.equal(childOutcome.settled, true, 'the child {t1,t2} batch must settle on its own terms');
+
+    // The PARENT settlement must now also be completed — resumed automatically as a
+    // side effect of the child's own settlement freeing the active-execution slot, not
+    // because this test re-invoked the parent settlement itself.
+    const finalSettlement = loadBatchCompletionSettlement(tmpRoot, changeSlug, parentBatchExecutionId);
+    assert.equal(finalSettlement.status, 'completed', 'the parent settlement must be auto-resumed and completed');
+    assert.equal(finalSettlement.stages.continuationDispatch.members.t3.action, 'agent-admitted');
+    assert.notEqual(finalSettlement.stages.continuationDispatch.members.t3.batchExecutionId, childBatchExecutionId);
+  } finally {
+    rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('D2. Singleton dispatched first, grouped batch left pending second — the singleton settling for real (admission.mjs\'s own turn-terminal handling) automatically admits the pending group, not merely a manually re-invoked settlement', async () => {
+  const { baseDir, tmpRoot, activeDir, specId, changeDir, changeSlug } = setupRealRepo('singleton-first-handover');
+  try {
+    const memberIds = ['t1', 't2', 't3'];
+    const tasksYaml = memberIds.map((id, idx) => `  - id: ${id}
+    order: ${idx + 1}
+    title: Task ${id}
+    status: in-review
+    allowed_paths:
+      - src/${id}.js
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          sessionId: session-impl-${id}
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          sessionId: session-rev-batch
+          result: fail
+          transitioned_to: implementation
+`).join('');
+    writeChangeYaml(changeDir, changeSlug, specId, tasksYaml);
+    for (const id of memberIds) {
+      writeFileSync(join(changeDir, 'tasks', `${id}.md`), `# Task ${id}\n`, 'utf8');
+    }
+    execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: tmpRoot });
+
+    // t1 diverges via taskOverrides (same role, different provider) while t2/t3 share
+    // the identical refiner contract — the review pass therefore produces a single-
+    // member group for t1 (isGroup: false, dispatched via the single-task continuation
+    // path, exactly like task 11's own 2-groups test) FIRST (t1 is processed first,
+    // inserting its unique tuple first), and the {t2,t3} group SECOND, left pending
+    // behind it — the reverse of task 11's own "batch-first" ordering.
+    const policyService = new ExecutionPolicyService({ repoRoot: tmpRoot });
+    policyService.saveExecutionPolicy(changeSlug, {
+      provider: 'claude',
+      mode: 'agent',
+      roles: { refiner: { provider: 'claude', mode: 'agent' } },
+      taskOverrides: { t1: { provider: 'gemini', mode: 'agent' } },
+    });
+
+    const parentBatchExecutionId = `batch-${randomUUID()}`;
+    const parentSessionId = `session-rev-batch-${randomUUID()}`;
+    await createGroupReservation({
+      repoRoot: tmpRoot,
+      changeSlug,
+      taskIds: memberIds,
+      batchExecutionId: parentBatchExecutionId,
+      executionConfigSnapshot: { provider: 'mock', mode: 'agent' },
+    });
+    const acq = await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId,
+      changeSlug,
+      scope: { kind: 'task-batch', taskIds: memberIds },
+      sessionId: parentSessionId,
+      batchExecutionId: parentBatchExecutionId,
+    });
+    saveBatchFinishRecord(tmpRoot, changeSlug, {
+      batchExecutionId: parentBatchExecutionId,
+      changeSlug,
+      sessionId: parentSessionId,
+      taskIds: memberIds,
+      status: 'completed',
+      results: Object.fromEntries(memberIds.map((id) => [id, { value: 'fail' }])),
+    });
+
+    const mockSessionService = makeMockSessionService();
+
+    const firstOutcome = await executeBatchCompletionSettlement({
       repoRoot: tmpRoot,
       changeSlug,
       batchExecutionId: parentBatchExecutionId,
@@ -489,12 +606,64 @@ test('D. Post-review handover producing 2 distinct contract groups loses neither
       activeDir,
       options: { sessionService: mockSessionService },
     });
-    assert.equal(secondOutcome.settled, true);
-    assert.equal(secondOutcome.status, 'completed');
+    assert.equal(firstOutcome.settled, false);
+    assert.equal(firstOutcome.status, 'pending');
 
-    const finalSettlement = loadBatchCompletionSettlement(tmpRoot, changeSlug, parentBatchExecutionId);
-    assert.equal(finalSettlement.stages.continuationDispatch.members.t3.action, 'agent-admitted');
-    assert.notEqual(finalSettlement.stages.continuationDispatch.members.t3.batchExecutionId, childBatchExecutionId);
+    const afterFirstPass = loadBatchCompletionSettlement(tmpRoot, changeSlug, parentBatchExecutionId);
+    assert.equal(afterFirstPass.stages.continuationDispatch.members.t1.action, 'agent-admitted');
+    assert.equal(
+      afterFirstPass.stages.continuationDispatch.members.t1.batchExecutionId,
+      undefined,
+      'a single-member group dispatches via the single-task path, never a fabricated batch-of-one',
+    );
+    assert.equal(afterFirstPass.stages.continuationDispatch.members.t2, undefined, '{t2,t3} must remain durably pending after pass 1');
+    assert.ok(getActiveAgentExecution(specId), 't1 must be the live active execution after pass 1');
+
+    // Simulate t1's own real progress (what a real finish-step CLI invocation would
+    // have recorded on disk between admission and turn-terminal): the refiner attempt
+    // concludes, t1 returns to review, and review passes — t1 reaches a terminal
+    // position so Hook 1's own "automatic continuation for settled turn" step (which
+    // runs BEFORE the pending-handover resume trigger, by design — see admission.mjs)
+    // has nothing further to admit for t1 itself, isolating the pending-handover
+    // resume trigger as the only thing that can free the slot for {t2,t3}.
+    const changeForUpdate = requireChange(changeSlug, activeDir);
+    const t1Task = requireTask(changeForUpdate, 't1');
+    const refinerSessionId = afterFirstPass.stages.continuationDispatch.members.t1.admission?.sessionId;
+    setTaskWorkflowState(changeForUpdate, 't1', {
+      status: 'verified',
+      workflowProgress: {
+        current_step: 'review',
+        current_attempt: 2,
+        state: 'completed',
+        history: [
+          ...t1Task.workflow_progress.history,
+          { step: 'implementation', attempt: 2, sessionId: refinerSessionId, transitioned_to: 'review' },
+          { step: 'review', attempt: 2, sessionId: refinerSessionId, result: 'pass', transitioned_to: 'verified' },
+        ],
+      },
+    });
+    execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
+    execFileSync('git', ['commit', '-m', 't1 refiner attempt concludes'], { cwd: tmpRoot });
+
+    // Settle t1 FOR REAL via admission.mjs's own turn-terminal handling
+    // (releaseAdmittedExecution drives the exact same `reconcileHook1` closure a real
+    // session's turn.completed event would invoke) — not a manual
+    // clearActiveAgentExecution call standing in for the real trigger.
+    const reconcileRes = await releaseAdmittedExecution(specId, { settled: true });
+    assert.equal(reconcileRes.outcome, 'completed');
+    assert.equal(reconcileRes.released, true);
+
+    // The pending {t2,t3} group must now be admitted automatically, as a side effect of
+    // t1's own slot-freeing trigger (task 13) — no manual intervention, no manual
+    // re-invocation of the parent settlement by the test itself.
+    const parentAfterResume = loadBatchCompletionSettlement(tmpRoot, changeSlug, parentBatchExecutionId);
+    assert.equal(parentAfterResume.status, 'completed', 'the parent settlement must be auto-resumed and completed');
+    assert.equal(parentAfterResume.stages.continuationDispatch.members.t2.action, 'agent-admitted');
+    assert.equal(
+      parentAfterResume.stages.continuationDispatch.members.t2.batchExecutionId,
+      parentAfterResume.stages.continuationDispatch.members.t3.batchExecutionId,
+    );
+    assert.equal(mockSessionService.createdSessions.length, 2, 'exactly one session for t1, one for the {t2,t3} refiner group');
   } finally {
     rmSync(baseDir, { recursive: true, force: true });
   }

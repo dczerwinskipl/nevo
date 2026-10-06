@@ -362,11 +362,13 @@ tasks:
   - id: real-end-to-end-automatic-resume-proof
     order: 14
     file: tasks/14-real-end-to-end-automatic-resume-proof.md
-    status: approved
+    status: in-implementation
     depends_on:
       [
         real-end-to-end-corrective-acceptance,
         durable-grouped-handover-resume-generalization
       ]
+    implementation:
+      baseline_revision: 334e10d832eb71d89ff25b704b0c279db8ddfb13
 
 spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea

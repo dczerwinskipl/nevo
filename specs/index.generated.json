@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-06T19:25:11.163Z",
+  "generated": "2026-10-06T19:32:39.183Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -691,11 +691,14 @@
           "id": "real-end-to-end-automatic-resume-proof",
           "order": 14,
           "file": "tasks/14-real-end-to-end-automatic-resume-proof.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "real-end-to-end-corrective-acceptance",
             "durable-grouped-handover-resume-generalization"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "334e10d832eb71d89ff25b704b0c279db8ddfb13"
+          }
         }
       ]
     },
