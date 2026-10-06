@@ -97,11 +97,14 @@ shape. Not restated here — this file decomposes it into tasks.
 
 ## Implementation decomposition
 
-Twelve tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8 were
+Fourteen tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8 were
 the original decomposition; tasks 9-12 are corrective work appended after a
 post-implementation, change-level review found that tasks 1-8's own scoped acceptance
 did not, in aggregate, prove the change-wide acceptance criteria in real production
-behavior — see "Post-implementation review correction" below.
+behavior — see "Post-implementation review correction" below. Tasks 13-14 are further
+corrective work appended after a second review round found task 11's landed fix still
+incomplete and task 12's own proof of automatic resume not actually automatic — see
+"Second-round review correction" below.
 
 1. `tasks/01-queue-removal-and-reservation-storage-migration.md` — independent.
 2. `tasks/02-batch-admission-generalization.md` — independent.
@@ -118,6 +121,10 @@ behavior — see "Post-implementation review correction" below.
 11. `tasks/11-durable-grouped-handover-dispatch.md` — depends on 2, 5, 10 (explicit
     sequencing, same reason).
 12. `tasks/12-real-end-to-end-corrective-acceptance.md` — depends on 9, 10, 11.
+13. `tasks/13-durable-grouped-handover-resume-generalization.md` — depends on 11
+    (second-round corrective fix to task 11's own landed code).
+14. `tasks/14-real-end-to-end-automatic-resume-proof.md` — depends on 12, 13
+    (second-round corrective fix to task 12's own Test D).
 
 ## Change-wide acceptance criteria
 
@@ -187,6 +194,49 @@ change as a whole claims.
 Corrective tasks 09-12 (added below) resolve these in production behavior, not by
 loosening the acceptance criteria or the test fixtures used to prove them. The change
 is not ready for approval until tasks 09-12 are each independently verified.
+
+## Second-round review correction
+
+A second review round, run against head `300593a` (tasks 09-12 landed and verified),
+confirmed tasks 09 and 10 are correct as implemented, but found task 11's own fix for
+finding 3 is still incomplete in two specific ways, and found task 12's own Test D does
+not actually prove the claim it is meant to prove.
+
+1. **The pending-handover resume trigger only fires from a batch settlement's own Stage
+   2 — not from a singleton's own settlement.** `resumePendingHandoverForSpec` is called
+   from exactly one place: `batch-completion-settlement.mjs`'s `activeExecutionClear`
+   stage, only when a BATCH's own settlement clears the active-execution slot. If the
+   *first* dispatch unit admitted for a spec is a singleton (dispatched via
+   `reconcileContinuation`, Stage 4's `!unit.isGroup` branch — never through
+   `executeBatchCompletionSettlement` at all), there is no equivalent trigger when that
+   singleton's own turn settles in `admission.mjs`'s own `reconcileHook1`. A durable
+   pending multi-member group left behind it (e.g. t1 dispatched as a singleton, {t2,t3}
+   left pending; t1 settles) is never woken — stuck forever, not merely delayed. Task 13
+   fixes this with a trigger tied to the freeing of the active-execution slot generally,
+   not only to batch settlement.
+2. **Only `ACTIVE_EXECUTION_EXISTS` is treated as transient; every other transient
+   admission failure is recorded as terminal.** In Stage 4's grouped branch,
+   `DEFERRED_TO_PENDING_WORKSPACE_REQUEST`, `WORKSPACE_WRITER_CONTENDED`,
+   `WORKSPACE_WRITER_BLOCKED_BY_RECOVERY`, `REUSE_SESSION_NOT_RESOLVED`, and a thrown
+   admission exception are all exactly as transient as `ACTIVE_EXECUTION_EXISTS`, but are
+   currently recorded as a terminal `noop`/`failed` outcome, permanently losing the
+   continuation. The singleton branch has no transient/terminal classification at all —
+   `reconcileContinuation`'s result is consumed as a completed unit unconditionally. Task
+   13 fixes both halves.
+3. **Task 12's Test D proves durability, not automatic resume.** Test D manually calls
+   `clearActiveAgentExecution(specId)` and then manually re-invokes the parent
+   `executeBatchCompletionSettlement()` directly — this proves the pending record
+   survives and can be resumed when re-invoked, not that settling the first execution
+   automatically triggers the resume with nobody manually freeing the slot or manually
+   re-entering the saga. Task 11's own dedicated test proves real automatic resume, but
+   only for the batch-first ordering, so it cannot catch finding 1 above (singleton-first
+   ordering). Task 14 re-proves automatic resume for both orderings at the same real,
+   end-to-end level Test A-C already operate at.
+
+Tasks 13-14 (added below) resolve these in production behavior. The change is not ready
+for approval until tasks 09-14 are each independently verified and all five original
+review findings plus these three second-round findings are genuinely resolved in
+production behavior, not merely hidden by test fixtures.
 
 ## Verification strategy
 
