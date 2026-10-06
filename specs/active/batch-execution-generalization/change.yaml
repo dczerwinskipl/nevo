@@ -399,5 +399,28 @@ tasks:
       ]
     implementation:
       baseline_revision: a6ef72f83a91fa10b1c66e9ff1c862bddf5acf6b
+      review_revision: adc5c190e66575bfb06df74da895e4b5e9de63f3
+      changed_paths:
+        - specs/active/batch-execution-generalization/tasks/14-real-end-to-end-automatic-resume-proof.md
+        - tools/dashboard/server/ai/orchestration/admission.mjs
+        - tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs
+        - tools/tests/batch-completion-orchestration.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 7263041294483c85b09ba0e36d204b22453034c46066656d6cd6f1fb57f38d78
+      revision: adc5c190e66575bfb06df74da895e4b5e9de63f3
+      commands:
+        - command: node --test tools/tests/batch-completion-orchestration.test.mjs
+          exit_code: 0
+        - command: node --test
+            tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
 
 spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea
