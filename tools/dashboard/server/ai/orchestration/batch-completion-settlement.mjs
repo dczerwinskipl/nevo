@@ -104,21 +104,43 @@ function resolveMemberDestination(task, definition) {
 }
 
 /**
+ * Admission failure reasons that reflect transient contention (another execution still
+ * holds the one-active-execution-per-spec slot, a workspace-writer race, a pending
+ * workspace request, an unresolved reuse-session predecessor) rather than a genuine,
+ * permanent inability to dispatch. A dispatch unit blocked by one of these must stay
+ * durably `'pending'`, never recorded as a terminal `'failed'`/`'completed'` outcome
+ * (batch-execution-generalization, task 13, second-round review finding 2).
+ */
+const TRANSIENT_ADMISSION_REASONS = new Set([
+  'ACTIVE_EXECUTION_EXISTS',
+  'DEFERRED_TO_PENDING_WORKSPACE_REQUEST',
+  'WORKSPACE_WRITER_CONTENDED',
+  'WORKSPACE_WRITER_BLOCKED_BY_RECOVERY',
+  'REUSE_SESSION_NOT_RESOLVED',
+]);
+
+function isTransientAdmissionReason(reason) {
+  return TRANSIENT_ADMISSION_REASONS.has(reason);
+}
+
+/**
  * Durable grouped-handover retry (batch-execution-generalization, task 11, gap 1):
  * finds another settlement for this same `changeSlug` whose own Stage 4 still has
  * durable pending dispatch units (the one-active-execution-per-spec invariant blocked
  * admitting them in some earlier pass) — never a new cross-batch scheduler, only a scan
  * over this module's own already-persisted, already-determined saga state, the exact
  * same kind of durable-state scan Hook 3 boot reconciliation already performs over
- * workspace-writer claims. Called right after a settlement's own Stage 2 frees the
- * one-active-execution-per-spec slot — the only moment a sibling's pending unit could
+ * workspace-writer claims. Called whenever the one-active-execution-per-spec slot frees
+ * — a batch settlement's own Stage 2, or (task 13) a singleton's own turn settling in
+ * `admission.mjs`'s `reconcileHook1` — the only moments a sibling's pending unit could
  * newly become admittable.
  *
  * @param {object} params
  * @returns {Promise<void>} Never throws — a failed resume attempt is retried by the
- *   next natural trigger (another settlement's own Stage 2, or Hook 3).
+ *   next natural trigger (another settlement's own Stage 2, a singleton settling, or
+ *   Hook 3).
  */
-async function resumePendingHandoverForSpec({ repoRoot, changeSlug, excludeBatchExecutionId, activeDir, options }) {
+export async function resumePendingHandoverForSpec({ repoRoot, changeSlug, excludeBatchExecutionId, activeDir, options }) {
   try {
     const dir = getBatchCompletionSettlementDir(repoRoot, changeSlug);
     if (!fs.existsSync(dir)) return;
@@ -948,18 +970,35 @@ export async function executeBatchCompletionSettlement(params = {}) {
               parentSessionId: effectiveSessionId,
             });
 
-            settlement.stages.continuationDispatch.members[taskId] = {
-              status: 'completed',
-              action: dispatchResult?.action || 'noop',
-              admission: dispatchResult?.admission || null,
-              nextStep: dispatchResult?.nextStep || null,
-              completedAt: new Date().toISOString(),
-            };
-            unit.status = 'completed';
-            saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+            // Give the singleton path the same transient/terminal classification the
+            // grouped branch already has (task 13, second-round review finding 2):
+            // `reconcileContinuation`'s own 'agent-admitted' action unconditionally
+            // wraps whatever `admitAgentExecution` returned, including a failed,
+            // merely-transient admission — that must stay pending, not be recorded as
+            // a completed unit.
+            const singletonAdmission = dispatchResult?.admission || null;
+            const isTransientSingletonFailure = dispatchResult?.action === 'agent-admitted'
+              && singletonAdmission
+              && singletonAdmission.admitted === false
+              && isTransientAdmissionReason(singletonAdmission.reason);
 
-            if (_crashAfterMemberDispatchTaskId === taskId) {
-              throw new Error(`[test-hook] Simulated crash after member dispatch for task ${taskId}`);
+            if (isTransientSingletonFailure) {
+              // Transient contention — leave this unit durably pending; a later pass
+              // (triggered once the slot actually frees) retries it.
+            } else {
+              settlement.stages.continuationDispatch.members[taskId] = {
+                status: 'completed',
+                action: dispatchResult?.action || 'noop',
+                admission: singletonAdmission,
+                nextStep: dispatchResult?.nextStep || null,
+                completedAt: new Date().toISOString(),
+              };
+              unit.status = (singletonAdmission && singletonAdmission.admitted === false) ? 'failed' : 'completed';
+              saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+
+              if (_crashAfterMemberDispatchTaskId === taskId) {
+                throw new Error(`[test-hook] Simulated crash after member dispatch for task ${taskId}`);
+              }
             }
           } else {
             const { taskIds: groupTaskIds, destination, resolvedPolicy } = unit;
@@ -1047,7 +1086,11 @@ export async function executeBatchCompletionSettlement(params = {}) {
                   batchExecutionId: newBatchExecutionId,
                   error: err,
                 });
-                admissionRes = { admitted: false, reason: err?.message || String(err) };
+                // An exception during admission (e.g. a transient failure creating the
+                // session) is treated as transient, not a terminal loss of this unit
+                // (task 13, second-round review finding 2) — the reservation was already
+                // rolled back above, so a later pass can create a fresh one and retry.
+                admissionRes = { admitted: false, reason: err?.message || String(err), transient: true };
               }
 
               if (!admissionRes.admitted) {
@@ -1059,10 +1102,11 @@ export async function executeBatchCompletionSettlement(params = {}) {
                 }).catch(() => {});
               }
 
-              if (!admissionRes.admitted && admissionRes.reason === 'ACTIVE_EXECUTION_EXISTS') {
-                // Transient contention despite the pre-check above (a race with another
-                // process) — leave this unit durably pending, do not mark it done; a
-                // later pass retries it once the slot is actually free.
+              if (!admissionRes.admitted && (admissionRes.transient || isTransientAdmissionReason(admissionRes.reason))) {
+                // Transient contention (slot still held, a workspace-writer race, a
+                // pending workspace request, an unresolved reuse predecessor, or a
+                // thrown admission exception) — leave this unit durably pending, do not
+                // mark it done; a later pass retries it once the contention clears.
               } else {
                 for (const taskId of groupTaskIds) {
                   settlement.stages.continuationDispatch.members[taskId] = {

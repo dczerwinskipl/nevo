@@ -20,6 +20,7 @@ import {
   getActiveAgentExecution,
   clearActiveAgentExecution,
   resetAdmissionStateForTest,
+  releaseAdmittedExecution,
 } from '../dashboard/server/ai/orchestration/admission.mjs';
 import {
   acquireWorkspaceWriter,
@@ -1231,4 +1232,332 @@ test('AC (Task 11, gap 1): the second, durably pending group is admitted automat
 
   // tA/tB's own original group dispatch is untouched/not re-processed by the resume.
   assert.equal(parentAfterResume.stages.continuationDispatch.members.tA.action, 'agent-admitted');
+});
+
+test('AC (Task 13, gap 1 reverse): singleton dispatched first, grouped batch left pending second — the singleton settling for real (admission.mjs\'s own turn-terminal handling, not a manual clearActiveAgentExecution call) automatically admits the pending group', async () => {
+  const slug = 'test-singleton-first-handover';
+  const singletonFirstWorkflowYaml = `id: test-singleton-first-wf
+title: "Test Singleton First Workflow"
+type: standard
+version: 1
+entryStep: implementation
+sourceControl:
+  enabled: true
+  push: false
+steps:
+  implementation:
+    status:
+      active: implementing
+      completed: implemented
+    purpose: "Implement code"
+    expectedWork:
+      summary: "Implement"
+    transitions:
+      - to: review
+        continuation: auto
+        execution:
+          session: reuse
+          role: reviewer
+  review:
+    status:
+      active: reviewing
+      completed: reviewed
+    purpose: "Review code"
+    expectedWork:
+      summary: "Review"
+    transitions:
+      - value: pass
+        to: verified
+        outcome: success
+      - value: fail
+        to: implementation
+        continuation: auto
+        execution:
+          session: fresh
+          role: refiner
+`;
+
+  resetAdmissionStateForTest();
+  const tmpRoot = fs.mkdtempSync(path.join(tmpdir(), 'nevo-test-singleton-first-'));
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: tmpRoot });
+    execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: tmpRoot });
+    execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpRoot });
+
+    const activeDir = path.join(tmpRoot, 'specs', 'active');
+    const changeDir = path.join(activeDir, slug);
+    const taskDir = path.join(changeDir, 'tasks');
+    const workflowDir = path.join(tmpRoot, '.nevo-ai', 'workflows');
+    fs.mkdirSync(taskDir, { recursive: true });
+    fs.mkdirSync(workflowDir, { recursive: true });
+    fs.writeFileSync(path.join(workflowDir, 'test-singleton-first-wf.yaml'), singletonFirstWorkflowYaml, 'utf8');
+
+    const specId = randomUUID();
+    const implSessionId = 'session-impl-shared-t1';
+    const changeYaml = `id: ${slug}
+spec_id: ${specId}
+title: "Test Singleton First Change"
+status: in-progress
+workflow:
+  mode: deterministic
+  version: 1
+  definition: test-singleton-first-wf
+tasks:
+  - id: t1
+    order: 1
+    title: Task 1
+    status: in-implementation
+    allowed_paths:
+      - src/t1.js
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          sessionId: ${implSessionId}
+          transitioned_to: review
+  - id: t2
+    order: 2
+    title: Task 2
+    status: in-review
+    allowed_paths:
+      - src/t2.js
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          sessionId: session-impl-t2
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          sessionId: session-rev-batch
+          result: fail
+          transitioned_to: implementation
+  - id: t3
+    order: 3
+    title: Task 3
+    status: in-review
+    allowed_paths:
+      - src/t3.js
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          sessionId: session-impl-t3
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          sessionId: session-rev-batch
+          result: fail
+          transitioned_to: implementation
+`;
+    fs.writeFileSync(path.join(changeDir, 'change.yaml'), changeYaml, 'utf8');
+    fs.writeFileSync(path.join(taskDir, 't1.md'), '# Task 1\n', 'utf8');
+    fs.writeFileSync(path.join(taskDir, 't2.md'), '# Task 2\n', 'utf8');
+    fs.writeFileSync(path.join(taskDir, 't3.md'), '# Task 3\n', 'utf8');
+    execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
+    execFileSync('git', ['commit', '-m', 'Fixture setup'], { cwd: tmpRoot });
+
+    const memberIds = ['t1', 't2', 't3'];
+    const parentBatchExecutionId = `batch-${randomUUID()}`;
+    const parentSessionId = implSessionId;
+
+    await createGroupReservation({
+      repoRoot: tmpRoot,
+      changeSlug: slug,
+      taskIds: memberIds,
+      batchExecutionId: parentBatchExecutionId,
+      executionConfigSnapshot: { provider: 'mock', mode: 'agent' },
+    });
+    const acq = await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId,
+      changeSlug: slug,
+      scope: { kind: 'task-batch', taskIds: memberIds },
+      sessionId: parentSessionId,
+      batchExecutionId: parentBatchExecutionId,
+    });
+    saveBatchFinishRecord(tmpRoot, slug, {
+      batchExecutionId: parentBatchExecutionId,
+      changeSlug: slug,
+      sessionId: parentSessionId,
+      taskIds: memberIds,
+      status: 'completed',
+      results: {},
+    });
+
+    const mockSessionService = makeMockSessionService();
+
+    // Pass 1: t1 (session: reuse) is the sole singleUnit — dispatched first via the
+    // single-task continuation path (reconcileContinuation -> admitAgentExecution),
+    // never grouped. {t2,t3} (fresh refiner group) is left durably pending behind it.
+    const firstOutcome = await executeBatchCompletionSettlement({
+      repoRoot: tmpRoot,
+      changeSlug: slug,
+      batchExecutionId: parentBatchExecutionId,
+      sessionId: parentSessionId,
+      ownerId: acq.ownerId,
+      activeDir,
+      options: { sessionService: mockSessionService },
+    });
+    assert.equal(firstOutcome.settled, false);
+    assert.equal(firstOutcome.status, 'pending');
+
+    const afterFirstPass = loadBatchCompletionSettlement(tmpRoot, slug, parentBatchExecutionId);
+    assert.equal(afterFirstPass.stages.continuationDispatch.members.t1.action, 'agent-admitted');
+    assert.equal(
+      afterFirstPass.stages.continuationDispatch.members.t1.batchExecutionId,
+      undefined,
+      'session: reuse must never be grouped into a fabricated batch',
+    );
+    assert.equal(
+      afterFirstPass.stages.continuationDispatch.members.t2,
+      undefined,
+      '{t2,t3} must remain durably pending, not completed, after pass 1',
+    );
+    assert.equal(mockSessionService.createdSessions.length, 0, 't1 resumed its predecessor session — no fresh session created yet');
+
+    // t1 is now the live active-execution for this spec, admitted via the real
+    // single-task admission path.
+    assert.ok(getActiveAgentExecution(specId), 't1 must be the live active execution after pass 1');
+
+    // Simulate t1's own real progress: between admission and turn-terminal, t1 passed
+    // review and reached a terminal workflow position (exactly what a real finish-step
+    // CLI invocation would have recorded on disk).
+    const changeForUpdate = requireChange(slug, activeDir);
+    const t1Task = requireTask(changeForUpdate, 't1');
+    setTaskWorkflowState(changeForUpdate, 't1', {
+      status: 'verified',
+      workflowProgress: {
+        current_step: 'review',
+        current_attempt: t1Task.workflow_progress.current_attempt,
+        state: 'completed',
+        history: [
+          ...t1Task.workflow_progress.history,
+          { step: 'review', attempt: t1Task.workflow_progress.current_attempt, sessionId: implSessionId, result: 'pass', transitioned_to: 'verified' },
+        ],
+      },
+    });
+    // Commit the progress update — `assessExecutionSettlement` treats change.yaml
+    // (a workflow-owned path) as in-scope, and an uncommitted in-scope dirty file
+    // would misclassify this as 'dirty-in-scope-files' rather than a clean settle.
+    execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
+    execFileSync('git', ['commit', '-m', 't1 passes review'], { cwd: tmpRoot });
+
+    // Settle t1 FOR REAL via admission.mjs's own turn-terminal handling
+    // (releaseAdmittedExecution drives the exact same `reconcileHook1` closure a real
+    // session's turn.completed event would invoke) — not a manual
+    // clearActiveAgentExecution call standing in for the real trigger.
+    const reconcileRes = await releaseAdmittedExecution(specId, { settled: true });
+    assert.equal(reconcileRes.outcome, 'completed');
+    assert.equal(reconcileRes.released, true);
+
+    // The pending {t2,t3} group must now be admitted automatically, as a side effect of
+    // t1's own slot-freeing trigger (task 13, second-round review finding 1) — no
+    // manual intervention, no manual re-invocation of the parent settlement by the
+    // test itself.
+    const parentAfterResume = loadBatchCompletionSettlement(tmpRoot, slug, parentBatchExecutionId);
+    assert.equal(parentAfterResume.status, 'completed', 'the parent settlement must be auto-resumed and completed');
+    assert.equal(parentAfterResume.stages.continuationDispatch.members.t2.action, 'agent-admitted');
+    assert.equal(
+      parentAfterResume.stages.continuationDispatch.members.t2.batchExecutionId,
+      parentAfterResume.stages.continuationDispatch.members.t3.batchExecutionId,
+    );
+    assert.equal(mockSessionService.createdSessions.length, 1, 'exactly one new session for the {t2,t3} refiner group');
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 13, gap 2): a grouped-handover admission attempt that throws during session creation is treated as transient — the unit stays pending and a later pass admits it', async () => {
+  const slug = 'test-handover-transient-exception';
+  const memberIds = ['tA', 'tB'];
+  const { tmpRoot, activeDir, specId } = setupHandoverRepo(slug, memberIds.map((id) => ({ id, result: 'fail' })));
+
+  const batchExecutionId = `batch-${randomUUID()}`;
+  const batchSessionId = `session-rev-batch-${randomUUID()}`;
+
+  await createGroupReservation({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    taskIds: memberIds,
+    batchExecutionId,
+    executionConfigSnapshot: { provider: 'mock', mode: 'agent' },
+  });
+  const acq = await acquireWorkspaceWriter({
+    repoRoot: tmpRoot,
+    kind: 'agent',
+    specId,
+    changeSlug: slug,
+    scope: { kind: 'task-batch', taskIds: memberIds },
+    sessionId: batchSessionId,
+    batchExecutionId,
+  });
+  saveBatchFinishRecord(tmpRoot, slug, {
+    batchExecutionId,
+    changeSlug: slug,
+    sessionId: batchSessionId,
+    taskIds: memberIds,
+    status: 'completed',
+    results: Object.fromEntries(memberIds.map((id) => [id, { value: 'fail' }])),
+  });
+
+  // Pass 1: session creation throws (a simulated transient infrastructure failure) —
+  // the grouped unit must stay durably pending, never recorded as a terminal failure
+  // (task 13, second-round review finding 2).
+  const throwingSessionService = {
+    createdSessions: [],
+    createSession: async () => {
+      throw new Error('Simulated transient session-creation failure');
+    },
+  };
+
+  const firstOutcome = await executeBatchCompletionSettlement({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId: batchSessionId,
+    ownerId: acq.ownerId,
+    activeDir,
+    options: { sessionService: throwingSessionService },
+  });
+  assert.equal(firstOutcome.settled, false);
+  assert.equal(firstOutcome.status, 'pending');
+
+  const afterFirstPass = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+  assert.equal(
+    afterFirstPass.stages.continuationDispatch.members.tA,
+    undefined,
+    'a transient admission exception must not be recorded as a terminal member outcome',
+  );
+  const pendingUnit = afterFirstPass.stages.continuationDispatch.pendingUnits.find((u) => u.taskIds.includes('tA'));
+  assert.equal(pendingUnit.status, 'pending', 'the unit must remain pending after a transient admission exception, not failed');
+
+  // Pass 2: a working session service — the same pending unit is now admitted, no
+  // duplicate reservation, no lost group.
+  const mockSessionService = makeMockSessionService();
+  const secondOutcome = await executeBatchCompletionSettlement({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId: batchSessionId,
+    activeDir,
+    options: { sessionService: mockSessionService },
+  });
+  assert.equal(secondOutcome.settled, true);
+  assert.equal(secondOutcome.status, 'completed');
+
+  const finalSettlement = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+  assert.equal(finalSettlement.stages.continuationDispatch.members.tA.action, 'agent-admitted');
+  assert.equal(finalSettlement.stages.continuationDispatch.members.tB.action, 'agent-admitted');
+  assert.equal(mockSessionService.createdSessions.length, 1, 'exactly one new session for the retried group');
 });
