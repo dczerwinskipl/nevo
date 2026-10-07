@@ -4,9 +4,60 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 
 import { buildDashboardApp } from '../server/index.mjs';
 import { loadChange } from '../../specs/store.mjs';
+import { createGroupReservation } from '../../specs/workflow/queue/index.mjs';
+import { acquireWorkspaceWriter } from '../../specs/workflow/workspace-writer.mjs';
+import { saveBatchFinishRecord } from '../../specs/workflow/batch-finish/record.mjs';
+import { createWorkspaceRequest, transitionWorkspaceRequest } from '../../specs/workflow/workspace-request.mjs';
+import {
+  executeBatchCompletionSettlement,
+  loadBatchCompletionSettlement,
+} from '../server/ai/orchestration/batch-completion-settlement.mjs';
+import { resetAdmissionStateForTest, setDefaultSessionService } from '../server/ai/orchestration/admission.mjs';
+
+const HANDOVER_WORKFLOW_YAML = `id: test-sweep-handover-wf
+title: "Test Sweep Handover Workflow"
+type: standard
+version: 1
+entryStep: implementation
+sourceControl:
+  enabled: true
+  push: false
+steps:
+  implementation:
+    status:
+      active: implementing
+      completed: implemented
+    purpose: "Implement code"
+    expectedWork:
+      summary: "Implement"
+    transitions:
+      - to: review
+        continuation: auto
+        execution:
+          session: fresh
+          role: reviewer
+  review:
+    status:
+      active: reviewing
+      completed: reviewed
+    purpose: "Review code"
+    expectedWork:
+      summary: "Review"
+    transitions:
+      - value: pass
+        to: verified
+        outcome: success
+      - value: fail
+        to: implementation
+        continuation: auto
+        execution:
+          session: fresh
+          role: refiner
+`;
 
 const STANDARD_V1_YAML = `id: standard-v1
 title: "Standard Workflow"
@@ -353,6 +404,176 @@ tasks:
 
       await app.close();
     } finally {
+      fx.cleanup();
+    }
+  });
+
+  test('batch publish: completing a batch-publish request also sweeps and resumes an unrelated spec\'s durably pending grouped-handover settlement (task 16, third-round review finding 1)', async () => {
+    const fx = createGitFixture('nevo-pub-sweep-');
+    resetAdmissionStateForTest();
+    try {
+      // Spec A: a grouped-handover settlement, durably pending, blocked by a
+      // worktree-wide workspace request belonging to a completely different spec —
+      // neither of the two slot-freeing triggers (a sibling of spec A settling, or
+      // spec A's own singleton settling) can ever notice this block clearing, because
+      // nothing of spec A was ever admitted in the first place.
+      mkdirSync(join(fx.repo, '.nevo-ai', 'workflows'), { recursive: true });
+      writeFileSync(join(fx.repo, '.nevo-ai', 'workflows', 'test-sweep-handover-wf.yaml'), HANDOVER_WORKFLOW_YAML);
+
+      const slugA = 'handover-spec-a';
+      const changeDirA = join(fx.activeDir, slugA);
+      const taskDirA = join(changeDirA, 'tasks');
+      mkdirSync(taskDirA, { recursive: true });
+      const specIdA = randomUUID();
+      const memberIds = ['tA', 'tB'];
+      const tasksYamlA = memberIds.map((id, idx) => `  - id: ${id}
+    order: ${idx + 1}
+    title: Task ${id}
+    status: in-review
+    allowed_paths:
+      - src/${id}.js
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          sessionId: session-impl-${id}
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          sessionId: session-rev-batch
+          result: fail
+          transitioned_to: implementation
+`).join('');
+      writeFileSync(
+        join(changeDirA, 'change.yaml'),
+        `id: ${slugA}\nspec_id: ${specIdA}\ntitle: "Handover Spec A"\nstatus: in-progress\nworkflow:\n  mode: deterministic\n  version: 1\n  definition: test-sweep-handover-wf\ntasks:\n${tasksYamlA}`,
+      );
+      for (const id of memberIds) {
+        writeFileSync(join(taskDirA, `${id}.md`), `# Task ${id}\n`, 'utf8');
+      }
+
+      // Spec B: an ordinary, unrelated spec with a draft task, used only to drive a
+      // real batch-publish HTTP request through to completion.
+      const slugB = 'publish-spec-b';
+      const changeDirB = join(fx.activeDir, slugB);
+      const tasksDirB = join(changeDirB, 'tasks');
+      mkdirSync(tasksDirB, { recursive: true });
+      writeFileSync(
+        join(changeDirB, 'change.yaml'),
+        `id: ${slugB}\nspec_id: ${randomUUID()}\ntitle: "Publish Spec B"\nstatus: in-progress\nworkflow:\n  mode: deterministic\n  definition: standard-v1\ntasks:\n  - id: 01-task\n    title: "First Task"\n    status: draft\n    file: tasks/01-task.md\n`,
+      );
+      writeFileSync(join(changeDirB, 'overview.md'), '# Overview\n');
+      writeFileSync(join(tasksDirB, '01-task.md'), '# Task 1\n');
+
+      fx.git(['add', '-A']);
+      fx.git(['commit', '-m', 'add handover spec A and publish spec B']);
+
+      const batchExecutionId = `batch-${randomUUID()}`;
+      const batchSessionId = `session-rev-batch-${randomUUID()}`;
+      await createGroupReservation({
+        repoRoot: fx.repo,
+        changeSlug: slugA,
+        taskIds: memberIds,
+        batchExecutionId,
+        executionConfigSnapshot: { provider: 'mock', mode: 'agent' },
+      });
+      const acq = await acquireWorkspaceWriter({
+        repoRoot: fx.repo,
+        kind: 'agent',
+        specId: specIdA,
+        changeSlug: slugA,
+        scope: { kind: 'task-batch', taskIds: memberIds },
+        sessionId: batchSessionId,
+        batchExecutionId,
+      });
+      saveBatchFinishRecord(fx.repo, slugA, {
+        batchExecutionId,
+        changeSlug: slugA,
+        sessionId: batchSessionId,
+        taskIds: memberIds,
+        status: 'completed',
+        results: Object.fromEntries(memberIds.map((id) => [id, { value: 'fail' }])),
+      });
+
+      const createdSessions = [];
+      const mockSessionService = {
+        createdSessions,
+        createSession: async (provider, opts) => {
+          const sessionId = `sess-${randomUUID()}`;
+          createdSessions.push({ sessionId, provider, ...opts });
+          return { sessionId };
+        },
+      };
+
+      const blockingRequestId = randomUUID();
+      await createWorkspaceRequest({
+        repoRoot: fx.repo,
+        requestId: blockingRequestId,
+        kind: 'human-submit',
+        specId: 'completely-unrelated-spec',
+        taskId: 'completely-unrelated-task',
+      });
+
+      const firstOutcome = await executeBatchCompletionSettlement({
+        repoRoot: fx.repo,
+        changeSlug: slugA,
+        batchExecutionId,
+        sessionId: batchSessionId,
+        ownerId: acq.ownerId,
+        activeDir: fx.activeDir,
+        options: { sessionService: mockSessionService },
+      });
+      assert.equal(firstOutcome.settled, false);
+      assert.equal(firstOutcome.status, 'pending');
+
+      // The blocking request genuinely completes — through a mechanism entirely
+      // unrelated to spec A or spec B's own publish flow.
+      await transitionWorkspaceRequest({
+        repoRoot: fx.repo,
+        requestId: blockingRequestId,
+        expectedStatus: 'queued',
+        to: 'cancelled',
+      });
+
+      const app = await buildDashboardApp({
+        config: {
+          root: fx.repo,
+          activeDir: fx.activeDir,
+          archiveDir: fx.archiveDir,
+        },
+      });
+
+      // The AI routes plugin just wired its own real default session service during
+      // the build above — override it with the mock for this test's own admission
+      // attempt now, after construction, so it isn't immediately clobbered back.
+      setDefaultSessionService(mockSessionService);
+
+      try {
+        // A completely unrelated real HTTP request — spec B's own batch-publish —
+        // is the only thing this test does directly. It knows nothing about spec A.
+        const res = await app.inject({
+          method: 'POST',
+          url: `/api/specs/${slugB}/workflow/publish`,
+          payload: {},
+        });
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.json().ok, true);
+
+        // Spec A's durably pending handover must now be resumed — as a side effect of
+        // spec B's own batch-publish request completing and releasing its claim,
+        // which triggers the dashboard route's own sweepAllPendingHandovers call.
+        const settlementA = loadBatchCompletionSettlement(fx.repo, slugA, batchExecutionId);
+        assert.equal(settlementA.status, 'completed', 'spec A\'s handover must be auto-resumed by spec B\'s own publish request completing');
+        assert.equal(settlementA.stages.continuationDispatch.members.tA.action, 'agent-admitted');
+        assert.equal(settlementA.stages.continuationDispatch.members.tB.action, 'agent-admitted');
+      } finally {
+        await app.close();
+      }
+    } finally {
+      resetAdmissionStateForTest();
       fx.cleanup();
     }
   });

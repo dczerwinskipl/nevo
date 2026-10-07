@@ -472,6 +472,16 @@ export async function reconcileBootState(options = {}) {
     }
   }
 
+  // 3. Resume any durably pending grouped-handover work left behind by a worktree-wide
+  // transient admission block (DEFERRED_TO_PENDING_WORKSPACE_REQUEST,
+  // WORKSPACE_WRITER_CONTENDED, WORKSPACE_WRITER_BLOCKED_BY_RECOVERY) that has since
+  // cleared — the slot-freeing triggers in admission.mjs/batch-completion-settlement.mjs
+  // only ever notice a *sibling* of the same spec; a block caused by a wholly different
+  // spec's claim/request is only ever caught here (task 16, third-round review finding
+  // 1). Best-effort, never throws, never blocks claim/request reconciliation above.
+  const { sweepAllPendingHandovers } = await import('./batch-completion-settlement.mjs');
+  await sweepAllPendingHandovers({ repoRoot, activeDir, options: { sessionService, bindingService } });
+
   return { reconciledClaims, reconciledRequests };
 }
 

@@ -16,6 +16,7 @@ import {
   executeBatchCompletionSettlement,
   loadBatchCompletionSettlement,
   TRANSIENT_ADMISSION_REASONS,
+  sweepAllPendingHandovers,
 } from '../dashboard/server/ai/orchestration/batch-completion-settlement.mjs';
 import {
   createWorkspaceRequest,
@@ -1584,9 +1585,10 @@ test('AC (Task 15): TRANSIENT_ADMISSION_REASONS classifies every known admitAgen
   }
 
   // Every other reason admitAgentExecution can actually return (admission.mjs) is a
-  // genuine, permanent failure — already proven terminal end-to-end via the "gap 2"
-  // (external dependency / independent suspension) test above, which fails for a
-  // reason outside this set.
+  // genuine, permanent failure. (The "gap 2" test above fails via
+  // validateBatchCompatibility, a different code path entirely, never via
+  // admitAgentExecution's own reason — it does NOT exercise this terminal branch; see
+  // the dedicated SESSION_SUBSCRIPTION_FAILED test below for that, task 16.)
   const nonTransientReasons = [
     'CLAIM_ENRICHMENT_FAILED',
     'STARTED_STATE_TRANSITION_FAILED',
@@ -1597,6 +1599,76 @@ test('AC (Task 15): TRANSIENT_ADMISSION_REASONS classifies every known admitAgen
   for (const reason of nonTransientReasons) {
     assert.equal(TRANSIENT_ADMISSION_REASONS.has(reason), false, `${reason} must not classify as transient`);
   }
+});
+
+test('AC (Task 16): a grouped-handover admission attempt that fails with a genuinely non-transient reason (SESSION_SUBSCRIPTION_FAILED, sourced from admitAgentExecution itself) is recorded as a terminal failure immediately — not left pending, not retried', async () => {
+  const slug = 'test-handover-nontransient-terminal';
+  const memberIds = ['tA', 'tB'];
+  const { tmpRoot, activeDir, specId } = setupHandoverRepo(slug, memberIds.map((id) => ({ id, result: 'fail' })));
+
+  const batchExecutionId = `batch-${randomUUID()}`;
+  const batchSessionId = `session-rev-batch-${randomUUID()}`;
+
+  await createGroupReservation({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    taskIds: memberIds,
+    batchExecutionId,
+    executionConfigSnapshot: { provider: 'mock', mode: 'agent' },
+  });
+  const acq = await acquireWorkspaceWriter({
+    repoRoot: tmpRoot,
+    kind: 'agent',
+    specId,
+    changeSlug: slug,
+    scope: { kind: 'task-batch', taskIds: memberIds },
+    sessionId: batchSessionId,
+    batchExecutionId,
+  });
+  saveBatchFinishRecord(tmpRoot, slug, {
+    batchExecutionId,
+    changeSlug: slug,
+    sessionId: batchSessionId,
+    taskIds: memberIds,
+    status: 'completed',
+    results: Object.fromEntries(memberIds.map((id) => [id, { value: 'fail' }])),
+  });
+
+  // A session service that creates a session successfully but whose subscription
+  // itself fails — admitAgentExecution's own real `SESSION_SUBSCRIPTION_FAILED` path
+  // (not a thrown exception, not validateBatchCompatibility — the one branch the
+  // second-/third-round reviews both flagged as unproven for a genuinely terminal,
+  // non-transient admission reason).
+  const createdSessions = [];
+  const throwingSubscribeSessionService = {
+    createdSessions,
+    createSession: async (provider, opts) => {
+      const sessionId = `sess-${randomUUID()}`;
+      createdSessions.push({ sessionId, provider, ...opts });
+      return { sessionId };
+    },
+    subscribeToSession: () => {
+      throw new Error('Simulated subscribeToSession failure');
+    },
+  };
+
+  const outcome = await executeBatchCompletionSettlement({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId: batchSessionId,
+    ownerId: acq.ownerId,
+    activeDir,
+    options: { sessionService: throwingSubscribeSessionService },
+  });
+  assert.equal(outcome.settled, true);
+  assert.equal(outcome.status, 'completed');
+
+  const settlement = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+  assert.equal(settlement.stages.continuationDispatch.members.tA.action, 'noop');
+  assert.equal(settlement.stages.continuationDispatch.members.tA.admission.reason, 'SESSION_SUBSCRIPTION_FAILED');
+  const unit = settlement.stages.continuationDispatch.pendingUnits.find((u) => u.taskIds.includes('tA'));
+  assert.equal(unit.status, 'failed', 'a genuinely non-transient reason must be recorded as a terminal failure, not left pending');
 });
 
 test('AC (Task 15): a grouped-handover admission attempt blocked by a genuine (non-exception) DEFERRED_TO_PENDING_WORKSPACE_REQUEST result stays pending and is admitted once the contention clears', async () => {
@@ -1688,6 +1760,95 @@ test('AC (Task 15): a grouped-handover admission attempt blocked by a genuine (n
   assert.equal(secondOutcome.status, 'completed');
 
   const finalSettlement = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+  assert.equal(finalSettlement.stages.continuationDispatch.members.tA.action, 'agent-admitted');
+  assert.equal(finalSettlement.stages.continuationDispatch.members.tB.action, 'agent-admitted');
+  assert.equal(mockSessionService.createdSessions.length, 1);
+});
+
+test('AC (Task 16): a handover blocked by a worktree-wide DEFERRED_TO_PENDING_WORKSPACE_REQUEST resumes automatically once the request genuinely completes — via sweepAllPendingHandovers, not a manual re-invocation of executeBatchCompletionSettlement for the parent', async () => {
+  const slug = 'test-handover-sweep-auto-resume';
+  const memberIds = ['tA', 'tB'];
+  const { tmpRoot, activeDir, specId } = setupHandoverRepo(slug, memberIds.map((id) => ({ id, result: 'fail' })));
+
+  const batchExecutionId = `batch-${randomUUID()}`;
+  const batchSessionId = `session-rev-batch-${randomUUID()}`;
+
+  await createGroupReservation({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    taskIds: memberIds,
+    batchExecutionId,
+    executionConfigSnapshot: { provider: 'mock', mode: 'agent' },
+  });
+  const acq = await acquireWorkspaceWriter({
+    repoRoot: tmpRoot,
+    kind: 'agent',
+    specId,
+    changeSlug: slug,
+    scope: { kind: 'task-batch', taskIds: memberIds },
+    sessionId: batchSessionId,
+    batchExecutionId,
+  });
+  saveBatchFinishRecord(tmpRoot, slug, {
+    batchExecutionId,
+    changeSlug: slug,
+    sessionId: batchSessionId,
+    taskIds: memberIds,
+    status: 'completed',
+    results: Object.fromEntries(memberIds.map((id) => [id, { value: 'fail' }])),
+  });
+
+  // A durable, queued workspace request belonging to a completely unrelated spec —
+  // this is the exact scenario the third review round named: a different spec's
+  // pending human-submit/publish/batch-publish request is the only thing blocking
+  // this handover's own admission attempt. Neither of the two existing slot-freeing
+  // triggers (a sibling of the SAME spec settling, or this spec's own singleton
+  // settling) can ever notice this, because nothing of THIS spec was ever admitted.
+  const blockingRequestId = randomUUID();
+  await createWorkspaceRequest({
+    repoRoot: tmpRoot,
+    requestId: blockingRequestId,
+    kind: 'human-submit',
+    specId: 'completely-unrelated-spec',
+    taskId: 'completely-unrelated-task',
+  });
+
+  const mockSessionService = makeMockSessionService();
+  const firstOutcome = await executeBatchCompletionSettlement({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId: batchSessionId,
+    ownerId: acq.ownerId,
+    activeDir,
+    options: { sessionService: mockSessionService },
+  });
+  assert.equal(firstOutcome.settled, false);
+  assert.equal(firstOutcome.status, 'pending');
+
+  const afterFirstPass = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+  const pendingUnit = afterFirstPass.stages.continuationDispatch.pendingUnits.find((u) => u.taskIds.includes('tA'));
+  assert.equal(pendingUnit.status, 'pending');
+
+  // The unrelated request genuinely completes — through whatever real mechanism
+  // resolved it (out of scope here); from this point on, nothing about this specific
+  // handover is special-cased or known to that mechanism.
+  await transitionWorkspaceRequest({
+    repoRoot: tmpRoot,
+    requestId: blockingRequestId,
+    expectedStatus: 'queued',
+    to: 'cancelled',
+  });
+
+  // The production retry entry point (task 16): a generic, worktree-wide sweep —
+  // exactly what Hook 3 boot reconciliation and the dashboard's own batch-publish
+  // route now call after any claim/request resolves. It is NOT told which
+  // changeSlug/batchExecutionId is pending; it must discover and resume this
+  // handover entirely on its own.
+  await sweepAllPendingHandovers({ repoRoot: tmpRoot, activeDir, options: { sessionService: mockSessionService } });
+
+  const finalSettlement = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+  assert.equal(finalSettlement.status, 'completed', 'the sweep must have discovered and resumed this handover on its own');
   assert.equal(finalSettlement.stages.continuationDispatch.members.tA.action, 'agent-admitted');
   assert.equal(finalSettlement.stages.continuationDispatch.members.tB.action, 'agent-admitted');
   assert.equal(mockSessionService.createdSessions.length, 1);

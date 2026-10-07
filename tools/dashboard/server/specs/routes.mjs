@@ -528,6 +528,17 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
           expectedKind: 'batch-publish',
           expectedRequestId: requestId,
         });
+
+        // This request (and the worktree-wide claim it held) just left the
+        // admission-blocking state (DEFERRED_TO_PENDING_WORKSPACE_REQUEST /
+        // WORKSPACE_WRITER_CONTENDED) for good — a durably pending grouped-handover
+        // settlement elsewhere may now be admittable (batch-execution-generalization,
+        // task 16, third-round review finding 1). Best-effort; never fails this
+        // request's own response.
+        try {
+          const { sweepAllPendingHandovers } = await import('../ai/orchestration/batch-completion-settlement.mjs');
+          await sweepAllPendingHandovers({ repoRoot: paths.root, activeDir: paths.activeDir });
+        } catch {}
       }
     } catch (error) {
       const message = error.message || 'Unable to batch publish tasks.';

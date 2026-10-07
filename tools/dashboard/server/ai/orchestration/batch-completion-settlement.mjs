@@ -177,6 +177,44 @@ export async function resumePendingHandoverForSpec({ repoRoot, changeSlug, exclu
 }
 
 /**
+ * Worktree-wide durable grouped-handover retry (batch-execution-generalization, task
+ * 16, third-round review finding 1): `resumePendingHandoverForSpec` only ever scans ONE
+ * already-known `changeSlug` — correct for the slot-freeing triggers (a sibling of the
+ * SAME spec), but insufficient for the worktree-wide transient admission reasons
+ * (`DEFERRED_TO_PENDING_WORKSPACE_REQUEST`, `WORKSPACE_WRITER_CONTENDED`,
+ * `WORKSPACE_WRITER_BLOCKED_BY_RECOVERY`) that block a *different* spec's pending unit
+ * entirely — nothing about the spec that originally triggered the trigger identifies
+ * which other spec, if any, is sitting durably pending behind a now-cleared worktree-
+ * wide contention. This sweeps every changeSlug that has ever had a settlement
+ * directory (still only a scan over already-persisted, already-determined saga state —
+ * never a new cross-spec scheduler, never a re-ranking of unrelated work) and resumes
+ * the first one it finds with durable pending work.
+ *
+ * @param {object} params
+ * @param {string} params.repoRoot
+ * @param {string} [params.activeDir]
+ * @param {object} [params.options]
+ * @returns {Promise<void>} Never throws.
+ */
+export async function sweepAllPendingHandovers({ repoRoot, activeDir, options }) {
+  try {
+    if (!repoRoot) return;
+    const baseDir = path.join(repoRoot, '.nevo-ai-local', 'batch-completion');
+    if (!fs.existsSync(baseDir)) return;
+
+    const changeSlugs = fs.readdirSync(baseDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+
+    for (const changeSlug of changeSlugs) {
+      await resumePendingHandoverForSpec({ repoRoot, changeSlug, excludeBatchExecutionId: null, activeDir, options });
+    }
+  } catch {
+    // Best-effort: never let a sweep attempt fail the caller that triggered it.
+  }
+}
+
+/**
  * Exact matcher for live batch workspace-writer claim (D35, Item 3, 4).
  * Requires exact kind === 'agent', scope.kind === 'task-batch', batchExecutionId, sessionId,
  * canonical specId, changeSlug (if present), and exact taskIds set equality.

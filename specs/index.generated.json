@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-06T20:19:01.507Z",
+  "generated": "2026-10-07T06:45:56.933Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -774,6 +774,23 @@
               }
             ],
             "status": "passed"
+          }
+        },
+        {
+          "id": "worktree-wide-pending-handover-sweep",
+          "order": 16,
+          "file": "tasks/16-worktree-wide-pending-handover-sweep.md",
+          "status": "draft",
+          "depends_on": [
+            "resume-trigger-scope-guard-and-coverage-hardening"
+          ],
+          "execution": {
+            "suspension": {
+              "kind": "confirm-required",
+              "code": "REC-07",
+              "previous_action": "approve",
+              "created_at": "2026-10-07T06:44:45.698Z"
+            }
           }
         }
       ]
