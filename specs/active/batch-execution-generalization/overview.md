@@ -97,7 +97,7 @@ shape. Not restated here — this file decomposes it into tasks.
 
 ## Implementation decomposition
 
-Fifteen tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8 were
+Sixteen tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8 were
 the original decomposition; tasks 9-12 are corrective work appended after a
 post-implementation, change-level review found that tasks 1-8's own scoped acceptance
 did not, in aggregate, prove the change-wide acceptance criteria in real production
@@ -106,7 +106,11 @@ corrective work appended after a second review round found task 11's landed fix 
 incomplete and task 12's own proof of automatic resume not actually automatic — see
 "Second-round review correction" below. Task 15 is further hardening appended after a
 third review round found task 13's own resume trigger insufficiently scope-guarded and
-its own test coverage incomplete — see "Third-round review correction" below.
+its own test coverage incomplete — see "Third-round review correction" below. Task 16
+is further hardening appended after a fourth review round found no production
+mechanism automatically resumed a handover blocked by worktree-wide transient
+contention (as opposed to the same spec's own slot freeing) — see "Fourth-round review
+correction" below.
 
 1. `tasks/01-queue-removal-and-reservation-storage-migration.md` — independent.
 2. `tasks/02-batch-admission-generalization.md` — independent.
@@ -130,6 +134,10 @@ its own test coverage incomplete — see "Third-round review correction" below.
 15. `tasks/15-resume-trigger-scope-guard-and-coverage-hardening.md` — depends on 13, 14
     (third-round hardening fix to task 13's own landed code and test coverage, plus a
     wording reconciliation to task 14's own requirements).
+16. `tasks/16-worktree-wide-pending-handover-sweep.md` — depends on 15 (fourth-round
+    fix: a worktree-wide sweep so a handover blocked by a *different* spec's claim or
+    workspace request is also automatically resumed, not only a sibling of the same
+    spec).
 
 ## Change-wide acceptance criteria
 
@@ -276,6 +284,42 @@ genuinely fixed, and that Test D/D2 now prove real automatic resume without any 
 
 Task 15 (added below) resolves these. The change is not ready for approval until task
 15 is independently verified and all findings across all three review rounds are
+genuinely resolved in production behavior, not merely hidden by test fixtures.
+
+## Fourth-round review correction
+
+A fourth review round, run after task 15 landed, confirmed task 15's scope guard and
+coverage additions are correct, but found one remaining real blocker.
+
+1. **BLOCKER — a handover blocked by a worktree-wide transient reason
+   (`DEFERRED_TO_PENDING_WORKSPACE_REQUEST`, `WORKSPACE_WRITER_CONTENDED`,
+   `WORKSPACE_WRITER_BLOCKED_BY_RECOVERY`) can hang indefinitely with no automatic
+   wake-up.** The two existing slot-freeing triggers (a sibling of the *same* spec
+   settling, or that spec's own singleton settling) only ever notice contention tied to
+   that one spec's own active-execution slot — never a block caused by a *different*
+   spec's claim or workspace request. `resumePendingHandoverForSpec`'s own doc comment
+   claimed "Hook 3 boot reconciliation" was a natural retry path for this; in reality,
+   Hook 3 never scanned pending handover settlements at all. Task 13 correctly made a
+   blocked continuation *durable* (left pending, not lost); this finding is that nothing
+   then made it *resumable* without a human manually re-triggering it — the original
+   requirement task 11 was built to satisfy. Task 16 fixes this with a worktree-wide
+   sweep, wired into Hook 3 (boot/first-request coverage for every transient reason)
+   and into the dashboard's own `batch-publish` completion path (live, event-driven
+   coverage for the most common real-world case).
+2. **MAJOR verification gap — the terminal (non-transient) admission path still wasn't
+   proven via a real admission reason.** The existing "gap 2" test fails via
+   `validateBatchCompatibility`, a different code path entirely, never via
+   `admitAgentExecution`'s own returned reason. Task 16 adds a dedicated
+   `SESSION_SUBSCRIPTION_FAILED` case closing this.
+
+Task 16 (added below) resolves these, and explicitly documents one residual, honest
+scope boundary: a `DEFERRED_TO_PENDING_WORKSPACE_REQUEST` block caused specifically by a
+pending human-submit or single-task-publish request (as opposed to a `batch-publish`
+request) is only swept at the next Hook 3 boot/first-request pass, not live — fixing
+that would require touching `tools/specs/workflow/**`, a boundary every task in this
+change has deliberately stayed outside of; it is called out here as an explicit future
+decision point, not silently left unstated. The change is not ready for approval until
+task 16 is independently verified and all findings across all four review rounds are
 genuinely resolved in production behavior, not merely hidden by test fixtures.
 
 ## Verification strategy
