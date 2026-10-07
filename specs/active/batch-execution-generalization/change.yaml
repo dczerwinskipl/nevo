@@ -480,5 +480,33 @@ tasks:
     depends_on: [ worktree-wide-pending-handover-sweep ]
     implementation:
       baseline_revision: 88b7686425ec150f24a196c878c782091b0ad3fa
+      review_revision: f0a353b0b1fe150c15aaa9556cb734ccb8a0f4cb
+      changed_paths:
+        - specs/active/batch-execution-generalization/change.yaml
+        - tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs
+        - tools/dashboard/server/specs/routes.mjs
+        - tools/dashboard/tests/task-publish-transport.test.mjs
+        - tools/tests/batch-completion-orchestration.test.mjs
+      worktree_patch_fingerprint: 790ae81451980805c1ab63aa086a10cb8f6f81b7de760fd4e091d523e89d1474
+    self_check:
+      fingerprint: 8e6125fb1d74a5f8f06e9f8f1d1bf52719ba794faf89906c22d6c0bc67474548
+      revision: f0a353b0b1fe150c15aaa9556cb734ccb8a0f4cb
+      commands:
+        - command: node --test tools/tests/batch-completion-orchestration.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/batch-hook3-restart-recovery.test.mjs
+          exit_code: 0
+        - command: node --test tools/dashboard/tests/task-publish-transport.test.mjs
+          exit_code: 0
+        - command: node --test
+            tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
 
 spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea
