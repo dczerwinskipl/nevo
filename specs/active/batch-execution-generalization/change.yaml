@@ -476,13 +476,7 @@ tasks:
   - id: settlement-serialization-and-live-sweep-completion
     order: 17
     file: tasks/17-settlement-serialization-and-live-sweep-completion.md
-    status: draft
+    status: approved
     depends_on: [ worktree-wide-pending-handover-sweep ]
-    execution:
-      suspension:
-        kind: confirm-required
-        code: REC-07
-        previous_action: approve
-        created_at: 2026-10-07T14:55:09.613Z
 
 spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea

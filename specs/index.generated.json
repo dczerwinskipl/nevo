@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-07T07:06:06.357Z",
+  "generated": "2026-10-07T14:56:21.817Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -785,14 +785,22 @@
             "resume-trigger-scope-guard-and-coverage-hardening"
           ],
           "implementation": {
-            "baseline_revision": "98079d65a5a9d057cc1abef99b25b1da24601390",
-            "review_revision": "98079d65a5a9d057cc1abef99b25b1da24601390",
-            "changed_paths": [],
-            "worktree_patch_fingerprint": null
+            "baseline_revision": "22c279da0737abf822c7283ceb5b717d7b68df34",
+            "review_revision": "d8da2c73f047746f6a1ad60abfc172bc4b7bb299",
+            "changed_paths": [
+              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
+              "tools/dashboard/server/ai/orchestration/reconciliation.mjs",
+              "tools/dashboard/server/specs/routes.mjs",
+              "tools/dashboard/tests/task-publish-transport.test.mjs",
+              "tools/tests/batch-completion-orchestration.test.mjs",
+              "tools/tests/batch-hook3-restart-recovery.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null,
+            "provenance_correction": "Task 17 (fifth-round review) corrected this block after the fourth review round found it historically inaccurate: the real implementation landed in commit d8da2c73 (titled \"fix(orchestration): worktree-wide sweep for pending handovers blocked by transient contention (task 16)\"), committed BEFORE this task's own approve transition (98079d65) — an ordering inversion in how this task was executed, not a data-loss or rewritten-history issue. The automated approve/self-check metadata capture could not see the pre-existing commit and recorded 98079d65 with an empty changed_paths. baseline_revision, review_revision, and changed_paths above are now corrected to reflect reality (22c279da = the spec-scaffolding commit immediately before d8da2c73's own production changes). No git history was rewritten; only this YAML metadata was corrected. See overview.md's \"Fifth-round review correction\" for the full writeup."
           },
           "self_check": {
             "fingerprint": "148b8a809d2f91506ffbf21ad58e4e3868eea21daa709b28faf2f50834b75a57",
-            "revision": "98079d65a5a9d057cc1abef99b25b1da24601390",
+            "revision": "d8da2c73f047746f6a1ad60abfc172bc4b7bb299",
             "commands": [
               {
                 "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
@@ -825,6 +833,15 @@
             ],
             "status": "passed"
           }
+        },
+        {
+          "id": "settlement-serialization-and-live-sweep-completion",
+          "order": 17,
+          "file": "tasks/17-settlement-serialization-and-live-sweep-completion.md",
+          "status": "approved",
+          "depends_on": [
+            "worktree-wide-pending-handover-sweep"
+          ]
         }
       ]
     },
