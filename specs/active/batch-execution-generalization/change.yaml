@@ -425,7 +425,32 @@ tasks:
   - id: worktree-wide-pending-handover-sweep
     order: 16
     file: tasks/16-worktree-wide-pending-handover-sweep.md
-    status: approved
+    status: in-implementation
     depends_on: [ resume-trigger-scope-guard-and-coverage-hardening ]
+    implementation:
+      baseline_revision: 98079d65a5a9d057cc1abef99b25b1da24601390
+      review_revision: 98079d65a5a9d057cc1abef99b25b1da24601390
+      changed_paths: []
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 148b8a809d2f91506ffbf21ad58e4e3868eea21daa709b28faf2f50834b75a57
+      revision: 98079d65a5a9d057cc1abef99b25b1da24601390
+      commands:
+        - command: node --test tools/tests/batch-completion-orchestration.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/batch-hook3-restart-recovery.test.mjs
+          exit_code: 0
+        - command: node --test tools/dashboard/tests/task-publish-transport.test.mjs
+          exit_code: 0
+        - command: node --test
+            tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
 
 spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea
