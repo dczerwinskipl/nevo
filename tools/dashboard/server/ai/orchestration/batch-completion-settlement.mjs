@@ -103,6 +103,30 @@ function resolveMemberDestination(task, definition) {
   };
 }
 
+// Per-(changeSlug, batchExecutionId) in-process serialization for
+// `executeBatchCompletionSettlement` (batch-execution-generalization, task 17, fifth-
+// round review finding 1). The function's own Stage 4 reads `settlement` into memory
+// once, mutates it across several steps, and writes it back at multiple points with no
+// CAS/version check — two concurrent callers (now plausible with task 16's own
+// worktree-wide sweep running alongside Hook 1's slot-freeing trigger and Hook 3's own
+// boot sweep) can race: the later writer's own stale in-memory snapshot (loaded before
+// the earlier writer's success was persisted) silently overwrites a just-completed
+// admission back to `'pending'`. Same mutex shape as `admission.mjs`'s own
+// `acquireStartLock` — serializes same-process callers for the same settlement; it does
+// not (and does not need to) protect against multiple dashboard server processes, the
+// same boundary `admission.mjs`'s own per-spec mutex already accepts.
+const settlementLocks = new Map();
+async function acquireSettlementLock(key) {
+  let release;
+  const nextLock = new Promise((resolve) => {
+    release = resolve;
+  });
+  const previousLock = settlementLocks.get(key) || Promise.resolve();
+  settlementLocks.set(key, previousLock.then(() => nextLock, () => nextLock));
+  await previousLock;
+  return release;
+}
+
 /**
  * Admission failure reasons that reflect transient contention (another execution still
  * holds the one-active-execution-per-spec slot, a workspace-writer race, a pending
@@ -460,6 +484,11 @@ export function assessBatchExecutionSettlement({ repoRoot, changeSlug, batchExec
  * 4. continuation-dispatch (per member)
  * 5. completed
  *
+ * Serialized per (changeSlug, batchExecutionId) by the exported
+ * `executeBatchCompletionSettlement` wrapper below (task 17) — this inner function
+ * itself assumes exclusive access to its own settlement record for its entire
+ * duration; do not call it directly.
+ *
  * @param {object} params
  * @param {string} params.repoRoot
  * @param {string} params.changeSlug
@@ -474,7 +503,7 @@ export function assessBatchExecutionSettlement({ repoRoot, changeSlug, batchExec
  * @param {string|null} [params._crashAfterMemberDispatchTaskId=null] Test hook
  * @returns {Promise<{ settled: boolean, status: string, settlement: object }>}
  */
-export async function executeBatchCompletionSettlement(params = {}) {
+async function executeBatchCompletionSettlementInner(params = {}) {
   const {
     repoRoot,
     changeSlug,
@@ -1201,4 +1230,28 @@ export async function executeBatchCompletionSettlement(params = {}) {
     status: 'completed',
     settlement,
   };
+}
+
+/**
+ * Public entry point for the D35/D40 terminal settlement saga — serializes concurrent
+ * callers for the same (changeSlug, batchExecutionId) before delegating to
+ * `executeBatchCompletionSettlementInner` (task 17, fifth-round review finding 1).
+ * Multiple independent triggers can legitimately fire for the same settlement at
+ * nearly the same time now (Hook 1's own slot-freeing trigger, Hook 3's boot sweep,
+ * and the dashboard's own batch-publish/human-step/publish-task sweeps) — this lock
+ * ensures each runs to completion against a fully consistent view before the next one
+ * starts, instead of racing on stale in-memory snapshots.
+ *
+ * @param {object} params - Same shape as `executeBatchCompletionSettlementInner`.
+ * @returns {Promise<{ settled: boolean, status: string, settlement: object }>}
+ */
+export async function executeBatchCompletionSettlement(params = {}) {
+  const { repoRoot, changeSlug, batchExecutionId } = params;
+  const lockKey = `${repoRoot}::${changeSlug}::${batchExecutionId}`;
+  const release = await acquireSettlementLock(lockKey);
+  try {
+    return await executeBatchCompletionSettlementInner(params);
+  } finally {
+    release();
+  }
 }

@@ -2046,3 +2046,85 @@ test('AC (Task 15, finding 1 regression): a task-batch scope reaching recovery-r
   assert.equal(stillPendingUnit.status, 'pending', 'tC must still be pending — not woken by the wrong trigger');
   assert.equal(mockSessionService.createdSessions.length, 1, 'only the original {tA,tB} session must exist — no session for tC');
 });
+
+test('AC (Task 17, finding 1): two concurrent resume triggers for the same settlement never race on the singleton path — exactly one admission/session, the unit never reverts from completed back to pending', async () => {
+  const slug = 'test-handover-concurrent-singleton';
+  const { tmpRoot, activeDir, specId } = setupHandoverRepo(slug, [
+    { id: 'tA', result: 'pass' },
+    { id: 'tB', result: 'fail' },
+  ]);
+  const memberIds = ['tA', 'tB'];
+  const batchExecutionId = `batch-${randomUUID()}`;
+  const batchSessionId = `session-rev-batch-${randomUUID()}`;
+
+  await createGroupReservation({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    taskIds: memberIds,
+    batchExecutionId,
+    executionConfigSnapshot: { provider: 'mock', mode: 'agent' },
+  });
+  const acq = await acquireWorkspaceWriter({
+    repoRoot: tmpRoot,
+    kind: 'agent',
+    specId,
+    changeSlug: slug,
+    scope: { kind: 'task-batch', taskIds: memberIds },
+    sessionId: batchSessionId,
+    batchExecutionId,
+  });
+  saveBatchFinishRecord(tmpRoot, slug, {
+    batchExecutionId,
+    changeSlug: slug,
+    sessionId: batchSessionId,
+    taskIds: memberIds,
+    status: 'completed',
+    results: { tA: { value: 'pass' }, tB: { value: 'fail' } },
+  });
+
+  const createdSessions = [];
+  const mockSessionService = {
+    createdSessions,
+    createSession: async (provider, opts) => {
+      // A small artificial delay widens the race window this test is designed to
+      // catch — without the per-settlement mutex (task 17), this reproduces the
+      // exact review scenario: trigger A admits tB and writes 'completed' while
+      // trigger B is still mid-flight on its own stale in-memory snapshot, then B's
+      // own later write silently reverts the unit back to 'pending'.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const sessionId = `sess-${randomUUID()}`;
+      createdSessions.push({ sessionId, provider, ...opts });
+      return { sessionId };
+    },
+  };
+
+  const commonParams = {
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId: batchSessionId,
+    ownerId: acq.ownerId,
+    activeDir,
+    options: { sessionService: mockSessionService },
+  };
+
+  // Two concurrent triggers racing for the same settlement — e.g. admission.mjs's own
+  // slot-freeing trigger and a worktree-wide sweep (task 16) firing at nearly the
+  // same moment, exactly the scenario task 16 made more likely.
+  const [outcomeA, outcomeB] = await Promise.all([
+    executeBatchCompletionSettlement(commonParams),
+    executeBatchCompletionSettlement(commonParams),
+  ]);
+
+  assert.equal(createdSessions.length, 1, 'exactly one session must be created despite two concurrent callers');
+  assert.ok(
+    [outcomeA, outcomeB].every((o) => o.settled === true && o.status === 'completed'),
+    'both concurrent calls must observe the real settled outcome, never a stale pending snapshot',
+  );
+
+  const finalSettlement = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+  assert.equal(finalSettlement.status, 'completed', 'the settlement must never be left/reverted to a non-completed status');
+  const tBDispatch = finalSettlement.stages.continuationDispatch.members.tB;
+  assert.equal(tBDispatch.action, 'agent-admitted');
+  assert.equal(tBDispatch.batchExecutionId, undefined, 'a lone refiner must use the single-task path, never a fabricated one-member batch');
+});

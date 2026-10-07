@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-07T14:56:21.817Z",
+  "generated": "2026-10-07T15:06:28.212Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -838,10 +838,13 @@
           "id": "settlement-serialization-and-live-sweep-completion",
           "order": 17,
           "file": "tasks/17-settlement-serialization-and-live-sweep-completion.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "worktree-wide-pending-handover-sweep"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "88b7686425ec150f24a196c878c782091b0ad3fa"
+          }
         }
       ]
     },
