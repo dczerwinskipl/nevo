@@ -97,8 +97,8 @@ shape. Not restated here — this file decomposes it into tasks.
 
 ## Implementation decomposition
 
-Sixteen tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8 were
-the original decomposition; tasks 9-12 are corrective work appended after a
+Seventeen tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8
+were the original decomposition; tasks 9-12 are corrective work appended after a
 post-implementation, change-level review found that tasks 1-8's own scoped acceptance
 did not, in aggregate, prove the change-wide acceptance criteria in real production
 behavior — see "Post-implementation review correction" below. Tasks 13-14 are further
@@ -110,7 +110,10 @@ its own test coverage incomplete — see "Third-round review correction" below. 
 is further hardening appended after a fourth review round found no production
 mechanism automatically resumed a handover blocked by worktree-wide transient
 contention (as opposed to the same spec's own slot freeing) — see "Fourth-round review
-correction" below.
+correction" below. Task 17 is further hardening appended after a fifth review round
+found task 16's own sweep could race with itself, found task 16's declared residual
+scope boundary was wrong, and found task 16's own tracking metadata historically
+inaccurate — see "Fifth-round review correction" below.
 
 1. `tasks/01-queue-removal-and-reservation-storage-migration.md` — independent.
 2. `tasks/02-batch-admission-generalization.md` — independent.
@@ -138,6 +141,10 @@ correction" below.
     fix: a worktree-wide sweep so a handover blocked by a *different* spec's claim or
     workspace request is also automatically resumed, not only a sibling of the same
     spec).
+17. `tasks/17-settlement-serialization-and-live-sweep-completion.md` — depends on 16
+    (fifth-round fix: serialize settlement Stage 4 against concurrent resume triggers,
+    complete the live sweep for human-step/single-task-publish, and correct task 16's
+    own tracking metadata).
 
 ## Change-wide acceptance criteria
 
@@ -320,6 +327,44 @@ that would require touching `tools/specs/workflow/**`, a boundary every task in 
 change has deliberately stayed outside of; it is called out here as an explicit future
 decision point, not silently left unstated. The change is not ready for approval until
 task 16 is independently verified and all findings across all four review rounds are
+genuinely resolved in production behavior, not merely hidden by test fixtures.
+
+## Fifth-round review correction
+
+A fifth review round, run after task 16 landed, confirmed task 16's worktree-wide
+sweep is conceptually in the right place and that Hook 3 and the dashboard's own
+`batch-publish` route both genuinely call it, but found three remaining issues.
+
+1. **BLOCKER — concurrent resume triggers can race and silently revert a singleton
+   unit from `'completed'` back to `'pending'`.** `executeBatchCompletionSettlement`
+   has no mutex or CAS: it loads `settlement` once, mutates it across several stages,
+   and writes it back at multiple points with no version check. Task 16's own sweep
+   makes concurrent same-settlement callers plausible for the first time (Hook 1's own
+   trigger, Hook 3's sweep, and the dashboard's own sweeps can all fire at nearly the
+   same moment). The grouped-unit path is mostly protected by
+   `createGroupReservation`'s own `TASK_ALREADY_RESERVED` check; the singleton path has
+   no equivalent protection — a later writer's stale snapshot can overwrite an earlier
+   writer's successful admission back to `'pending'`. Task 17 fixes this with an
+   in-process, per-settlement mutex (the same shape as `admission.mjs`'s own
+   `acquireStartLock`).
+2. **BLOCKER — task 16's declared residual scope boundary was wrong.** Task 16 claimed
+   sweeping a human-submit- or single-task-publish-sourced block required touching
+   `tools/specs/workflow/**`. In fact `handleHumanStep` and `handlePublishTask` already
+   live in the same dashboard-layer `routes.mjs` task 16 already modified for
+   `handleBatchPublish` — by the time either resolves, any workspace-request/claim
+   lifecycle it owns has already fully persisted, so the exact same live-sweep pattern
+   applies directly, with no boundary crossing needed. Task 17 adds the same sweep call
+   to both.
+3. **MAJOR — task 16's own `change.yaml` tracking metadata is historically
+   inaccurate.** Task 16's implementation landed in commit `d8da2c73` *before* its own
+   `approve` transition (`98079d65`) — an execution-ordering inversion the automated
+   metadata capture could not see, recording `98079d65` for both `baseline_revision`
+   and `review_revision` with an empty `changed_paths`. Task 17 corrects this metadata
+   (without rewriting git history or touching task 16's own recorded status/
+   verification outcome) and documents the correction explicitly.
+
+Task 17 (added below) resolves these. The change is not ready for approval until task
+17 is independently verified and all findings across all five review rounds are
 genuinely resolved in production behavior, not merely hidden by test fixtures.
 
 ## Verification strategy

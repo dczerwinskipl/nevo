@@ -29,6 +29,16 @@ depends_on: [resume-trigger-scope-guard-and-coverage-hardening]
 
 # Task: Automatic wake-up for pending handover settlements blocked by worktree-wide transient contention
 
+> **Provenance correction (2026-10-07, task 17):** a fifth-round review found this
+> task's own `change.yaml` tracking metadata was historically inaccurate —
+> `implementation.review_revision`/`baseline_revision` were both recorded as the
+> approve commit, and `changed_paths` as empty, because the actual implementation
+> commit landed *before* this task's own approve transition (an execution-ordering
+> inversion, not data loss or rewritten history). Task 17 corrected the metadata to
+> reflect the real implementation commit and its actual changed paths; this task's own
+> `status`, self-check result, and verification history were left untouched. See
+> `overview.md` § "Fifth-round review correction", finding 3.
+
 ## Goal
 
 Fourth-round corrective task from `overview.md` § "Fourth-round review correction". A
