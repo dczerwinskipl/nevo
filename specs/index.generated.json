@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-07T07:05:41.280Z",
+  "generated": "2026-10-07T07:06:06.357Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -780,7 +780,7 @@
           "id": "worktree-wide-pending-handover-sweep",
           "order": 16,
           "file": "tasks/16-worktree-wide-pending-handover-sweep.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "resume-trigger-scope-guard-and-coverage-hardening"
           ],
