@@ -425,7 +425,7 @@ tasks:
   - id: worktree-wide-pending-handover-sweep
     order: 16
     file: tasks/16-worktree-wide-pending-handover-sweep.md
-    status: in-implementation
+    status: implemented
     depends_on: [ resume-trigger-scope-guard-and-coverage-hardening ]
     implementation:
       baseline_revision: 98079d65a5a9d057cc1abef99b25b1da24601390
