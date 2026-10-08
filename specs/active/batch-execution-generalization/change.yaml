@@ -511,7 +511,9 @@ tasks:
   - id: live-sweep-failure-path-completion
     order: 18
     file: tasks/18-live-sweep-failure-path-completion.md
-    status: approved
+    status: in-implementation
     depends_on: [ settlement-serialization-and-live-sweep-completion ]
+    implementation:
+      baseline_revision: d9be4441211ee3298a2a0a513410b2f8e76c9fbe
 
 spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea

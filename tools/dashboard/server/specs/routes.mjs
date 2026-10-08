@@ -239,19 +239,6 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
         activeDir: paths.activeDir,
         root: paths.root,
       });
-
-      // By the time the await above resolves, any workspace-request/claim lifecycle
-      // this human-step action owns (e.g. a human-submit request moving out of
-      // 'queued') has already fully resolved and persisted — this never reaches into
-      // tools/specs/workflow/** itself, it only observes that the call already
-      // returned (batch-execution-generalization, task 17, fifth-round review
-      // finding 2). A durably pending grouped-handover settlement elsewhere may now
-      // be admittable. Best-effort; never fails this request's own response.
-      try {
-        const { sweepAllPendingHandovers } = await import('../ai/orchestration/batch-completion-settlement.mjs');
-        await sweepAllPendingHandovers({ repoRoot: paths.root, activeDir: paths.activeDir });
-      } catch {}
-
       reply.code(200).send(response);
     } catch (error) {
       const status = error.status || 400;
@@ -279,6 +266,19 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
         }
       }
       reply.code(status).send(errorBody);
+    } finally {
+      // Runs on both success AND failure: executeHumanStepAction can resolve its own
+      // workspace-request/claim lifecycle (e.g. a human-submit request moving to
+      // 'failed' and releasing its claim) and *then* throw — a try-only sweep would
+      // silently miss exactly that case (batch-execution-generalization, task 18,
+      // sixth-round review finding 1). This never reaches into
+      // tools/specs/workflow/** itself; it only observes that the call already
+      // settled, one way or the other. A durably pending grouped-handover settlement
+      // elsewhere may now be admittable. Best-effort; never fails this response.
+      try {
+        const { sweepAllPendingHandovers } = await import('../ai/orchestration/batch-completion-settlement.mjs');
+        await sweepAllPendingHandovers({ repoRoot: paths.root, activeDir: paths.activeDir });
+      } catch {}
     }
   };
 
@@ -300,16 +300,6 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
         activeDir: paths.activeDir,
         repoRoot: paths.root,
       });
-
-      // Same reasoning as handleHumanStep above: this single-task publish's own
-      // workspace-request/claim lifecycle (if any) is already fully resolved by the
-      // time the await returns — no reach into tools/specs/workflow/** itself (task
-      // 17, fifth-round review finding 2). Best-effort; never fails this response.
-      try {
-        const { sweepAllPendingHandovers } = await import('../ai/orchestration/batch-completion-settlement.mjs');
-        await sweepAllPendingHandovers({ repoRoot: paths.root, activeDir: paths.activeDir });
-      } catch {}
-
       reply.code(200).send(result);
     } catch (error) {
       const message = error.message || 'Unable to publish task.';
@@ -321,6 +311,18 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
         error: message,
         code: 'TASK_PUBLISH_FAILED',
       });
+    } finally {
+      // Runs on both success AND failure: publishTask can resolve its own
+      // workspace-request/claim lifecycle (it marks the request 'failed' and
+      // releases its claim in its own finally) and *then* throw — a try-only sweep
+      // would silently miss exactly that case (batch-execution-generalization, task
+      // 18, sixth-round review finding 1). No reach into tools/specs/workflow/**
+      // itself; it only observes that the call already settled. Best-effort; never
+      // fails this response.
+      try {
+        const { sweepAllPendingHandovers } = await import('../ai/orchestration/batch-completion-settlement.mjs');
+        await sweepAllPendingHandovers({ repoRoot: paths.root, activeDir: paths.activeDir });
+      } catch {}
     }
   };
 

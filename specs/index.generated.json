@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-08T14:09:45.044Z",
+  "generated": "2026-10-08T14:13:58.096Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -894,10 +894,13 @@
           "id": "live-sweep-failure-path-completion",
           "order": 18,
           "file": "tasks/18-live-sweep-failure-path-completion.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "settlement-serialization-and-live-sweep-completion"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "d9be4441211ee3298a2a0a513410b2f8e76c9fbe"
+          }
         }
       ]
     },
