@@ -39,6 +39,22 @@ depends_on: [resume-trigger-scope-guard-and-coverage-hardening]
 > `status`, self-check result, and verification history were left untouched. See
 > `overview.md` § "Fifth-round review correction", finding 3.
 
+> **Scope-boundary correction (2026-10-08, task 18):** the "Explicit, honest scope
+> boundary" and "Out of scope" sections below describe this task's *own, original*
+> scope — they are now superseded by tasks 17 and 18. Task 17 added the same
+> dashboard-layer live sweep this task already gave `handleBatchPublish` to
+> `handleHumanStep` and `handlePublishTask` as well (both already live in
+> `tools/dashboard/server/specs/routes.mjs`, requiring no reach into
+> `tools/specs/workflow/**` after all — this task's own claim that doing so would
+> require crossing that boundary was simply wrong). Task 18 then closed a remaining
+> gap in that same live sweep (it only fired on the success path in both handlers).
+> As of task 18, a `DEFERRED_TO_PENDING_WORKSPACE_REQUEST`/`WORKSPACE_WRITER_CONTENDED`
+> block sourced from a human-submit or single-task-publish request gets the same live,
+> event-driven coverage `batch-publish` always had — not only boot-time coverage. The
+> text below is left as-is (not rewritten) as a historical record of this task's own
+> original reasoning; do not rely on it for current behavior. See `overview.md`
+> § "Sixth-round review correction".
+
 ## Goal
 
 Fourth-round corrective task from `overview.md` § "Fourth-round review correction". A

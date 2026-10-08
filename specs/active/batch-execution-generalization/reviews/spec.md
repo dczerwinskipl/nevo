@@ -1,14 +1,14 @@
 ---
 review-of: spec
 change: batch-execution-generalization
-generated: 2026-10-07T14:55
+generated: 2026-10-08T14:09
 verdict: ready-for-approval
 ready_for_approval: true
 implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 98fc0fa3298e87f0828db374cd854def0fbfcdb214171d7032785b44301d76c0
+spec_fingerprint: 3eff00c2ae9de18b46402c02f4758a314b52f835b92afcbe382e734a6e400fd0
 task_fingerprints:
   queue-removal-and-reservation-storage-migration: 47af91f69da5d79b43f402c18e041a418efa81f4ebd664f28b70c9a4c47544b0
   batch-admission-generalization: 47e17e75378534246222b89246a0546b74dded9d597764ec001b31ad3c946f8e
@@ -27,6 +27,7 @@ task_fingerprints:
   resume-trigger-scope-guard-and-coverage-hardening: 7263041294483c85b09ba0e36d204b22453034c46066656d6cd6f1fb57f38d78
   worktree-wide-pending-handover-sweep: 148b8a809d2f91506ffbf21ad58e4e3868eea21daa709b28faf2f50834b75a57
   settlement-serialization-and-live-sweep-completion: 8e6125fb1d74a5f8f06e9f8f1d1bf52719ba794faf89906c22d6c0bc67474548
+  live-sweep-failure-path-completion: eea208f08d7a7348eee5d50bdd19a02a6fe719392894f7d4122ce30657ce82ef
 ---
 
 # Review: batch-execution-generalization
@@ -34,8 +35,8 @@ task_fingerprints:
 ## Verdict
 
 `ready-for-approval` — scoped re-review (`--changed`) covering only the 1 newly added
-fifth-round corrective task (17); no unresolved `AUTO_FIX`/`OWNER_DECISION`/
-`NEEDS_CLARIFICATION` findings against it. Tasks 01-16 are **not** re-graded by this
+sixth-round corrective task (18); no unresolved `AUTO_FIX`/`OWNER_DECISION`/
+`NEEDS_CLARIFICATION` findings against it. Tasks 01-17 are **not** re-graded by this
 run — their own `task_fingerprints` entries above are carried forward unchanged from
 the prior review, per the context-vs-review-scope boundary
 (`references/review-policy.md`); they remain `verified` in `change.yaml`, untouched by
@@ -43,68 +44,64 @@ this correction, exactly as the owner instructed when requesting it.
 
 ## Post-implementation correction (this review's own reason for existing)
 
-This spec was previously reviewed and tasks 01-16 were each implemented and
-individually verified, including four rounds of corrective tasks (09-12, then 13-14,
-then 15, then 16). A fifth review round, run after task 16 landed, confirmed task 16's
-worktree-wide sweep is conceptually in the right place and that Hook 3 and the
-dashboard's own `batch-publish` route both genuinely call it, but found: (1) a real
-race where concurrent resume triggers can silently revert a singleton unit from
-`'completed'` back to `'pending'` (no mutex/CAS on the settlement record); (2) task
-16's own declared residual scope boundary (human-submit/single-task-publish sweep
-requiring `tools/specs/workflow/**`) was simply wrong — the same dashboard-layer
-pattern already used for `handleBatchPublish` applies directly to `handleHumanStep`/
-`handlePublishTask`; (3) task 16's own `change.yaml` tracking metadata is historically
-inaccurate (implementation landed before its own approve transition, which the
-automated capture could not see). Full writeup: `overview.md` § "Fifth-round review
-correction". Task 17 was added as corrective work in response, before this change can
-be considered ready for final approval. This review's only job is to confirm task 17
-itself is ready for *implementation* to begin — it does not, and cannot, confirm the
-underlying production gaps are actually fixed; that is what task 17's own verification
-exists to prove.
+This spec was previously reviewed and tasks 01-17 were each implemented and
+individually verified, including five rounds of corrective tasks (09-12, then 13-14,
+then 15, then 16, then 17). A sixth review round, run after task 17 landed, confirmed
+task 17's mutex fix and provenance correction are both correct, but found: (1) the
+`handleHumanStep`/`handlePublishTask` live sweep (task 17) only ran on the success
+path — both operations can resolve their own workspace-request/claim lifecycle to a
+terminal state and *then* throw, which a try-only sweep silently misses;
+`handleBatchPublish` already had this right via its own `finally` block; (2) task 16's
+own file still contradicted task 17's claimed scope-boundary fix — task 17 said it
+would correct task 16's "Explicit, honest scope boundary" framing but never actually
+edited it. Full writeup: `overview.md` § "Sixth-round review correction". Task 18 was
+added as corrective work in response, before this change can be considered ready for
+final approval. This review's only job is to confirm task 18 itself is ready for
+*implementation* to begin — it does not, and cannot, confirm the underlying production
+gaps are actually fixed; that is what task 18's own verification exists to prove.
 
 ## Implementation readiness
 
 - May implementation start now? No — `implementation_allowed: false`.
-- Is task 17 `approved` in `change.yaml`? No, currently `draft`.
-- What has to happen first? Nothing blocking remains — task 17 needs its own
+- Is task 18 `approved` in `change.yaml`? No, currently `draft`.
+- What has to happen first? Nothing blocking remains — task 18 needs its own
   `/nevo-ai:spec-approve` transition.
 
 Gating validation: passed (`node tools/specs.mjs validate` — 31 changes, no errors).
 
 ## Findings
 
-No findings against task 17.
+No findings against task 18.
 
 Readiness criteria checked directly against the current file contents (`overview.md`'s
-new "Fifth-round review correction" section and updated "Implementation decomposition"
-list, and `tasks/17-*.md` in full), per `references/review-policy.md`
+new "Sixth-round review correction" section and updated "Implementation decomposition"
+list, and `tasks/18-*.md` in full), per `references/review-policy.md`
 § "Specification readiness criteria":
 
-- `depends_on` graph resolves and is acyclic, including the new 16→17 chain
+- `depends_on` graph resolves and is acyclic, including the new 17→18 chain
   (`node tools/specs.mjs validate`).
-- Task 17 declares specific `allowed_paths`/`forbidden_paths`: it owns
-  `batch-completion-settlement.mjs`, `tools/dashboard/server/specs/routes.mjs`, two
-  test files, and task 16's own `change.yaml`/`.md` entries (for the provenance
-  correction), and forbids `tools/specs/workflow/**`, `admission.mjs`,
-  `reconciliation.mjs`, and the real-end-to-end test file — same "report the gap,
-  don't patch it" discipline already established.
-- Every acceptance criterion in task 17 names a concrete `automated:`/`inspection:`
+- Task 18 declares specific `allowed_paths`/`forbidden_paths`: it owns
+  `tools/dashboard/server/specs/routes.mjs`, one test file, and task 16's own `.md`
+  file (for the scope-boundary correction note), and forbids
+  `tools/specs/workflow/**`, `admission.mjs`, `reconciliation.mjs`,
+  `batch-completion-settlement.mjs`, and the other orchestration test files — same
+  "report the gap, don't patch it" discipline already established.
+- Every acceptance criterion in task 18 names a concrete `automated:`/`inspection:`
   check — none is aspirational.
-- No open owner decision blocks task 17: it explicitly stays within the architecture
-  the owner already decided (no new scheduler, no cross-spec work selection, an
-  in-process mutex matching `admission.mjs`'s own existing pattern, and a metadata-only
-  provenance correction that does not rewrite git history).
-- Documentation impact identified: `overview.md`'s new "Fifth-round review correction"
+- No open owner decision blocks task 18: it explicitly stays within the architecture
+  the owner already decided (no new scheduler, no cross-spec work selection, a
+  `finally`-block restructuring matching `handleBatchPublish`'s own already-correct
+  pattern, and a documentation-only correction to task 16's own superseded text).
+- Documentation impact identified: `overview.md`'s new "Sixth-round review correction"
   section is the documentation impact for this correction itself; no further ADR
   impact beyond what the original review already recorded (deferred, optional).
-- Semantic-reference completeness: task 17 does not name an owner-decision number in
+- Semantic-reference completeness: task 18 does not name an owner-decision number in
   prose it fails to declare in `semantic_references.decisions` (it correctly carries
   `decisions: []`).
 
 ## Architecture and documentation
 
 No existing ADR documents the sequential-queue/batch-reservation architecture
-(confirmed in `discovery.md`); task 17 fixes production behavior, test coverage, and
-tracking metadata within that same, already-decided architecture — no new
-architectural decision, no ADR impact beyond what the original review already
-recorded.
+(confirmed in `discovery.md`); task 18 fixes production behavior and documentation
+within that same, already-decided architecture — no new architectural decision, no
+ADR impact beyond what the original review already recorded.

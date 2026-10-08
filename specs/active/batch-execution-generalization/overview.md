@@ -97,7 +97,7 @@ shape. Not restated here — this file decomposes it into tasks.
 
 ## Implementation decomposition
 
-Seventeen tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8
+Eighteen tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8
 were the original decomposition; tasks 9-12 are corrective work appended after a
 post-implementation, change-level review found that tasks 1-8's own scoped acceptance
 did not, in aggregate, prove the change-wide acceptance criteria in real production
@@ -113,7 +113,11 @@ contention (as opposed to the same spec's own slot freeing) — see "Fourth-roun
 correction" below. Task 17 is further hardening appended after a fifth review round
 found task 16's own sweep could race with itself, found task 16's declared residual
 scope boundary was wrong, and found task 16's own tracking metadata historically
-inaccurate — see "Fifth-round review correction" below.
+inaccurate — see "Fifth-round review correction" below. Task 18 is further hardening
+appended after a sixth review round found task 17's own live sweep for
+human-step/single-task-publish only ran on the success path, and found task 16's own
+file still contradicted task 17's claimed scope-boundary fix — see "Sixth-round review
+correction" below.
 
 1. `tasks/01-queue-removal-and-reservation-storage-migration.md` — independent.
 2. `tasks/02-batch-admission-generalization.md` — independent.
@@ -145,6 +149,9 @@ inaccurate — see "Fifth-round review correction" below.
     (fifth-round fix: serialize settlement Stage 4 against concurrent resume triggers,
     complete the live sweep for human-step/single-task-publish, and correct task 16's
     own tracking metadata).
+18. `tasks/18-live-sweep-failure-path-completion.md` — depends on 17 (sixth-round fix:
+    move the human-step/single-task-publish sweep into a `finally` block so it fires
+    on failure too, and correct task 16's own superseded scope-boundary text).
 
 ## Change-wide acceptance criteria
 
@@ -365,6 +372,31 @@ sweep is conceptually in the right place and that Hook 3 and the dashboard's own
 
 Task 17 (added below) resolves these. The change is not ready for approval until task
 17 is independently verified and all findings across all five review rounds are
+genuinely resolved in production behavior, not merely hidden by test fixtures.
+
+## Sixth-round review correction
+
+A sixth review round, run after task 17 landed, confirmed task 17's mutex fix and
+provenance correction are both correct, but found two remaining issues.
+
+1. **BLOCKER — the `handleHumanStep`/`handlePublishTask` live sweep (task 17) only
+   ran on the success path.** Both call sites placed the sweep call inside the `try`
+   block, right after their own `await` resolved successfully, before `reply.send`.
+   But `publishTask` and `executeHumanStepAction` can each resolve their own
+   workspace-request/claim lifecycle to a terminal state and *then* throw — a
+   try-only sweep silently misses exactly that case. `handleBatchPublish` already had
+   this right (its own sweep sits in a `finally` block); the other two did not. Task
+   18 moves both into a `finally` block, firing on success and failure alike.
+2. **MAJOR — task 16's own file still contradicted task 17's claimed fix.** Task 17
+   said it would "correct the 'Explicit, honest scope boundary' framing in task 16's
+   own file" but never actually edited it — task 16's own text still claimed
+   live-sweeping `handleHumanStep`/`handlePublishTask` would require touching
+   `tools/specs/workflow/**`, directly contradicting what task 17 had just done. Task
+   18 adds a dated "superseded by tasks 17-18" note directly above those sections,
+   without rewriting or deleting the original text.
+
+Task 18 (added below) resolves these. The change is not ready for approval until task
+18 is independently verified and all findings across all six review rounds are
 genuinely resolved in production behavior, not merely hidden by test fixtures.
 
 ## Verification strategy
