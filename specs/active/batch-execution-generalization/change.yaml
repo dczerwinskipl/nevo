@@ -511,13 +511,7 @@ tasks:
   - id: live-sweep-failure-path-completion
     order: 18
     file: tasks/18-live-sweep-failure-path-completion.md
-    status: draft
+    status: approved
     depends_on: [ settlement-serialization-and-live-sweep-completion ]
-    execution:
-      suspension:
-        kind: confirm-required
-        code: REC-07
-        previous_action: approve
-        created_at: 2026-10-08T14:08:35.226Z
 
 spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea
