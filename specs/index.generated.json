@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-10T22:22:21.153Z",
+  "generated": "2026-10-10T22:34:10.028Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -176,10 +176,13 @@
           "id": "explicit-task-verification-action",
           "order": 8,
           "file": "tasks/08-explicit-task-verification-action.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "transition-aware-exit-gates"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "0a634cfc7b6cdfd318805e7855afab9de0de6cc3"
+          }
         }
       ]
     },

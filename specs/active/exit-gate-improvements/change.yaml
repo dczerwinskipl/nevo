@@ -67,7 +67,9 @@ tasks:
   - id: explicit-task-verification-action
     order: 8
     file: tasks/08-explicit-task-verification-action.md
-    status: approved
+    status: verified
     depends_on: [ transition-aware-exit-gates ]
+    implementation:
+      baseline_revision: 0a634cfc7b6cdfd318805e7855afab9de0de6cc3
 
 spec_id: a98348a0-3bac-474d-a85c-2c4dd690bd90

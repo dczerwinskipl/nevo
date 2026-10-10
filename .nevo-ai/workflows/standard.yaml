@@ -23,7 +23,7 @@ steps:
     entryGates: []
     exitGates:
       - type: command
-        action: test
+        action: task-verification
     finalize:
       - id: commit-and-push
     transitions:
@@ -49,7 +49,7 @@ steps:
     entryGates: []
     exitGates:
       - type: command
-        action: test
+        action: task-verification
         when: [pass]
     finalize:
       - id: commit-and-push
