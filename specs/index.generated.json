@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-10T22:34:10.028Z",
+  "generated": "2026-10-10T22:38:11.019Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -163,14 +163,17 @@
           "id": "workflow-documentation-and-adr",
           "order": 7,
           "file": "tasks/07-workflow-documentation-and-adr.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "finish-derived-sync",
             "publish-and-batch-derived-sync",
             "specs-index-projection-stability",
             "gate-failure-recovery-and-taxonomy",
             "explicit-task-verification-action"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "8513548c8a8066929dc31a0ca3690b4805406367"
+          }
         },
         {
           "id": "explicit-task-verification-action",

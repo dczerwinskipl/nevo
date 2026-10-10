@@ -48,6 +48,11 @@ tools/specs/workflow/
   actions/
     index.mjs                 # Built-in actions exporter (auto-registration side effect)
     commit-and-push.mjs       # Fail-closed source-control commit/push action (D12/D15)
+  derived/
+    registry.mjs              # DERIVED_GENERATORS registry (specsIndexes, docsIndexes)
+    plan.mjs                  # planDerivedSync() — selective generator planning
+    ownership.mjs             # resolveDerivedOwnedPaths() — exact generator output ownership
+    sync.mjs                  # syncDerivedArtifacts() — transactional sync and validation
   gates/
     index.mjs                 # Built-in gates exporter
     contracts.mjs              # GateContract, GateInspectionResult, GateVerificationResult
@@ -75,8 +80,9 @@ conditions: `inspect(config, context)` is always safe to call (never runs a real
 verification command); `verify(config, context)` is the one call that actually executes
 verification (running a shell command, checking a markdown artifact, or querying a
 trusted human sign-off reader) and returns an authoritative `GateVerificationResult`.
-Built-in gates: `CommandGate` (`type: command`, `action: <alias>` or `command: <raw>`),
-`MarkdownGate` (`type: markdown`), `HumanVerificationGate` (`type: human`).
+Built-in gates: `CommandGate` (`type: command`, `action: task-verification` | `test` | `build`, or raw `command: <raw>`),
+`MarkdownGate` (`type: markdown`), `HumanVerificationGate` (`type: human`). Exit gates optionally declare `when: [<result>...]`
+to restrict evaluation to specific transition results (see "Transition-aware exit gates" below).
 
 **Input schemas** (`input-schema.mjs`): every `requiredInputs` entry is
 `{ name, type, required, description, constraints? }` — `type` one of `string`, `number`,
@@ -200,7 +206,7 @@ implementation -> review -> human-verification -> [terminal: verified]
 - **Purpose**: Perform the approved implementation work for the task within declared scope.
 - **Expected work**: Modify code, tests, and documentation within `allowed_paths` to satisfy task acceptance criteria.
 - **Hints**: `docs/development/workflow-engine.md`, `docs/ai/task-execution-policy.md`.
-- **Exit gates**: `test` (`CommandGate` via catalog alias).
+- **Exit gates**: `task-verification` (`CommandGate` executing task `## Verification` commands).
 - **Finalize**: `commit-and-push`.
 - **Transition**: `to: review`.
 
@@ -209,11 +215,11 @@ implementation -> review -> human-verification -> [terminal: verified]
 - **Purpose**: Perform an independent quality review of the implementation against task acceptance criteria, applying corrective fixes if gaps are found.
 - **Expected work**: Audit implementation and test coverage, apply corrective edits within `allowed_paths`, and confirm automated verification passes.
 - **Hints**: `docs/ai/specification-workflow.md`, `docs/development/testing-strategy.md`.
-- **Exit gates**: `test` (`CommandGate` via catalog alias).
+- **Exit gates**: `task-verification` (`CommandGate` with `when: [pass]`).
 - **Finalize**: `commit-and-push`.
 - **Transitions**:
   - `value: pass` -> `to: human-verification`
-  - `value: fail` -> `to: implementation` (iterative rework loop)
+  - `value: fail` -> `to: implementation` (iterative rework loop; requires explanatory feedback via `action.feedback.required: true`)
 
 ### 3. `human-verification`
 - **Semantic status pair**: `active: awaiting-human-verification`, `completed: completed`.
@@ -378,7 +384,9 @@ before deciding what still needs to run — `running` is never blindly reset to 
   `update-task` may have already moved the tracked status before the whole operation
   finished.
 - **`commit`**: `intent.preCommitHead` persisted before invoking the source-control
-  action (with `push` forced off for this stage — see below). Current HEAD `==
+  action (with `push` forced off for this stage — see below). Inside `ensureCommit` (under `withGitFinalizeLock`),
+  the engine calls `syncDerivedArtifacts()` to selectively regenerate derived artifacts (`specsIndexes`, `docsIndexes`)
+  and verify post-generation and repo-wide integrity before committing. Current HEAD `==
   preCommitHead` -> safe to (re)execute; HEAD differs -> `tools/lib/git.mjs`'s
   `getCommitInfo(root, 'HEAD')` proves (or disproves) the current HEAD is this
   operation's own commit (`parentSha === preCommitHead` and `subject` matches
@@ -393,8 +401,12 @@ before deciding what still needs to run — `running` is never blindly reset to 
   writes `change.yaml` a second time; the task/spec status change already happened via
   `update-task` and was already committed by `commit`.
 
-**Resolved inputs are persisted once, before the first mutation.** A resumed
-`workflow step finish` for an existing in-flight operation reads `resolvedInputs` from the
+**Resolved inputs and pre-mutation revision.** Resolved inputs are persisted when the finish
+operation record is created. If an exit gate fails during `ensureVerifyGates`, the record remains
+in `status: 'running'` (with stage `verify-gates: failed`) and `mergeResolvedInputs` permits
+revising inputs (`result`, `feedback`, `commit.title`, `commit.message`, `artifacts`) on subsequent
+replay before `update-task` begins. Once `update-task` has started, all inputs are strictly pinned.
+A resumed `workflow step finish` for an existing in-flight operation reads `resolvedInputs` from the
 record and never re-requires them — calling `step finish` with no inputs at all correctly
 resumes. Supplying a value that conflicts with what's already persisted for that
 `operationId` is a deterministic `PreconditionError`, never a silent overwrite; supplying
@@ -506,6 +518,124 @@ The workflow engine includes a deterministic sequential queue (`tools/specs/work
 - **Action Barrier**: While reserved, all member tasks are barriered (`isTaskBarriered(change, taskId)`). Barriered tasks are excluded from `evaluateTaskQueue`'s `eligible` and `nextRunnable`, and rejected by ordinary `assertExecutionReadiness`, raw `workflow step start`, and human-step operations (`startHumanStep`, `submitHumanStepResult`, `activateAndSubmitHumanStep`).
 - **Base Readiness vs. Ordinary Readiness**: `readiness-policy.mjs` splits readiness evaluation into `evaluateBaseExecutionReadiness` (underlying workflow, dependency, suspension, and worktree eligibility) and `evaluateExecutionReadiness` (composes base with the action barrier). An authenticated batch execution consumes base readiness for its owned members while ordinary callers are blocked.
 - **Scope-Aware Settlement and Rollback**: Crashed reservations are reconciled via scope-aware settlement checks across all member tasks, and failed admissions trigger synchronous reservation rollback.
+
+## Derived-artifact ownership and synchronization
+
+Deterministic workflow operations automatically synchronize derived repository artifacts
+(`specs/index.generated.json`, `specs/*.generated.md`, `docs/*.generated.*`) whenever source
+changes occur, eliminating index drift while strictly preserving Git boundary guarantees.
+
+### Static generator registry
+
+`tools/specs/derived/registry.mjs` declares a static in-process registry of generators
+(`DERIVED_GENERATORS`), avoiding ad hoc regeneration scripts and plugin frameworks:
+
+- **`specsIndexes`**: Inputs `specs/active/*/change.yaml`, `specs/archive/*/change.yaml`; outputs
+  `specs/index.generated.json`, `specs/active.generated.md`, `specs/archive.generated.md`.
+  Wraps `buildSpecsIndexes` and `writeSpecsIndexes`.
+- **`docsIndexes`**: Inputs `docs/**/*.md`; outputs `docs/index.generated.json`,
+  `docs/index.generated.md`, `docs/routing.generated.json`. Wraps `tools/docs/service.mjs`.
+
+### Selective planning (`planDerivedSync`)
+
+Synchronization is selective rather than repo-wide. Given the set of dirty files in the
+workspace, `planDerivedSync(dirtyPaths)` matches modified paths against each generator's
+declared `inputs` globs. A generator only runs if at least one of its declared inputs was
+modified by the operation.
+
+### Transactional sync points
+
+Derived artifacts are synchronized exclusively at operations that commit state:
+
+1. **`finishStep`**: Executed inside `ensureCommit`, after `update-task` has mutated `change.yaml`
+   on disk, before `commit-and-push` stages changes, entirely within the `withGitFinalizeLock`
+   critical section.
+2. **`workflow task publish`**: Synchronized immediately prior to its standalone Git commit,
+   widening the commit set from `[change.yaml]` to `[change.yaml, ...written]`.
+3. **`batch finish`**: Synchronized immediately before the Stage 5 shared commit.
+
+**Never at `step start` or `--check`**: Step activation (`workflow step start`) and finish
+preflight (`workflow step finish --check`) never synchronize derived artifacts. `step start`
+strictly requires a clean working tree baseline (modulo `.nevo-ai-local/**` and `change.yaml`).
+
+### Exact path ownership (`resolveDerivedOwnedPaths`)
+
+Workflow tasks declare `allowed_paths`. Generated files do not belong to task scopes and are
+not manually editable by agents. To maintain strict scope enforcement:
+
+- `resolveDerivedOwnedPaths(plan)` grants ownership strictly over the **exact output paths** of
+  generators triggered in the current operation.
+- The commit action validates that staged files fall within:
+  `allowed_paths ∪ workflowOwnedPaths ∪ derivedOwnedPaths`
+- Any dirty file outside this exact union fails closed with `OUT_OF_SCOPE_WORKTREE_CHANGES`.
+
+### Cleanliness preconditions and error handling
+
+Before executing any generator, the sync engine validates that every dirty file matching a
+triggered generator's inputs belongs to the current operation's authorized commit set
+(`allowed_paths ∪ workflowOwnedPaths`). If unrelated dirty files match, synchronization aborts
+immediately with `DERIVED_INPUT_DIRTY_OUTSIDE_OPERATION` without writing any files.
+
+Post-generation integrity validation:
+- **`DERIVED_INTEGRITY_FAILED`**: The triggered generator's in-process `check()` fails to verify
+  the newly written files against memory.
+- **`REPO_INTEGRITY_FAILED`**: Repo-wide in-process validation (`validateSpecs` and `validateDocs`)
+  detects structural errors anywhere in the repository, preventing commits that would fail CI.
+
+### Timestamp idempotency and projection stability
+
+- `writeDocsIndexes` preserves the previous generation timestamp when content is byte-identical,
+  preventing phantom diffs.
+- `specs/index.generated.json` omits dynamic task `workflow_progress` (D4), ensuring the committed
+  index remains stable across step activations.
+
+## Transition-aware exit gates and failure recovery
+
+Exit gates define criteria required to complete a step. The engine decouples task-level
+acceptance verification from transition routing and infrastructure health.
+
+### Declarative `when:` filtering
+
+Exit gates support an optional `when: [<result>...]` filter:
+- When `when` is omitted or empty, the gate runs unconditionally for all transition results.
+- When `when` is specified (e.g. `when: [pass]`), the gate is evaluated only if the resolved
+  `result` input matches one of the specified values.
+- In `standard.yaml`, the `review` step gates automated verification under `when: [pass]`,
+  permitting reviewers to transition to `fail` without passing implementation tests. The `fail`
+  branch requires explanatory review feedback (`action.feedback.required: true`).
+
+`filterExitGatesByResult(exitGates, result)` enforces this filtering uniformly during both
+planning (`planFinish`) and execution (`ensureVerifyGates`).
+
+### Failure taxonomy: `failed` vs. `blocked`
+
+The engine strictly distinguishes:
+- **`status: 'failed'`**: The verification check ran to completion and produced a non-zero exit
+  code or failed assertion. This constitutes negative verification evidence and is recorded in
+  the trusted verification store.
+- **`status: 'blocked'`**: An infrastructure, environment, or runner exception occurred (e.g.
+  command runner threw an exception, process spawn failure, missing verification store). Runner
+  errors do not persist spurious failure records to the verification store.
+
+### Replayable gate failure and pre-mutation input revision
+
+When an exit gate fails during `ensureVerifyGates`:
+- The operation record remains in `status: 'running'` (with stage `verify-gates` marked `failed`),
+  rather than transitioning to a terminal `blocked` state.
+- Because `update-task` is still `pending`, `mergeResolvedInputs` permits revising inputs
+  (`result`, `feedback`, `commit.title`, `commit.message`, `artifacts`) on subsequent retry
+  calls. This allows a reviewer who attempted `result: pass` to change to `result: fail` with
+  feedback after observing failed tests, without triggering input conflict errors.
+- Once `update-task` begins, all resolved inputs are strictly pinned.
+- Settlement assessments report the operation as `resumable`.
+
+### Explicit `task-verification` catalog action
+
+Verification commands are declared explicitly in workflow configurations rather than inferred
+from string heuristics:
+- `action: task-verification`: Resolves and executes the task's own `## Verification` commands
+  parsed from the task specification file.
+- `action: test`: Strictly executes literal `npm test`.
 
 ## Deferred extension point: progress checkpoint
 

@@ -55,7 +55,7 @@ tasks:
   - id: workflow-documentation-and-adr
     order: 7
     file: tasks/07-workflow-documentation-and-adr.md
-    status: approved
+    status: verified
     depends_on:
       [
         finish-derived-sync,
@@ -64,6 +64,8 @@ tasks:
         gate-failure-recovery-and-taxonomy,
         explicit-task-verification-action
       ]
+    implementation:
+      baseline_revision: 8513548c8a8066929dc31a0ca3690b4805406367
   - id: explicit-task-verification-action
     order: 8
     file: tasks/08-explicit-task-verification-action.md

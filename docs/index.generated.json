@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-10T13:16:51.065Z",
+  "generated": "2026-10-10T22:37:26.551Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -955,6 +955,17 @@
       "status": "accepted",
       "date": "2026-09-21",
       "summary": "Persist an observational, append-only Activity ledger under .nevo-ai-local for runtime execution facts without violating the git-as-history boundary.",
+      "supersedes": null,
+      "superseded_by": null
+    },
+    {
+      "file": "docs/decisions/ADR-0011-workflow-owned-derived-artifacts-and-transition-aware-gates.md",
+      "id": "adr.0011-workflow-owned-derived-artifacts-and-transition-aware-gates",
+      "type": "adr",
+      "title": "Workflow-owned derived artifacts and transition-aware exit gates",
+      "status": "accepted",
+      "date": "2026-10-10",
+      "summary": "Establish deterministic workflow engine ownership of generated repository artifacts and transition-aware exit gate evaluation with replayable failure recovery.",
       "supersedes": null,
       "superseded_by": null
     },
