@@ -97,7 +97,7 @@ shape. Not restated here — this file decomposes it into tasks.
 
 ## Implementation decomposition
 
-Eighteen tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8
+Nineteen tasks, ordered by dependency (see each task's own `depends_on`). Tasks 1-8
 were the original decomposition; tasks 9-12 are corrective work appended after a
 post-implementation, change-level review found that tasks 1-8's own scoped acceptance
 did not, in aggregate, prove the change-wide acceptance criteria in real production
@@ -117,7 +117,10 @@ inaccurate — see "Fifth-round review correction" below. Task 18 is further har
 appended after a sixth review round found task 17's own live sweep for
 human-step/single-task-publish only ran on the success path, and found task 16's own
 file still contradicted task 17's claimed scope-boundary fix — see "Sixth-round review
-correction" below.
+correction" below. Task 19 is a pure provenance correction appended after a seventh
+review round found task 18 repeated task 16's own earlier metadata mistake (one of its
+own acceptance criteria — the task-16 documentation edit — landed in a pre-approval
+commit, so `changed_paths` omitted it) — see "Seventh-round review correction" below.
 
 1. `tasks/01-queue-removal-and-reservation-storage-migration.md` — independent.
 2. `tasks/02-batch-admission-generalization.md` — independent.
@@ -152,6 +155,9 @@ correction" below.
 18. `tasks/18-live-sweep-failure-path-completion.md` — depends on 17 (sixth-round fix:
     move the human-step/single-task-publish sweep into a `finally` block so it fires
     on failure too, and correct task 16's own superseded scope-boundary text).
+19. `tasks/19-task18-provenance-correction.md` — depends on 18 (seventh-round fix:
+    correct task 18's own tracking metadata, which omitted one of its own acceptance
+    criteria from `changed_paths`).
 
 ## Change-wide acceptance criteria
 
@@ -398,6 +404,30 @@ provenance correction are both correct, but found two remaining issues.
 Task 18 (added below) resolves these. The change is not ready for approval until task
 18 is independently verified and all findings across all six review rounds are
 genuinely resolved in production behavior, not merely hidden by test fixtures.
+
+## Seventh-round review correction
+
+A seventh review round, run after task 18 landed, confirmed task 18's `finally`-based
+fix is correct at runtime (both tests genuinely exercise their respective failure
+paths; the human-step test is honest about the still-held, correctly-blocking claim),
+but found task 18 repeated task 16's own earlier provenance mistake.
+
+1. **MAJOR — task 18's own `change.yaml` tracking metadata is historically
+   inaccurate, the same way task 16's once was.** Task 18's commit sequence created
+   its own spec files *and* applied one of its own literal acceptance criteria (the
+   "superseded by tasks 17-18" note on task 16's own `.md` file) in the same
+   pre-approval scaffolding commit (`ac9d3ed0`), before task 18's own `approve`
+   transition (`d9be4441`). The automated capture recorded `baseline_revision`/
+   `review_revision` spanning only the later implementation commit (`19a8c281`), and
+   `changed_paths` omitted `tasks/16-worktree-wide-pending-handover-sweep.md` entirely
+   — even though editing that file was one of task 18's own stated acceptance
+   criteria.
+
+Task 19 (added below) is a pure, metadata-only provenance correction — no git history
+rewritten, no change to task 18's own recorded status, self-check result, or
+verification outcome. The change is not ready for approval until task 19 is
+independently verified and all findings across all seven review rounds are genuinely
+resolved, not merely hidden by test fixtures or inaccurate tracking.
 
 ## Verification strategy
 
