@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-10T10:23:30.506Z",
+  "generated": "2026-10-10T10:27:09.149Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -184,34 +184,6 @@
             "workflow-step-activity-producer",
             "human-verification-activity-producer"
           ]
-        }
-      ]
-    },
-    {
-      "id": "deterministic-flow-hardening-pt3",
-      "specId": "e12bc9ff-69b7-45b5-9c67-cafaa6dd6d56",
-      "title": "Deterministic flow hardening pt3",
-      "status": "draft",
-      "priority": 10,
-      "created": "2026-10-03",
-      "tasks": [
-        {
-          "id": "session-visibility-on-creation",
-          "order": 1,
-          "file": "tasks/01-session-visibility-on-creation.md",
-          "status": "implemented",
-          "implementation": {
-            "baseline_revision": "1e9e4dc1703af9c0df2061fb7c45800fcaedcc29"
-          }
-        },
-        {
-          "id": "execution-policy-provider-selection-fix",
-          "order": 2,
-          "file": "tasks/02-execution-policy-provider-selection-fix.md",
-          "status": "implemented",
-          "implementation": {
-            "baseline_revision": "1e9e4dc1703af9c0df2061fb7c45800fcaedcc29"
-          }
         }
       ]
     },
@@ -3432,6 +3404,34 @@
           ],
           "implementation": {
             "baseline_revision": "ec54de0b1d93b4aeefd5b8c5a7a841673a6818a0"
+          }
+        }
+      ]
+    },
+    {
+      "id": "deterministic-flow-hardening-pt3",
+      "specId": "e12bc9ff-69b7-45b5-9c67-cafaa6dd6d56",
+      "title": "Deterministic flow hardening pt3",
+      "status": "archived",
+      "priority": 10,
+      "created": "2026-10-03",
+      "tasks": [
+        {
+          "id": "session-visibility-on-creation",
+          "order": 1,
+          "file": "tasks/01-session-visibility-on-creation.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "1e9e4dc1703af9c0df2061fb7c45800fcaedcc29"
+          }
+        },
+        {
+          "id": "execution-policy-provider-selection-fix",
+          "order": 2,
+          "file": "tasks/02-execution-policy-provider-selection-fix.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "1e9e4dc1703af9c0df2061fb7c45800fcaedcc29"
           }
         }
       ]

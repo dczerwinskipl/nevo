@@ -5,4 +5,3 @@
 | ID | Title | Status | Priority | Created |
 |---|---|---|---|---|
 | `ai-spec-history` | AI Spec History | draft | 10 | 2026-09-16 |
-| `deterministic-flow-hardening-pt3` | Deterministic flow hardening pt3 | draft | 10 | 2026-10-03 |

@@ -2,7 +2,7 @@
 id: deterministic-flow-hardening-pt3
 title: "Deterministic flow hardening pt3"
 type: standard
-status: draft
+status: archived
 priority: 10
 created: 2026-10-03
 
@@ -15,13 +15,13 @@ tasks:
   - id: session-visibility-on-creation
     order: 1
     file: tasks/01-session-visibility-on-creation.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 1e9e4dc1703af9c0df2061fb7c45800fcaedcc29
   - id: execution-policy-provider-selection-fix
     order: 2
     file: tasks/02-execution-policy-provider-selection-fix.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 1e9e4dc1703af9c0df2061fb7c45800fcaedcc29
 
