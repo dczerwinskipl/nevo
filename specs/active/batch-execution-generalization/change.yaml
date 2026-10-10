@@ -514,12 +514,29 @@ tasks:
     status: verified
     depends_on: [ settlement-serialization-and-live-sweep-completion ]
     implementation:
-      baseline_revision: d9be4441211ee3298a2a0a513410b2f8e76c9fbe
+      baseline_revision: d9470ff6fae9a93d064eb96c31c934dac0bbf829
       review_revision: 19a8c281dae48d13bceb65f3a351f1295f5f8461
       changed_paths:
         - tools/dashboard/server/specs/routes.mjs
         - tools/dashboard/tests/task-publish-transport.test.mjs
+        - specs/active/batch-execution-generalization/tasks/16-worktree-wide-pending-handover-sweep.md
       worktree_patch_fingerprint: null
+      provenance_correction: >-
+        Task 19 (seventh-round review) corrected this block after the seventh review
+        round found it historically inaccurate: one of task 18's own acceptance
+        criteria (the "superseded by tasks 17-18" note on
+        tasks/16-worktree-wide-pending-handover-sweep.md) was actually applied in
+        commit ac9d3ed0 (titled "chore(specs): add sixth-round corrective task 18,
+        correct task 16 scope-boundary text, scoped re-review"), committed BEFORE
+        this task's own approve transition (d9be4441) — the same execution-ordering
+        inversion task 16 itself once had, not a data-loss or rewritten-history
+        issue. baseline_revision is now corrected to d9470ff6 (the commit immediately
+        preceding ac9d3ed0), and changed_paths now includes the task-16 documentation
+        file. review_revision and self_check.revision are unchanged (19a8c281, the
+        final commit containing the full set of task 18 changes) — the span from the
+        corrected baseline already covers both commits. No git history was rewritten;
+        only this YAML metadata was corrected. See overview.md's "Seventh-round
+        review correction" for the full writeup.
     self_check:
       fingerprint: eea208f08d7a7348eee5d50bdd19a02a6fe719392894f7d4122ce30657ce82ef
       revision: 19a8c281dae48d13bceb65f3a351f1295f5f8461
@@ -543,7 +560,9 @@ tasks:
   - id: task18-provenance-correction
     order: 19
     file: tasks/19-task18-provenance-correction.md
-    status: approved
+    status: in-implementation
     depends_on: [ live-sweep-failure-path-completion ]
+    implementation:
+      baseline_revision: de1031d4b1458f92dfc851608f4c5a87332f3c18
 
 spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea
