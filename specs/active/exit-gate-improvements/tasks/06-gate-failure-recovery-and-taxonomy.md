@@ -1,15 +1,17 @@
 ---
-id: exit-gate-imorovements.gate-failure-recovery-and-taxonomy
+id: exit-gate-improvements.gate-failure-recovery-and-taxonomy
 status: draft
-change: exit-gate-imorovements
+change: exit-gate-improvements
 depends_on: [transition-aware-exit-gates]
 context:
   required:
-    - specs/active/exit-gate-imorovements/overview.md
-    - specs/active/exit-gate-imorovements/areas/02-transition-aware-gates.md
+    - specs/active/exit-gate-improvements/overview.md
+    - specs/active/exit-gate-improvements/areas/02-transition-aware-gates.md
     - tools/specs/workflow/finish-operation.mjs
     - tools/specs/workflow/operation-record.mjs
     - tools/specs/workflow/gates/command-gate.mjs
+    - tools/specs/workflow/execution-settlement.mjs
+    - tools/specs/workflow/cli.mjs
 allowed_paths:
   - tools/specs/workflow/finish-operation.mjs
   - tools/specs/workflow/operation-record.mjs
@@ -20,6 +22,10 @@ allowed_paths:
 forbidden_paths:
   - tools/dashboard/**
   - src/**
+semantic_references:
+  decisions: [D3]
+  dependency_contracts:
+    - transition-aware-exit-gates
 ---
 
 # Task: Gate-failure recovery and failure taxonomy
@@ -48,7 +54,9 @@ revision until `update-task` starts; distinguish `failed` (red check) from `bloc
 
 ```bash
 node --test tools/tests/gate-failure-recovery.test.mjs
-node --test tools/tests/
+node --test tools/tests/workflow-finish-operation.test.mjs
+node --test tools/tests/execution-settlement.test.mjs
+node --test tools/tests/workflow-gates.test.mjs
 node tools/specs.mjs validate
 ```
 

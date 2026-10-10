@@ -24,8 +24,8 @@ verification commands are selected".
 5. Gate verification outcomes: `passed`, `failed` (executed, red), `blocked` (could not
    evaluate). Runner exceptions are `blocked`, never `failed`.
 6. `update-task`, `commit`, scope enforcement and writer claims are untouched for `fail`.
-7. Optional (D6): explicit `task-verification` catalog action replacing the `'npm test'`
-   string match.
+7. (D6) Explicit `task-verification` catalog action; the `'npm test'` string match is
+   removed and shipped definitions are migrated to it.
 
 ## Interfaces and boundaries
 

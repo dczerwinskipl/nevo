@@ -1,11 +1,11 @@
 ---
-id: exit-gate-imorovements.specs-index-projection-stability
+id: exit-gate-improvements.specs-index-projection-stability
 status: draft
-change: exit-gate-imorovements
+change: exit-gate-improvements
 depends_on: [derived-registry-and-deterministic-generators]
 context:
   required:
-    - specs/active/exit-gate-imorovements/overview.md
+    - specs/active/exit-gate-improvements/overview.md
     - tools/specs/indexes.mjs
 allowed_paths:
   - tools/specs/indexes.mjs
@@ -14,11 +14,15 @@ allowed_paths:
 forbidden_paths:
   - tools/specs/workflow/**
   - src/**
+semantic_references:
+  decisions: [D4]
+  dependency_contracts:
+    - derived-registry-and-deterministic-generators
 ---
 
 # Task: Stable specs index projection
 
-Conditional: executes **only if owner decision D4 option (i) is approved.**
+Implements owner decision D4 option (i).
 
 ## Goal
 

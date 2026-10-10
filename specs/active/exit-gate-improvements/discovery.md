@@ -1,9 +1,9 @@
 ---
-id: spec.exit-gate-imorovements.discovery
+id: spec.exit-gate-improvements.discovery
 type: change
 title: "Exit gate improvements — discovery"
 status: draft
-change: exit-gate-imorovements
+change: exit-gate-improvements
 ---
 
 # Discovery — derived-artifact ownership and transition-aware exit gates

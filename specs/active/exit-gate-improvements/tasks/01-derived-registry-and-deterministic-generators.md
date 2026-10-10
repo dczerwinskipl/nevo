@@ -1,15 +1,15 @@
 ---
-id: exit-gate-imorovements.derived-registry-and-deterministic-generators
+id: exit-gate-improvements.derived-registry-and-deterministic-generators
 status: draft
-change: exit-gate-imorovements
+change: exit-gate-improvements
 context:
   required:
-    - specs/active/exit-gate-imorovements/overview.md
-    - specs/active/exit-gate-imorovements/areas/01-derived-artifacts.md
+    - specs/active/exit-gate-improvements/overview.md
+    - specs/active/exit-gate-improvements/areas/01-derived-artifacts.md
     - tools/specs/indexes.mjs
     - tools/docs/service.mjs
   optional:
-    - specs/active/exit-gate-imorovements/discovery.md
+    - specs/active/exit-gate-improvements/discovery.md
 allowed_paths:
   - tools/specs/derived/**
   - tools/specs/indexes.mjs
@@ -20,6 +20,8 @@ forbidden_paths:
   - tools/specs/workflow/**
   - tools/dashboard/**
   - src/**
+semantic_references:
+  decisions: [D2, D4]
 ---
 
 # Task: Derived-artifact registry and deterministic generators

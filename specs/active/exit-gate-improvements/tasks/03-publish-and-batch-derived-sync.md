@@ -1,11 +1,13 @@
 ---
-id: exit-gate-imorovements.publish-and-batch-derived-sync
+id: exit-gate-improvements.publish-and-batch-derived-sync
 status: draft
-change: exit-gate-imorovements
+change: exit-gate-improvements
 depends_on: [finish-derived-sync]
 context:
   required:
-    - specs/active/exit-gate-imorovements/overview.md
+    - specs/active/exit-gate-improvements/overview.md
+    - specs/active/exit-gate-improvements/areas/01-derived-artifacts.md
+    - tools/specs/derived/registry.mjs
     - tools/specs/workflow/publish/operation.mjs
     - tools/specs/workflow/batch-finish/operation.mjs
 allowed_paths:
@@ -16,6 +18,10 @@ allowed_paths:
 forbidden_paths:
   - tools/dashboard/**
   - src/**
+semantic_references:
+  decisions: [D2]
+  dependency_contracts:
+    - finish-derived-sync
 ---
 
 # Task: Derived-artifact sync for publish and batch finish

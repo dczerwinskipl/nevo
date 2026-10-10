@@ -1,13 +1,16 @@
 ---
-id: exit-gate-imorovements.transition-aware-exit-gates
+id: exit-gate-improvements.transition-aware-exit-gates
 status: draft
-change: exit-gate-imorovements
+change: exit-gate-improvements
 context:
   required:
-    - specs/active/exit-gate-imorovements/overview.md
-    - specs/active/exit-gate-imorovements/areas/02-transition-aware-gates.md
+    - specs/active/exit-gate-improvements/overview.md
+    - specs/active/exit-gate-improvements/areas/02-transition-aware-gates.md
     - tools/specs/workflow/definitions/schema.mjs
     - tools/specs/workflow/finish-operation.mjs
+    - .nevo-ai/workflows/standard.yaml
+    - .nevo-ai/workflows/standard-v1.yaml
+    - tools/specs/workflow/templates/standard.yaml
 allowed_paths:
   - tools/specs/workflow/definitions/**
   - tools/specs/workflow/step-runner.mjs
@@ -19,6 +22,8 @@ allowed_paths:
 forbidden_paths:
   - tools/dashboard/**
   - src/**
+semantic_references:
+  decisions: [D3]
 ---
 
 # Task: Transition-aware exit gates
@@ -47,7 +52,9 @@ and requires `feedback` for `fail`.
 
 ```bash
 node --test tools/tests/transition-aware-gates.test.mjs
-node --test tools/tests/
+node --test tools/tests/workflow-finish-operation.test.mjs
+node --test tools/tests/workflow-definitions-schema.test.mjs
+node --test tools/tests/workflow-definitions.test.mjs
 node tools/specs.mjs validate
 ```
 

@@ -1,14 +1,14 @@
 ---
-id: spec.exit-gate-imorovements
+id: spec.exit-gate-improvements
 type: change
-title: "Exit gate imorovements"
+title: "Exit gate improvements"
 status: draft
-change: exit-gate-imorovements
+change: exit-gate-improvements
 ---
 
 # Exit gate improvements — derived-artifact ownership and transition-aware gates
 
-Status: **draft, awaiting owner decisions D1–D6 below.** Nothing here is approved or
+Status: **draft; owner decisions D1–D6 recorded in `owner-decisions.md` (see "Owner decisions" below), awaiting re-review and approval.** Nothing here is approved or
 implemented. Evidence for every claim is in [`discovery.md`](discovery.md).
 
 Classification: **A (architectural)** — touches transaction semantics, persistence
@@ -98,9 +98,12 @@ embedding another change's uncommitted state, and prevents staging foreign files
 (staging stays by explicit path set, as today).
 
 **Integrity validation (logical step 4).** After generating, run the triggered
-generators' own `check()` in-process. A mismatch is `DERIVED_INTEGRITY_FAILED`. Repo-wide
-`validate` is deliberately **not** run here (an unrelated spec's validation error must
-not block this task); see D5.
+generators' own `check()` in-process. A mismatch is `DERIVED_INTEGRITY_FAILED`. Per D5 the
+same step then also runs repo-wide `validate` for specs and docs in-process (existing
+`validateSpecs`/`validateDocs`); a failure is `REPO_INTEGRITY_FAILED`, a distinct
+infrastructure code. Accepted consequence: an unrelated validation error elsewhere in the
+repository blocks every finish until fixed — intended, since the commit would otherwise
+record a repository that fails CI.
 
 **Determinism.** Make `writeDocsIndexes` preserve the prior `generated` timestamp when
 content is unchanged (as `writeSpecsIndexes` already does) so sync is a no-op on a clean
@@ -139,8 +142,12 @@ Changes:
    negative evidence) from `blocked`/`error` (could not evaluate: runner exception, spawn
    failure, missing store). Only `failed` can ever be treated as evidence for a `fail`
    review; infrastructure errors never silently satisfy or replace one.
-5. **Explicit task-verification semantics (optional, D6).** Replace the string match on
-   `'npm test'` with an explicit `task-verification` catalog action.
+5. **Explicit task-verification semantics (D6, decided).** Remove the string match on
+   `'npm test'` entirely. A `task-verification` catalog action runs the task's
+   `## Verification` commands; `test` means literally `npm test`. Workflow definitions
+   that rely on the task commands (`standard*.yaml`) are changed in the same task to
+   `action: task-verification`, so behavior is declared in config, never inferred from a
+   command string.
 
 What is deliberately *not* changed: a `fail` review still goes through `update-task →
 commit → push`, so scope, Git lock, writer-claim and durable-operation safety all still
@@ -192,6 +199,7 @@ never write derived artifacts.
 | precondition: foreign dirty input | `DERIVED_INPUT_DIRTY_OUTSIDE_OPERATION` | nothing written; `update-task` completed; `commit` stage `pending` | resolve the dirty file, rerun `finish` (resumes at sync) |
 | generator throws (e.g. invalid docs) | `DERIVED_ARTIFACT_SYNC_FAILED` | possibly partial outputs (deterministic, overwritten on retry); `commit` `pending` | fix input, rerun `finish`, or run `specs.mjs generate` / `docs.mjs generate` manually then rerun |
 | post-generate check mismatch | `DERIVED_INTEGRITY_FAILED` | as above | rerun; persistent ⇒ generator bug |
+| repo-wide `validate` fails (D5) | `REPO_INTEGRITY_FAILED` | as above | fix the reported spec/doc error, rerun `finish` |
 | red required gate | `finish` returns `blocked` (gate evidence) | record replayable, `update-task` pending | change `result` or fix and rerun |
 | crash between sync and commit | — | outputs on disk, HEAD unchanged | rerun: sync is a no-op diff, commit proceeds (existing HEAD reconciliation) |
 | crash after commit, before stage saved | — | HEAD advanced | existing parent+subject reconciliation ⇒ completed; derived files were in that commit |
@@ -212,19 +220,21 @@ ambiguous commit/`update-task` states keep their current fail-closed handling.
 - CI is unchanged and remains the backstop: `specs:check` / `docs:check` still fail on any
   stale committed output.
 
-## Owner decisions required
+## Owner decisions
 
-| ID | Decision | Options | Recommendation |
-|---|---|---|---|
-| D1 | Boundary | one change/two areas · two changes | one change, two areas; split at approval if preferred |
-| D2 | Where sync runs | (a) new durable stage · **(b) inside commit stage** · (c) post-commit | (b) |
-| D3 | Behavior change to shipped `standard-v1` `review` (`when: [pass]`, required `fail` feedback) | edit in place · new `standard-v2` · leave definitions, enable via opt-in only | edit in place — v1 is unreleased process tooling in this repo; pin risk limited to in-flight reviews |
-| D4 | R2: index projection | (i) drop `workflow_progress` from `index.generated.json` tasks (keep `id/order/file/status/depends_on`) · (ii) keep, rely on sync only · (iii) keep + never include `specs.mjs check` in task verification | (i): mid-step state no longer stales the index; also shrinks diffs. Needs consumer check (task 01) |
-| D5 | Integrity scope after sync | own outputs only · plus repo-wide `specs.mjs validate`/`docs.mjs validate` | own outputs only; repo-wide validate remains an explicit/CI check |
-| D6 | `task-verification` alias | implement now · defer · document the override only | defer to a follow-up; ship task 08 only if approved |
+Recorded in [`owner-decisions.md`](owner-decisions.md) (2026-10-10):
 
-Also required by `AGENTS.md`: `workflow.mode`/`version` for this change is **not** chosen
-here and the manifest deliberately omits `workflow:`.
+| ID | Decision | Outcome |
+|---|---|---|
+| D1 | Boundary | one change, two areas |
+| D2 | Where sync runs | (b) inside the `commit` stage, before `commit-and-push` |
+| D3 | Shipped `standard-v1` behavior change | edit in place |
+| D4 | Index projection | (i) drop `workflow_progress` from `index.generated.json`; task 04 is unconditional |
+| D5 | Integrity scope after sync | own outputs **plus** repo-wide `specs`/`docs` validate |
+| D6 | Task verification semantics | implement now, explicitly and in config; no string-matched substitution; task 08 stays |
+| D7 | Workflow mode | `legacy` (manifest `workflow:` omitted = default legacy) |
+| D8 | Slug | renamed to `exit-gate-improvements` |
+
 
 ## Task decomposition
 
@@ -233,11 +243,11 @@ here and the manifest deliberately omits `workflow:`.
 | 01 | `derived-registry-and-deterministic-generators` | A | — | registry, selective plan, ownership resolver, docs timestamp idempotency, consumer inventory |
 | 02 | `finish-derived-sync` | A | 01 | `ensureCommit` hook, scope check, error codes, `--check` preview, settlement ownership |
 | 03 | `publish-and-batch-derived-sync` | A | 02 | publish commit set, batch stage 5 |
-| 04 | `specs-index-projection-stability` | A | 01 | **only if D4(i) approved** |
+| 04 | `specs-index-projection-stability` | A | 01 | D4(i) |
 | 05 | `transition-aware-exit-gates` | B | — | schema/loader `when`, filtered plan/verify, definitions, required `fail` feedback |
 | 06 | `gate-failure-recovery-and-taxonomy` | B | 05 | replayable block, result retarget, `failed` vs `blocked`, settlement, ask_user-timeout finish test |
-| 07 | `workflow-documentation-and-adr` | A+B | 02, 03, 06 | `docs/development/workflow-engine.md`, ADR-0011 (next free number) |
-| 08 | `explicit-task-verification-action` | B | 05 | **only if D6 approved** |
+| 07 | `workflow-documentation-and-adr` | A+B | 02, 03, 04, 06, 08 | `docs/development/workflow-engine.md`, ADR-0011 (next free number) |
+| 08 | `explicit-task-verification-action` | B | 05 | D6; removes string-matched override, migrates definitions |
 
 Areas A and B are independent; 01‖05 can start in parallel. Each task is independently
 verifiable (see task files).
@@ -267,7 +277,7 @@ All automated under `node --test tools/tests/` unless noted. Fixture repos via
     records `feedback` (05).
 11. Red-gate block is replayable: `result` can be switched `pass → fail`; settlement says
     `resumable` (06).
-12. Repo-integrity failure (`DERIVED_INTEGRITY_FAILED`) is distinguishable from gate
+12. Repo-integrity failure (`DERIVED_INTEGRITY_FAILED` / `REPO_INTEGRITY_FAILED`) is distinguishable from gate
     `failed` and from `blocked` runner error (02, 06).
 13. Same behavior through CLI `finish`, human-step `finishStep` and `batch finish` (03, 05, 06).
 14. CI check still fails on a committed stale index (existing REC-03 test kept green; one
@@ -281,7 +291,6 @@ All automated under `node --test tools/tests/` unless noted. Fixture repos via
   (separate maintenance concerns, per the brief).
 - Migrating legacy `approve`/`verify`/`finalize`/`self-check`/create to the shared sync
   call (cleanup once 02 lands).
-- Repo-wide validation as a post-sync gate (D5).
 - Recording failed-check output as non-blocking evidence on `fail` reviews.
 - A `docs.mjs validate` rule rejecting duplicate ADR numbers (already a recorded follow-up).
 - Scope enforcement for the batch shared commit (observed unconstrained; separate finding).

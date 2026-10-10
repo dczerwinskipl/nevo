@@ -1,11 +1,11 @@
 ---
-id: exit-gate-imorovements.workflow-documentation-and-adr
+id: exit-gate-improvements.workflow-documentation-and-adr
 status: draft
-change: exit-gate-imorovements
-depends_on: [finish-derived-sync, publish-and-batch-derived-sync, gate-failure-recovery-and-taxonomy]
+change: exit-gate-improvements
+depends_on: [finish-derived-sync, publish-and-batch-derived-sync, specs-index-projection-stability, gate-failure-recovery-and-taxonomy, explicit-task-verification-action]
 context:
   required:
-    - specs/active/exit-gate-imorovements/overview.md
+    - specs/active/exit-gate-improvements/overview.md
     - docs/development/workflow-engine.md
 allowed_paths:
   - docs/decisions/ADR-0011-workflow-owned-derived-artifacts-and-transition-aware-gates.md
@@ -17,6 +17,14 @@ allowed_paths:
 forbidden_paths:
   - tools/**
   - src/**
+semantic_references:
+  decisions: [D2, D3, D4, D5, D6]
+  dependency_contracts:
+    - finish-derived-sync
+    - publish-and-batch-derived-sync
+    - specs-index-projection-stability
+    - gate-failure-recovery-and-taxonomy
+    - explicit-task-verification-action
 ---
 
 # Task: Documentation and ADR
