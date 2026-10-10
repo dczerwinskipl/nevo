@@ -1,0 +1,54 @@
+# Specification manifest for exit-gate-imorovements
+id: exit-gate-imorovements
+title: "Exit gate imorovements"
+type: architectural
+status: draft
+priority: 10
+created: 2026-10-10
+
+branch:
+  mode: per-change
+  prefix: feature
+  name: feature/ai-spec-history
+
+tasks:
+  - id: derived-registry-and-deterministic-generators
+    order: 1
+    file: tasks/01-derived-registry-and-deterministic-generators.md
+    status: draft
+  - id: finish-derived-sync
+    order: 2
+    file: tasks/02-finish-derived-sync.md
+    status: draft
+    depends_on: [ derived-registry-and-deterministic-generators ]
+  - id: publish-and-batch-derived-sync
+    order: 3
+    file: tasks/03-publish-and-batch-derived-sync.md
+    status: draft
+    depends_on: [ finish-derived-sync ]
+  - id: specs-index-projection-stability
+    order: 4
+    file: tasks/04-specs-index-projection-stability.md
+    status: draft
+    depends_on: [ derived-registry-and-deterministic-generators ]
+  - id: transition-aware-exit-gates
+    order: 5
+    file: tasks/05-transition-aware-exit-gates.md
+    status: draft
+  - id: gate-failure-recovery-and-taxonomy
+    order: 6
+    file: tasks/06-gate-failure-recovery-and-taxonomy.md
+    status: draft
+    depends_on: [ transition-aware-exit-gates ]
+  - id: workflow-documentation-and-adr
+    order: 7
+    file: tasks/07-workflow-documentation-and-adr.md
+    status: draft
+    depends_on: [ finish-derived-sync, publish-and-batch-derived-sync, gate-failure-recovery-and-taxonomy ]
+  - id: explicit-task-verification-action
+    order: 8
+    file: tasks/08-explicit-task-verification-action.md
+    status: draft
+    depends_on: [ transition-aware-exit-gates ]
+
+spec_id: a98348a0-3bac-474d-a85c-2c4dd690bd90
