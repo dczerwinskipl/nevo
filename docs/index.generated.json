@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-10T12:26:03.627Z",
+  "generated": "2026-10-10T13:16:51.065Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -948,8 +948,8 @@
       "superseded_by": null
     },
     {
-      "file": "docs/decisions/ADR-0009-local-append-only-activity-history.md",
-      "id": "adr.0009-local-append-only-activity-history",
+      "file": "docs/decisions/ADR-0010-local-append-only-activity-history.md",
+      "id": "adr.0010-local-append-only-activity-history",
       "type": "adr",
       "title": "Local append-only activity history for workflow execution",
       "status": "accepted",

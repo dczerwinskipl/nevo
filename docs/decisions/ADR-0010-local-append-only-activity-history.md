@@ -1,5 +1,5 @@
 ---
-id: adr.0009-local-append-only-activity-history
+id: adr.0010-local-append-only-activity-history
 type: adr
 title: Local append-only activity history for workflow execution
 status: accepted
@@ -9,7 +9,7 @@ supersedes: ~
 superseded_by: ~
 ---
 
-# ADR-0009: Local append-only activity history for workflow execution
+# ADR-0010: Local append-only activity history for workflow execution
 
 ## Status
 
