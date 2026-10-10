@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-10T21:13:50.011Z",
+  "generated": "2026-10-10T21:22:39.889Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -302,7 +302,10 @@
           "id": "derived-registry-and-deterministic-generators",
           "order": 1,
           "file": "tasks/01-derived-registry-and-deterministic-generators.md",
-          "status": "approved"
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "97530f4443692961811d973f47dccfb6f5062a25"
+          }
         },
         {
           "id": "finish-derived-sync",

@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { join, relative, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { readUtf8, writeUtf8, walkFiles } from '../lib/fs.mjs';
+import { readUtf8, writeUtf8, walkFiles, resolveWithinBase } from '../lib/fs.mjs';
 import { parseFrontMatter } from '../lib/yaml.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -29,12 +29,12 @@ const TIMESTAMP_LINE_RE = /^_Generated: .*_\r?\n\r?\n/m;
 
 // ── Scanning ────────────────────────────────────────────────────────────────
 
-export function scanDocs() {
-  const files = walkFiles(DOCS_DIR, { ext: '.md' });
+export function scanDocs({ docsDir = DOCS_DIR, repoRoot = ROOT } = {}) {
+  const files = walkFiles(docsDir, { ext: '.md' });
   const docs = [];
   for (const file of files) {
     const content = readUtf8(file);
-    const relPath = relative(ROOT, file).replace(/\\/g, '/');
+    const relPath = relative(repoRoot, file).replace(/\\/g, '/');
     const fm = parseFrontMatter(content, relPath);
     if (fm === null) continue;
     docs.push({ file: relPath, ...fm });
@@ -137,31 +137,44 @@ function renderMd(built, timestamp) {
   return built.mdHeader + `_Generated: ${timestamp}_\n\n` + built.mdBody;
 }
 
-/** Persist already-built index content. No decisions made here — just writes. */
-export function writeDocsIndexes(built) {
-  const timestamp = new Date().toISOString();
-  writeUtf8(INDEX_JSON, JSON.stringify({ generated: timestamp, docs: built.sortedDocs }, null, 2));
-  writeUtf8(INDEX_MD, renderMd(built, timestamp));
+/** Persist already-built index content. Preserves previous timestamp when content is unchanged. */
+export function writeDocsIndexes(built, { indexJson = INDEX_JSON, indexMd = INDEX_MD } = {}) {
+  let timestamp = new Date().toISOString();
+  if (existsSync(indexJson)) {
+    try {
+      const existing = JSON.parse(readUtf8(indexJson));
+      if (JSON.stringify(existing.docs) === JSON.stringify(built.sortedDocs)) {
+        timestamp = existing.generated || timestamp;
+      }
+    } catch {}
+  } else if (existsSync(indexMd)) {
+    try {
+      const match = readUtf8(indexMd).match(/^_Generated:\s*([^\r\n_]+)_/m);
+      if (match) timestamp = match[1];
+    } catch {}
+  }
+  writeUtf8(indexJson, JSON.stringify({ generated: timestamp, docs: built.sortedDocs }, null, 2));
+  writeUtf8(indexMd, renderMd(built, timestamp));
 }
 
 /** Compare on-disk generated files against freshly-built expected content, ignoring timestamps. */
-export function checkDocsIndexes(docs) {
+export function checkDocsIndexes(docs, { indexJson = INDEX_JSON, indexMd = INDEX_MD } = {}) {
   const built = buildDocsIndexes(docs);
   const problems = [];
 
-  if (!existsSync(INDEX_JSON)) {
+  if (!existsSync(indexJson)) {
     problems.push('missing: docs/index.generated.json');
   } else {
-    const existing = JSON.parse(readUtf8(INDEX_JSON));
+    const existing = JSON.parse(readUtf8(indexJson));
     if (JSON.stringify(existing.docs) !== JSON.stringify(built.sortedDocs)) {
       problems.push('stale: docs/index.generated.json');
     }
   }
 
-  if (!existsSync(INDEX_MD)) {
+  if (!existsSync(indexMd)) {
     problems.push('missing: docs/index.generated.md');
   } else {
-    const existingBody = readUtf8(INDEX_MD).replace(/\r\n/g, '\n').replace(TIMESTAMP_LINE_RE, '');
+    const existingBody = readUtf8(indexMd).replace(/\r\n/g, '\n').replace(TIMESTAMP_LINE_RE, '');
     const expectedBody = (built.mdHeader + built.mdBody).replace(/\r\n/g, '\n');
     if (existingBody !== expectedBody) {
       problems.push('stale: docs/index.generated.md');
@@ -253,6 +266,136 @@ export function normalizeTerm(term) {
     return t.slice(0, -1);
   }
   return t;
+}
+
+export const TASK_ROUTING_FILE = join(DOCS_DIR, 'ai', 'task-routing.md');
+export const CHANGE_IMPACT_MAP_FILE = join(DOCS_DIR, 'ai', 'change-impact-map.md');
+const ROUTING_HEADING = '## Routing table';
+
+export function parseRoutingTable(content, source) {
+  const rules = [];
+  const errors = [];
+  const lines = content.split('\n');
+
+  const headingIdx = lines.findIndex(l => l.trim() === ROUTING_HEADING);
+  if (headingIdx === -1) {
+    errors.push(`${source}: missing '${ROUTING_HEADING}' section`);
+    return { rules, errors };
+  }
+
+  let i = headingIdx + 1;
+  while (i < lines.length && !lines[i].trim().startsWith('|')) {
+    if (lines[i].trim().startsWith('#')) {
+      errors.push(`${source}: '${ROUTING_HEADING}' section has no table before the next heading`);
+      return { rules, errors };
+    }
+    i++;
+  }
+  if (i >= lines.length) {
+    errors.push(`${source}: '${ROUTING_HEADING}' section has no table`);
+    return { rules, errors };
+  }
+
+  const header = lines[i].split('|').slice(1, -1).map(c => c.trim().toLowerCase());
+  if (header.length !== 3 || header[0] !== 'rule_id' || header[1] !== 'path_glob' || header[2] !== 'doc_ref') {
+    errors.push(`${source}: routing table header must be exactly 'rule_id | path_glob | doc_ref' (got '${lines[i].trim()}')`);
+    return { rules, errors };
+  }
+
+  const separatorLine = lines[i + 1];
+  const separatorCells = (separatorLine || '').split('|').slice(1, -1).map(c => c.trim());
+  const isValidSeparator = separatorCells.length === 3 && separatorCells.every(c => /^:?-+:?$/.test(c));
+  if (!isValidSeparator) {
+    errors.push(
+      `${source}: routing table header must be followed by a valid separator row ` +
+      `(e.g. '|---|---|---|'), got '${(separatorLine || '').trim()}'`
+    );
+    return { rules, errors };
+  }
+  i += 2;
+
+  for (; i < lines.length; i++) {
+    const raw = lines[i];
+    if (!raw.trim().startsWith('|')) break;
+    const cells = raw.split('|').slice(1, -1).map(c => c.trim());
+    if (cells.length !== 3 || cells.some(c => !c)) {
+      errors.push(`${source}: malformed routing table row: '${raw.trim()}'`);
+      continue;
+    }
+    const [rule_id, path_glob, doc_ref] = cells;
+    rules.push({ rule_id, path_glob, doc_ref, source });
+  }
+
+  return { rules, errors };
+}
+
+export function validateRoutingTables(sources, repoRoot = ROOT) {
+  const errors = [];
+  const allRules = [];
+  for (const { file, content } of sources) {
+    const { rules, errors: parseErrors } = parseRoutingTable(content, file);
+    errors.push(...parseErrors);
+    allRules.push(...rules);
+  }
+
+  const seen = new Map();
+  for (const rule of allRules) {
+    if (seen.has(rule.rule_id)) {
+      errors.push(`${rule.source}: duplicate rule_id '${rule.rule_id}' (also in ${seen.get(rule.rule_id)})`);
+    } else {
+      seen.set(rule.rule_id, rule.source);
+    }
+    let resolvedDocRef;
+    try {
+      resolvedDocRef = resolveWithinBase(repoRoot, rule.doc_ref);
+    } catch {
+      errors.push(`${rule.source}: routing rule '${rule.rule_id}' has a doc_ref '${rule.doc_ref}' that escapes the repository`);
+      continue;
+    }
+    if (!existsSync(resolvedDocRef)) {
+      errors.push(`${rule.source}: routing rule '${rule.rule_id}' references missing doc_ref '${rule.doc_ref}'`);
+    }
+  }
+
+  return { rules: allRules, errors };
+}
+
+export function readRoutingSources(repoRoot = ROOT) {
+  const taskRouting = join(repoRoot, 'docs', 'ai', 'task-routing.md');
+  const changeImpact = join(repoRoot, 'docs', 'ai', 'change-impact-map.md');
+  return [taskRouting, changeImpact].map(f => ({
+    file: relative(repoRoot, f).replace(/\\/g, '/'),
+    content: existsSync(f) ? readUtf8(f) : '',
+  }));
+}
+
+export function buildRoutingIndex(rules) {
+  const sorted = rules
+    .map(({ rule_id, path_glob, doc_ref, source }) => ({ rule_id, path_glob, doc_ref, source }))
+    .sort((a, b) => a.rule_id.localeCompare(b.rule_id));
+  return { rules: sorted };
+}
+
+export function writeRoutingIndex(built, indexFile = ROUTING_INDEX_FILE) {
+  let timestamp = new Date().toISOString();
+  if (existsSync(indexFile)) {
+    try {
+      const existing = JSON.parse(readUtf8(indexFile));
+      if (JSON.stringify(existing.rules) === JSON.stringify(built.rules)) {
+        timestamp = existing.generated || timestamp;
+      }
+    } catch {}
+  }
+  writeUtf8(indexFile, JSON.stringify({ generated: timestamp, ...built }, null, 2));
+}
+
+export function checkRoutingIndex(built, indexFile = ROUTING_INDEX_FILE) {
+  if (!existsSync(indexFile)) return ['missing: docs/routing.generated.json'];
+  const existing = JSON.parse(readUtf8(indexFile));
+  if (JSON.stringify(existing.rules) !== JSON.stringify(built.rules)) {
+    return ['stale: docs/routing.generated.json'];
+  }
+  return [];
 }
 
 export function loadRoutingRules(indexFile = ROUTING_INDEX_FILE) {
