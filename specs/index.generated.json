@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-08T14:13:58.096Z",
+  "generated": "2026-10-10T09:51:57.837Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -899,7 +899,48 @@
             "settlement-serialization-and-live-sweep-completion"
           ],
           "implementation": {
-            "baseline_revision": "d9be4441211ee3298a2a0a513410b2f8e76c9fbe"
+            "baseline_revision": "d9be4441211ee3298a2a0a513410b2f8e76c9fbe",
+            "review_revision": "19a8c281dae48d13bceb65f3a351f1295f5f8461",
+            "changed_paths": [
+              "tools/dashboard/server/specs/routes.mjs",
+              "tools/dashboard/tests/task-publish-transport.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "eea208f08d7a7348eee5d50bdd19a02a6fe719392894f7d4122ce30657ce82ef",
+            "revision": "19a8c281dae48d13bceb65f3a351f1295f5f8461",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/task-publish-transport.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/batch-hook3-restart-recovery.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
           }
         }
       ]
