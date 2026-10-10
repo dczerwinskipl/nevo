@@ -130,7 +130,7 @@ tasks:
     status: approved
     depends_on: [ activity-core-model-and-contracts, activity-local-store ]
     workflow_progress:
-      current_step: implementation
+      current_step: review
       current_attempt: 1
       state: completed
       history:
@@ -139,6 +139,12 @@ tasks:
           completed_at: 2026-10-10T10:40:01.522Z
           transitioned_to: review
           sessionId: 0e8b3420-2d52-43da-962b-592925e5c06b
+        - step: review
+          attempt: 1
+          completed_at: 2026-10-10T10:42:42.004Z
+          transitioned_to: human-verification
+          sessionId: 72fb21a3-92e9-46e2-b084-94a4202d858f
+          result: pass
   - id: activity-dashboard-api
     order: 5
     file: tasks/05-activity-dashboard-api.md
