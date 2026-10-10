@@ -211,6 +211,16 @@ tasks:
     file: tasks/07-human-verification-activity-producer.md
     status: approved
     depends_on: [ activity-local-store, actor-resolver ]
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: 2026-10-10T11:46:49.160Z
+          transitioned_to: review
+          sessionId: f5ecace0-2cab-4710-a9d3-b2424be18f68
   - id: activity-adr-and-docs
     order: 8
     file: tasks/08-activity-adr-and-docs.md

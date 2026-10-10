@@ -34,9 +34,10 @@ import { resolveHumanScopeTarget } from './gates/human-gate.mjs';
 // producing an empty finish contract for every real invocation.
 import './actions/index.mjs';
 import { autoBindAgentSession } from '../../specs.mjs';
-import { SYSTEM_ACTOR, resolveAgentSessionActor } from '../activity/actor-resolver.mjs';
+import { SYSTEM_ACTOR, resolveAgentSessionActor, resolveUserActor } from '../activity/actor-resolver.mjs';
 import { resolveSpecId } from '../activity/store.mjs';
 import { recordWorkflowStepStarted } from '../activity/producers/workflow.mjs';
+import { recordHumanVerificationConfirmed } from '../activity/producers/human-verification.mjs';
 import { assertStepExecutor } from './executor-guard.mjs';
 import { startHumanStep, submitHumanStepResult, activateAndSubmitHumanStep } from './human-step/operations.mjs';
 import { assertExecutionReadiness } from './readiness-policy.mjs';
@@ -676,6 +677,25 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
   const role = gateConfig.role || 'owner';
   const store = new FileHumanVerificationStore({ repoRoot: context.repoRoot, change: change._slug, task: task.id, attempt });
   const record = store.confirm({ scope, targetId, role, stepId: stepName, attempt, gateId: gateConfig.id || null });
+
+  try {
+    const actor = resolveUserActor(context.repoRoot);
+    const specId = change.spec_id || resolveSpecId(change, { repoRoot: context.repoRoot, activeDir: context.activeDir });
+    recordHumanVerificationConfirmed({
+      specId,
+      taskId: task.id,
+      stepId: stepName,
+      attempt,
+      gateId: gateConfig.id || null,
+      scope,
+      targetId,
+      role,
+      actor,
+    }, { repoRoot: context.repoRoot, activeDir: context.activeDir });
+  } catch {
+    // Observational only: failures to record activity never fail or roll back confirmation
+  }
+
   return emit({ change: changeSlug, task: taskId, confirmed: true, record }, opts);
 }
 
