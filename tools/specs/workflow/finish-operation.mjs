@@ -94,18 +94,31 @@ function valuesEqual(a, b) {
  * @param {Record<string, any>} supplied
  * @returns {{ resolved: Record<string, any>, conflicts: Array<{ field: string, message: string, code: string }> }}
  */
-export function mergeResolvedInputs(persisted, supplied) {
+export function mergeResolvedInputs(persisted, supplied, options = {}) {
   const resolved = { ...(persisted || {}) };
   const conflicts = [];
+  const record = options.existingRecord || options.record;
+  const updateTaskStage = record?.operations?.find(o => o.id === 'update-task');
+  const updateTaskPending = !updateTaskStage || updateTaskStage.status === 'pending';
+  const verifyGatesStage = record?.operations?.find(o => o.id === 'verify-gates');
+  const gateFailed = verifyGatesStage?.status === 'failed';
+  const allowRevision = Boolean(options.allowResultRevision) || (gateFailed && updateTaskPending);
+
+  const REVISABLE_FIELDS = new Set(['result', 'feedback', 'commit.title', 'commit.message', 'artifacts']);
+
   for (const [key, value] of Object.entries(supplied || {})) {
     if (value === undefined) continue;
     if (persisted && Object.prototype.hasOwnProperty.call(persisted, key)) {
       if (!valuesEqual(persisted[key], value)) {
-        conflicts.push({
-          field: key,
-          message: `Input '${key}' conflicts with the value already resolved for this in-flight finish operation`,
-          code: 'RESOLVED_INPUT_CONFLICT',
-        });
+        if (allowRevision && REVISABLE_FIELDS.has(key) && updateTaskPending) {
+          resolved[key] = value;
+        } else {
+          conflicts.push({
+            field: key,
+            message: `Input '${key}' conflicts with the value already resolved for this in-flight finish operation`,
+            code: 'RESOLVED_INPUT_CONFLICT',
+          });
+        }
       }
     } else {
       resolved[key] = value;
@@ -263,7 +276,7 @@ export async function planFinish({
     changeSlug: effectiveChangeSlug,
   };
   const finalizeCheck = await aggregateFinalizeCheck(step, checkContext, { engine, actionRegistry });
-  const { resolved, conflicts } = mergeResolvedInputs(existingRecord?.resolvedInputs, inputs);
+  const { resolved, conflicts } = mergeResolvedInputs(existingRecord?.resolvedInputs, inputs, { existingRecord });
 
   // Transitions matching & result validation
   const transitions = step.transitions || [];
@@ -406,7 +419,7 @@ async function ensureVerifyGates(record, step, context, gateRegistry, repoRoot) 
   if (!allGatesPassed(results)) {
     stage.status = 'failed';
     stage.result = { gates: results };
-    record.status = 'blocked';
+    record.status = 'running';
     saveOperationRecord(repoRoot, record);
     throw new FinishStageOutcome({
       status: 'blocked',
@@ -935,6 +948,9 @@ export async function finishStep({
       resolvedInputs: plan.resolvedInputs,
       actor,
     });
+    saveOperationRecord(repoRoot, record);
+  } else {
+    record.resolvedInputs = plan.resolvedInputs;
     saveOperationRecord(repoRoot, record);
   }
 

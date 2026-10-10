@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-10T22:10:52.207Z",
+  "generated": "2026-10-10T22:22:21.153Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -151,10 +151,13 @@
           "id": "gate-failure-recovery-and-taxonomy",
           "order": 6,
           "file": "tasks/06-gate-failure-recovery-and-taxonomy.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "transition-aware-exit-gates"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "e330fa48a04ad5f6e74d43efcb5c141e3dff8820"
+          }
         },
         {
           "id": "workflow-documentation-and-adr",

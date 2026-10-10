@@ -516,8 +516,8 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   const activeStep = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
   if (activeStep) {
     const finalizeCheck = await aggregateFinalizeCheck(activeStep, context);
-    const parameters = buildFinishContract(finalizeCheck, activeStep);
     const effectiveInputs = inFlight?.resolvedInputs ? { ...inFlight.resolvedInputs, ...inputs } : inputs;
+    const parameters = buildFinishContract(finalizeCheck, activeStep, effectiveInputs.result);
     validateFinishInputs(effectiveInputs, parameters, { allowMissing: Boolean(opts.check) });
   }
 
