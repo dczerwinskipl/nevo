@@ -25,6 +25,8 @@ import {
 import { loadBatchStartRecord } from '../batch-start/record.mjs';
 import { renderBatchReport } from '../../reviews/batch-report.mjs';
 import { prevalidateBatchFinish } from './preflight.mjs';
+import { planDerivedSync, resolveDerivedOwnedPaths } from '../../derived/registry.mjs';
+import { expandDirtyPaths, resolveWorkflowOwnedPaths } from '../actions/commit-and-push.mjs';
 
 /**
  * Orders a batch's own members by `depends_on` (filtered to ids that are members of
@@ -162,6 +164,7 @@ export async function executeBatchFinish(params = {}) {
     sessionId,
     repoRoot = process.cwd(),
     activeDir = ACTIVE_DIR,
+    skipProvenanceCheck = false,
     _crashAfterMemberTaskId = null,
     _crashAfterSharedCommit = false,
   } = params;
@@ -229,7 +232,7 @@ export async function executeBatchFinish(params = {}) {
     change,
     definition,
     reservation,
-    skipProvenanceCheck: isResume,
+    skipProvenanceCheck: isResume || Boolean(skipProvenanceCheck),
   });
 
   // Phase signal (batch-execution-generalization, task 03): whether this is a
@@ -392,10 +395,74 @@ export async function executeBatchFinish(params = {}) {
   }
   if (record.stages.sharedCommit.status !== 'completed') {
     if (sourceControl.enabled) {
+      // 1. Derived artifact sync before shared commit (Task 03, Area A)
+      const rawDirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+      const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
+      let derivedPlan = planDerivedSync(dirtyPaths);
+      derivedPlan = derivedPlan.filter(gen => (gen.outputs || []).some(out => fs.existsSync(path.join(repoRoot, out))));
+      if (derivedPlan.length > 0) {
+        try {
+          for (const gen of derivedPlan) {
+            if (typeof gen.sync === 'function') {
+              gen.sync({ repoRoot, activeDir: path.join(repoRoot, 'specs', 'active'), archiveDir: path.join(repoRoot, 'specs', 'archive') });
+            }
+          }
+        } catch (err) {
+          throw new WorkflowError(`Derived artifact sync failed: ${err.message}`, {
+            code: 'DERIVED_ARTIFACT_SYNC_FAILED',
+            cause: err,
+          });
+        }
+        for (const gen of derivedPlan) {
+          if (typeof gen.check === 'function') {
+            const problems = gen.check({ repoRoot, activeDir: path.join(repoRoot, 'specs', 'active'), archiveDir: path.join(repoRoot, 'specs', 'archive') });
+            if (Array.isArray(problems) && problems.length > 0) {
+              throw new WorkflowError(`Derived artifact integrity check failed for ${gen.id}: ${problems.join(', ')}`, {
+                code: 'DERIVED_INTEGRITY_FAILED',
+                generatorId: gen.id,
+                problems,
+              });
+            }
+          }
+        }
+      }
+
+      const derivedOwnedPaths = resolveDerivedOwnedPaths(derivedPlan);
+
+      // Collect all member allowed paths so staging is restricted and unrelated dirty files are not staged
+      const allMemberAllowedPaths = [];
+      for (const taskId of taskIds) {
+        try {
+          const task = requireTask(change, taskId);
+          const { allowedPaths } = resolveTaskScope(change, task, { repoRoot, activeDir });
+          if (Array.isArray(allowedPaths)) {
+            allMemberAllowedPaths.push(...allowedPaths);
+          }
+        } catch {}
+      }
+
+      const workflowOwnedPaths = resolveWorkflowOwnedPaths({ repoRoot, changeSlug, activeDir });
+      const batchIncludePatterns = Array.isArray(inputs.include)
+        ? inputs.include
+        : [
+            ...allMemberAllowedPaths,
+            ...workflowOwnedPaths,
+            ...derivedOwnedPaths,
+          ];
+
       const commitTitle = typeof inputs['commit.title'] === 'string' ? inputs['commit.title'].trim() : '';
       const action = defaultActionRegistry.require('commit-and-push');
-      const actionContext = { repoRoot, changeSlug, activeDir, sourceControl: { enabled: true, push: false } };
-      const actionInputs = { 'commit.title': commitTitle };
+      const actionContext = {
+        repoRoot,
+        changeSlug,
+        activeDir,
+        sourceControl: { enabled: true, push: false },
+        derivedOwnedPaths,
+      };
+      const actionInputs = {
+        'commit.title': commitTitle,
+        include: batchIncludePatterns,
+      };
       const commitMessage = typeof inputs['commit.message'] === 'string' ? inputs['commit.message'].trim() : '';
       if (commitMessage) {
         actionInputs['commit.message'] = commitMessage;

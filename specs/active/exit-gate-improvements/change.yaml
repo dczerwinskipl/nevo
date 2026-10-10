@@ -28,8 +28,10 @@ tasks:
   - id: publish-and-batch-derived-sync
     order: 3
     file: tasks/03-publish-and-batch-derived-sync.md
-    status: approved
+    status: verified
     depends_on: [ finish-derived-sync ]
+    implementation:
+      baseline_revision: 2f269433e41af39a28d99f6fd8d1dc98162b03b5
   - id: specs-index-projection-stability
     order: 4
     file: tasks/04-specs-index-projection-stability.md

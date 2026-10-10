@@ -3,7 +3,7 @@
 // Registers 'publish' and 'batch-publish' reconciler checkers at module-load time (D88, D96).
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { requireChange, requireTask, setTaskStatus, ROOT, ACTIVE_DIR } from '../../store.mjs';
 import { resolveStableSpecId } from '../../identity.mjs';
@@ -40,8 +40,18 @@ import {
   getCurrentBranchAsync,
   getCurrentRevision,
   getCommitInfo,
+  getDirtyPaths,
 } from '../../../lib/git.mjs';
 import { WorkflowError } from '../errors.mjs';
+import { planDerivedSync, resolveDerivedOwnedPaths } from '../../derived/registry.mjs';
+import { expandDirtyPaths, matchesFileSelectionPattern } from '../actions/commit-and-push.mjs';
+import { pathMatchesRule } from '../../../docs/service.mjs';
+
+function pathMatchesPattern(filePath, pattern) {
+  if (matchesFileSelectionPattern(filePath, pattern)) return true;
+  if (pathMatchesRule(filePath, pattern)) return true;
+  return false;
+}
 
 export const PUBLISH_STAGE_IDS = ['validate', 'update-task', 'commit', 'push'];
 
@@ -400,13 +410,75 @@ export function publishTask(changeSlug, taskId, options = {}) {
         const commitStage = record.operations.find(s => s.id === 'commit');
         if (commitStage.status !== 'completed') {
           if (sourceControl.enabled) {
+            const relChangeFile = relative(repoRoot, change._file).replace(/\\/g, '/');
+            const rawDirtyPaths = getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+            const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
+            const derivedPlan = planDerivedSync(dirtyPaths);
+
+            if (derivedPlan.length > 0) {
+              // Precondition: Every dirty path matching a triggered generator's inputs
+              // must belong to this operation's commit set (relChangeFile).
+              for (const dirtyPath of dirtyPaths) {
+                const matchesTriggeredInput = derivedPlan.some(gen =>
+                  (gen.inputs || []).some(pattern => pathMatchesPattern(dirtyPath, pattern))
+                );
+                if (matchesTriggeredInput && dirtyPath !== relChangeFile) {
+                  throw new WorkflowError(
+                    `Dirty path '${dirtyPath}' matches derived generator inputs but is outside operation scope`,
+                    {
+                      code: 'DERIVED_INPUT_DIRTY_OUTSIDE_OPERATION',
+                      dirtyPath,
+                    }
+                  );
+                }
+              }
+
+              // Execute generation
+              try {
+                for (const gen of derivedPlan) {
+                  if (typeof gen.sync === 'function') {
+                    gen.sync({ repoRoot, activeDir: join(repoRoot, 'specs', 'active'), archiveDir: join(repoRoot, 'specs', 'archive') });
+                  }
+                }
+              } catch (err) {
+                throw new WorkflowError(
+                  `Derived artifact sync failed: ${err.message}`,
+                  {
+                    code: 'DERIVED_ARTIFACT_SYNC_FAILED',
+                    cause: err,
+                  }
+                );
+              }
+
+              // Integrity checks
+              for (const gen of derivedPlan) {
+                if (typeof gen.check === 'function') {
+                  const problems = gen.check({ repoRoot, activeDir: join(repoRoot, 'specs', 'active'), archiveDir: join(repoRoot, 'specs', 'archive') });
+                  if (Array.isArray(problems) && problems.length > 0) {
+                    throw new WorkflowError(
+                      `Derived artifact integrity check failed for ${gen.id}: ${problems.join(', ')}`,
+                      {
+                        code: 'DERIVED_INTEGRITY_FAILED',
+                        generatorId: gen.id,
+                        problems,
+                      }
+                    );
+                  }
+                }
+              }
+            }
+
+            const derivedOwned = resolveDerivedOwnedPaths(derivedPlan);
+            const commitPaths = [relChangeFile, ...derivedOwned];
+
             commitStage.status = 'running';
             saveOperationRecord(repoRoot, record);
 
             const commitMessage = `chore(workflow): publish ${taskId}`;
-            await addAndCommitAsync(repoRoot, [change._file], commitMessage);
+            await addAndCommitAsync(repoRoot, commitPaths, commitMessage);
 
             commitStage.status = 'completed';
+            commitStage.result = { sha: getCurrentRevision(repoRoot), status: 'completed' };
             saveOperationRecord(repoRoot, record);
           } else {
             commitStage.status = 'completed';
