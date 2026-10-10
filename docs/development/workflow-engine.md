@@ -291,10 +291,14 @@ Runtime execution state is isolated per task, step, and attempt under `.nevo-ai-
   `.nevo-ai-local/workflow-operations/<change>/<task>/<step>/attempt-<n>.json`
 - **Human verification signoffs**:
   `.nevo-ai-local/human-verifications/<change>/<task>/<step>/attempt-<n>/<gateId>.json`
+- **Activity history ledger**:
+  `.nevo-ai-local/activity/<specId>.ndjson` (per-spec append-only NDJSON ledger; not attempt-scoped, no pruning)
 
 Attempt scoping guarantees that loops and retries never collide with or overwrite evidence
 from previous attempts. Operations and signoffs are strictly bound to the logical attempt
-under execution.
+under execution. In contrast, the Activity history ledger is scoped per specification (`specId`),
+capturing an append-only, unpruned chronological history across all tasks rather than being
+isolated to a single attempt.
 
 ### Discriminated transition output
 

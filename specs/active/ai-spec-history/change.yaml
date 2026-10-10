@@ -235,6 +235,16 @@ tasks:
       - activity-dashboard-api
       - workflow-step-activity-producer
       - human-verification-activity-producer
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: 2026-10-10T12:37:56.048Z
+          transitioned_to: review
+          sessionId: f3930156-ab0c-4d1e-8daa-c9a3a5d1841e
 
 spec_id: fe63d2b5-a66a-4c88-b3cc-6d38b193b725
 pull_requests:
