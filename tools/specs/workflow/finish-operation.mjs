@@ -7,6 +7,8 @@
 // execution state, never part of `change.yaml` (D14 correction, C17).
 
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 
 import { requireChange, requireTask, setTaskWorkflowState } from '../store.mjs';
 import { TERMINAL_STATUSES } from '../status-vocabulary.mjs';
@@ -17,6 +19,16 @@ import { resolveActiveStepName, resolveWorkflowPosition, inspectGates, verifyGat
 import { aggregateFinalizeCheck, buildFinishContract, normalizeSourceControlFacts, resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
 import { WorkflowError, PreconditionError } from './errors.mjs';
 import * as git from '../../lib/git.mjs';
+import { planDerivedSync, resolveDerivedOwnedPaths } from '../derived/registry.mjs';
+import { validateSpecs } from '../validation.mjs';
+import { scanDocs, validateDocs, pathMatchesRule } from '../../docs/service.mjs';
+import { expandDirtyPaths, matchesFileSelectionPattern } from './actions/commit-and-push.mjs';
+
+function pathMatchesPattern(filePath, pattern) {
+  if (matchesFileSelectionPattern(filePath, pattern)) return true;
+  if (pathMatchesRule(filePath, pattern)) return true;
+  return false;
+}
 // ── Durable operation record I/O (D23: step-aware identity) ─────────────────
 // Extracted into `operation-record.mjs` (D37 correction) so `step-context.mjs`'s
 // `step start` activation guard can read these records too, without a circular import
@@ -206,10 +218,20 @@ export async function planFinish({
   const effectiveChangeSlug = changeSlug || context.changeSlug || context.changeId;
   const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || (task && change ? resolveTaskScope(change, task, context).allowedPaths : null);
   const workflowOwnedPaths = resolveWorkflowOwnedPaths({ ...context, changeSlug: effectiveChangeSlug, activeDir: context.activeDir, repoRoot: context.repoRoot });
+  let derivedOwnedPaths = [];
+  if (context.repoRoot) {
+    try {
+      const rawDirtyPaths = git.getDirtyPaths(context.repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+      const expandedDirty = expandDirtyPaths(context.repoRoot, rawDirtyPaths);
+      const previewPlan = planDerivedSync(expandedDirty);
+      derivedOwnedPaths = resolveDerivedOwnedPaths(previewPlan);
+    } catch {}
+  }
   const checkContext = {
     ...context,
     ...(taskAllowedPaths !== null ? { taskAllowedPaths, allowedPaths: taskAllowedPaths } : {}),
     workflowOwnedPaths,
+    derivedOwnedPaths,
     changeSlug: effectiveChangeSlug,
   };
   const finalizeCheck = await aggregateFinalizeCheck(step, checkContext, { engine, actionRegistry });
@@ -583,6 +605,104 @@ async function ensureCommit(record, context, repoRoot) {
     // currentHead === preCommitHead: the commit never happened — safe to (re)execute below.
   }
 
+  // ── Derived artifact synchronization (D1-D5, Area A) ────────────────────────
+  // Called before stage.intent is written so any failure leaves stage 'pending'
+  // and does not require reconciliation.
+  const rawDirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+  const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
+  const taskAllowedPaths = Array.isArray(context.taskAllowedPaths)
+    ? context.taskAllowedPaths
+    : (Array.isArray(context.allowedPaths) ? context.allowedPaths : []);
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths(context);
+
+  const derivedPlan = planDerivedSync(dirtyPaths);
+  let derivedOwnedPaths = [];
+
+  if (derivedPlan.length > 0) {
+    // Precondition: Every dirty path matching a triggered generator's inputs
+    // must belong to the operation's commit set (taskAllowedPaths ∪ workflowOwnedPaths).
+    const operationAllowedPatterns = [...taskAllowedPaths, ...workflowOwnedPaths];
+    for (const dirtyPath of dirtyPaths) {
+      const matchesTriggeredInput = derivedPlan.some(gen =>
+        (gen.inputs || []).some(pattern => pathMatchesPattern(dirtyPath, pattern))
+      );
+      if (matchesTriggeredInput) {
+        const isAllowed = operationAllowedPatterns.some(pattern =>
+          pathMatchesPattern(dirtyPath, pattern)
+        );
+        if (!isAllowed) {
+          throw new WorkflowError(
+            `Dirty path '${dirtyPath}' matches derived generator inputs but is outside operation scope`,
+            {
+              code: 'DERIVED_INPUT_DIRTY_OUTSIDE_OPERATION',
+              dirtyPath,
+            }
+          );
+        }
+      }
+    }
+
+    // Execute generation
+    try {
+      for (const gen of derivedPlan) {
+        if (typeof gen.sync === 'function') {
+          gen.sync({ repoRoot, ...context });
+        }
+      }
+    } catch (err) {
+      throw new WorkflowError(
+        `Derived artifact sync failed: ${err.message}`,
+        {
+          code: 'DERIVED_ARTIFACT_SYNC_FAILED',
+          cause: err,
+        }
+      );
+    }
+
+    derivedOwnedPaths = resolveDerivedOwnedPaths(derivedPlan);
+
+    // Integrity checks:
+    // 1. Generator self-check
+    for (const gen of derivedPlan) {
+      if (typeof gen.check === 'function') {
+        const problems = gen.check({ repoRoot, ...context });
+        if (Array.isArray(problems) && problems.length > 0) {
+          throw new WorkflowError(
+            `Derived artifact integrity check failed for ${gen.id}: ${problems.join(', ')}`,
+            {
+              code: 'DERIVED_INTEGRITY_FAILED',
+              generatorId: gen.id,
+              problems,
+            }
+          );
+        }
+      }
+    }
+
+    // 2. Repo-wide validate for specs and docs (D5)
+    const shouldValidateRepo = context.validateRepo !== undefined
+      ? Boolean(context.validateRepo)
+      : (existsSync(join(repoRoot, 'package.json')) && existsSync(join(repoRoot, 'docs')));
+
+    if (shouldValidateRepo) {
+      const activeDir = context.activeDir || join(repoRoot, 'specs', 'active');
+      const archiveDir = context.archiveDir || join(repoRoot, 'specs', 'archive');
+      const specErrors = validateSpecs({ activeDir, archiveDir });
+      const docs = scanDocs({ repoRoot, docsDir: join(repoRoot, 'docs') });
+      const docErrors = validateDocs(docs);
+      const repoErrors = [...(specErrors || []), ...(docErrors || [])];
+      if (repoErrors.length > 0) {
+        throw new WorkflowError(
+          `Repository-wide validation failed after derived sync: ${repoErrors.join('; ')}`,
+          {
+            code: 'REPO_INTEGRITY_FAILED',
+            errors: repoErrors,
+          }
+        );
+      }
+    }
+  }
+
   const preCommitHead = git.getCurrentRevision(repoRoot);
   stage.intent = { preCommitHead };
   stage.status = 'running';
@@ -596,12 +716,11 @@ async function ensureCommit(record, context, repoRoot) {
   // "push only" once the worktree is already clean (its `include` contract requires
   // matching dirty files).
   const changeSlug = context.changeSlug || context.changeId;
-  const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || null;
-  const workflowOwnedPaths = resolveWorkflowOwnedPaths(context);
   const actionContext = {
     ...context,
     ...(taskAllowedPaths !== null ? { taskAllowedPaths, allowedPaths: taskAllowedPaths } : {}),
     workflowOwnedPaths,
+    derivedOwnedPaths,
     changeSlug,
     sourceControl: { enabled: true, push: false },
   };

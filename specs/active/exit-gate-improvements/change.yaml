@@ -21,8 +21,10 @@ tasks:
   - id: finish-derived-sync
     order: 2
     file: tasks/02-finish-derived-sync.md
-    status: approved
+    status: verified
     depends_on: [ derived-registry-and-deterministic-generators ]
+    implementation:
+      baseline_revision: 35e5bca4d77b0b70fa07ed802872efa5459d0e4d
   - id: publish-and-batch-derived-sync
     order: 3
     file: tasks/03-publish-and-batch-derived-sync.md

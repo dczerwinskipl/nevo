@@ -12,6 +12,7 @@ import { findInFlightOperationRecord, isFinishOperationReplayable } from './oper
 
 import { findInFlightStartOperation } from './start-operation.mjs';
 import { resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
+import { listDerivedOutputs } from '../derived/registry.mjs';
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
 import * as git from '../../lib/git.mjs';
 
@@ -126,9 +127,11 @@ export async function assessExecutionSettlement(params = {}) {
       if (dirtyPaths.length > 0) {
         const { allowedPaths, forbiddenPaths } = resolveTaskScope(change, task, { repoRoot, activeDir: resolvedActiveDir });
         const workflowOwnedPaths = resolveWorkflowOwnedPaths({ repoRoot, changeSlug, activeDir: resolvedActiveDir });
+        const derivedOutputs = listDerivedOutputs();
         const ownedScope = [
           ...(allowedPaths || []),
           ...(workflowOwnedPaths || []),
+          ...derivedOutputs,
         ];
 
         inScopeDirty = dirtyPaths.filter(p => ownedScope.some(pat => matchesFilePattern(p, pat)));

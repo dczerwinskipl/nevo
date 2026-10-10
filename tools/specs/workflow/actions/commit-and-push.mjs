@@ -72,7 +72,7 @@ export function resolveWorkflowOwnedPaths(context = {}) {
 // contract explicitly allows `include: ['*']` (D4/D6), which an allowed_paths-style
 // matcher alone does not need to support. Kept local rather than importing that
 // unrelated module's internal helper for one extra case.
-function matchesFileSelectionPattern(filePath, pattern) {
+export function matchesFileSelectionPattern(filePath, pattern) {
   const normalized = filePath.replace(/\\/g, '/');
   const normalizedPattern = pattern.replace(/\\/g, '/');
   if (normalizedPattern === '*' || normalizedPattern === '**') return true;
@@ -97,7 +97,7 @@ function shortLog(entries) {
   return entries.map(c => `${c.sha.slice(0, 7)} ${c.subject}`);
 }
 
-function expandDirtyPaths(repoRoot, paths) {
+export function expandDirtyPaths(repoRoot, paths) {
   const result = [];
   for (const p of paths) {
     const full = join(repoRoot, p);
@@ -188,7 +188,7 @@ export class CommitAndPushAction extends ActionContract {
       changedFiles,
       stagedFiles,
       taskAffectedFiles,
-      generatedFiles: [],
+      generatedFiles: Array.isArray(context.derivedOwnedPaths) ? context.derivedOwnedPaths : [],
       currentBranch,
       baseBranch,
       existingCommits,
@@ -248,9 +248,11 @@ export class CommitAndPushAction extends ActionContract {
     const hasScopeConstraint = Array.isArray(taskAllowedPaths) && taskAllowedPaths.length > 0;
 
     if (hasScopeConstraint) {
+      const derivedOwnedPaths = Array.isArray(context.derivedOwnedPaths) ? context.derivedOwnedPaths : [];
       const allowedPatterns = [
         ...taskAllowedPaths,
         ...workflowOwnedPaths,
+        ...derivedOwnedPaths,
       ];
       const outOfScopePaths = dirtyPaths.filter(p => !allowedPatterns.some(pattern => matchesFileSelectionPattern(p, pattern)));
       if (outOfScopePaths.length > 0) {
