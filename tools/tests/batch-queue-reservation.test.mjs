@@ -15,9 +15,6 @@ import {
   isTaskBarriered,
   assessBatchReservationSettlement,
   reconcileCrashedReservation,
-  evaluateTaskQueue,
-  saveTaskQueue,
-  loadTaskQueue,
 } from '../specs/workflow/queue/index.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -127,7 +124,7 @@ test('AC1: validateBatchCompatibility accepts compatible review tasks and reject
   assert.match(resultSingle.reason, /at least 2 tasks/);
 });
 
-test('AC2: While a group is reserved, nextRunnable never returns a reserved member but does return an eligible non-member item unchanged', async () => {
+test('AC2: While a group is reserved, isTaskBarriered excludes every reserved member but leaves an eligible non-member item unaffected', async () => {
   const tmpRoot = path.join(REPO_ROOT, '.nevo-ai-local', 'test-scratch-queue-res-' + Date.now());
   fs.mkdirSync(tmpRoot, { recursive: true });
 
@@ -142,21 +139,10 @@ test('AC2: While a group is reserved, nextRunnable never returns a reserved memb
       ],
     };
 
-    const readinessByTaskId = {
-      'task-res-1': { ready: true, targetStep: { id: 'review', schedulingPriority: 0 } },
-      'task-res-2': { ready: true, targetStep: { id: 'review', schedulingPriority: 0 } },
-      'task-free': { ready: true, targetStep: { id: 'review', schedulingPriority: 0 } },
-    };
-
-    // 1. Before reservation, task-res-1 is nextRunnable
-    let queueState = evaluateTaskQueue({
-      change,
-      selectedTaskIds: ['task-res-1', 'task-res-2', 'task-free'],
-      readinessByTaskId,
-      repoRoot: tmpRoot,
-    });
-    assert.equal(queueState.eligible.length, 3);
-    assert.equal(queueState.nextRunnable.taskId, 'task-res-1');
+    // 1. Before reservation, nothing is barriered
+    assert.equal(isTaskBarriered(change, 'task-res-1', { repoRoot: tmpRoot }), false);
+    assert.equal(isTaskBarriered(change, 'task-res-2', { repoRoot: tmpRoot }), false);
+    assert.equal(isTaskBarriered(change, 'task-free', { repoRoot: tmpRoot }), false);
 
     // 2. Create durable group reservation for task-res-1 and task-res-2
     const reservation = await createGroupReservation({
@@ -180,17 +166,6 @@ test('AC2: While a group is reserved, nextRunnable never returns a reserved memb
     assert.equal(isTaskBarriered(change, 'task-res-2', { repoRoot: tmpRoot }), true);
     assert.equal(isTaskBarriered(change, 'task-free', { repoRoot: tmpRoot }), false);
 
-    // 3. Evaluate queue with reservation present: task-free is now nextRunnable, reserved members excluded
-    queueState = evaluateTaskQueue({
-      change,
-      selectedTaskIds: ['task-res-1', 'task-res-2', 'task-free'],
-      readinessByTaskId,
-      repoRoot: tmpRoot,
-    });
-    assert.equal(queueState.eligible.length, 1);
-    assert.equal(queueState.eligible[0].taskId, 'task-free');
-    assert.equal(queueState.nextRunnable.taskId, 'task-free');
-
     // 4. Release reservation: members become eligible again
     await releaseGroupReservation({
       repoRoot: tmpRoot,
@@ -199,15 +174,8 @@ test('AC2: While a group is reserved, nextRunnable never returns a reserved memb
     });
 
     assert.equal(isTaskBarriered(change, 'task-res-1', { repoRoot: tmpRoot }), false);
-
-    queueState = evaluateTaskQueue({
-      change,
-      selectedTaskIds: ['task-res-1', 'task-res-2', 'task-free'],
-      readinessByTaskId,
-      repoRoot: tmpRoot,
-    });
-    assert.equal(queueState.eligible.length, 3);
-    assert.equal(queueState.nextRunnable.taskId, 'task-res-1');
+    assert.equal(isTaskBarriered(change, 'task-res-2', { repoRoot: tmpRoot }), false);
+    assert.equal(isTaskBarriered(change, 'task-free', { repoRoot: tmpRoot }), false);
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }

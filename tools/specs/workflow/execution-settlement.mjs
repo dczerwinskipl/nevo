@@ -198,6 +198,23 @@ export async function assessExecutionSettlement(params = {}) {
   const isNeverActivated = Boolean(
     params.neverActivated ||
     params.preActivationBlocker ||
+    // A task with no `workflow_progress` at all, and zero dirty in-scope files,
+    // has by definition never been activated — nothing happened, there is nothing
+    // to inspect. Without this, a task approved but never bootstrapped (e.g. its
+    // turn failed, zero activity, before ever reaching `workflow step start`) fell
+    // through every branch above to the final fallback (`settled: true, outcome:
+    // 'completed'`), misclassifying an instantly-failed, zero-work turn as
+    // genuinely completed — which skips this task's dequeue (see admission.mjs's
+    // 'resumable' branch) and lets the durable queue re-admit the same
+    // never-started task indefinitely, minting a fresh session every pass with no
+    // cap or backoff. Deliberately narrower than the `'ready'`/`'waiting-for-
+    // step-start'` cases below: those are states the step engine explicitly wrote,
+    // so dirty files alongside them are a known, safe pre-activation pattern
+    // (resumable either way). `workflow_progress` being entirely absent carries no
+    // such guarantee — if dirty files exist too, leave this condition false so the
+    // existing dirty-in-scope-files/recovery-required handling further down still
+    // applies, unchanged from before this fix.
+    (wp == null && inScopeDirty.length === 0) ||
     (params.baselineProgress && (
       wp?.current_step === params.baselineProgress.current_step &&
       wp?.current_attempt === params.baselineProgress.current_attempt &&

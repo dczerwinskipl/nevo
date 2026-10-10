@@ -10,7 +10,7 @@ context:
     - docs/decisions/ADR-0006-process-continuity-and-hardening.md
     - docs/development/workflow-engine.md
 allowed_paths:
-  - docs/decisions/ADR-0009-local-append-only-activity-history.md
+  - docs/decisions/ADR-0010-local-append-only-activity-history.md
   - docs/development/workflow-engine.md
   - docs/index.generated.json
   - docs/index.generated.md
@@ -25,6 +25,19 @@ semantic_references:
     - workflow-step-activity-producer
     - human-verification-activity-producer
 ---
+
+<!--
+Scope amendment (review-step finding, deterministic workflow, owner-authorized
+2026-10-10): the implementation attempt created `ADR-0009-local-append-only-activity-history.md`,
+but `docs/decisions/ADR-0009-agent-admission-and-execution-ownership-model.md` already
+exists — merged independently via an unrelated change (PR #52, `deterministic-execution-follow-up-hardening`)
+while this change's own task content (written expecting 0009 as the next free number)
+was in flight. Both files carry distinct `id:` frontmatter, so `docs.mjs validate` does
+not catch the collision, but two ADRs sharing one number is a real defect. Renumbered to
+ADR-0010 (next free number) per explicit owner decision. `allowed_paths` above updated
+accordingly; this invalidates this task's semantic fingerprint and review baseline, per
+`docs/ai/specification-workflow.md`'s "Specification scope amendment" mechanism.
+-->
 
 # Task: ADR and documentation
 
@@ -42,7 +55,7 @@ include the new Activity store, so the doc doesn't go stale on merge.
 
 ## Requirements
 
-- `docs/decisions/ADR-0009-local-append-only-activity-history.md`: explain why a local,
+- `docs/decisions/ADR-0010-local-append-only-activity-history.md`: explain why a local,
   append-only Activity ledger for `.nevo-ai-local` runtime facts (actor, session, attempt)
   is not a repeat of the pattern ADR-0004/ADR-0006 rejected — those applied to
   **git-tracked** artifacts, where git already substitutes for history; `.nevo-ai-local`

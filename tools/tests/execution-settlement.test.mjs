@@ -110,6 +110,26 @@ allowed_paths:
     assert.equal(result.outcome, 'resumable');
   });
 
+  test('Task with no workflow_progress at all (never bootstrapped) produces outcome: resumable, never completed', async () => {
+    // Regression: an approved task that was admitted and had its turn fail
+    // instantly (e.g. AI_QUOTA_EXHAUSTED before `workflow step start` ever ran)
+    // has no workflow_progress key whatsoever — `beforeEach`'s default demo-task
+    // is exactly this state, with no in-flight start/finish operation and no
+    // dirty files. Before this fix, this fell through to the final fallback and
+    // was misclassified as settled: true, outcome: 'completed', which skips the
+    // dequeue in admission.mjs's 'resumable' branch and lets the durable queue
+    // re-admit the same never-started task indefinitely (observed in production:
+    // 100+ sessions minted in minutes against the real ai-spec-history spec).
+    const result = await assessExecutionSettlement({
+      repoRoot: tempRepoRoot,
+      changeSlug: 'demo-change',
+      taskId: 'demo-task',
+    });
+
+    assert.equal(result.settled, false);
+    assert.equal(result.outcome, 'resumable');
+    assert.equal(result.reason, 'never-activated');
+  });
 
   test('Condition 3: Task workflow_progress state: active blocks settlement', async () => {
     // Write change.yaml with task workflow_progress.state = 'active'

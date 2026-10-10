@@ -14,6 +14,8 @@ import { executeBatchFinish } from '../specs/workflow/batch-finish/operation.mjs
 import { loadBatchFinishRecord } from '../specs/workflow/batch-finish/record.mjs';
 import { handleWorkflowBatchFinish } from '../specs/workflow/cli.mjs';
 import { getCanonicalBatchReportRelativePath } from '../specs/reviews/batch-report.mjs';
+import { loadDependencyConsumption } from '../specs/workflow/dependency-consumption.mjs';
+import { findInFlightStartOperation } from '../specs/workflow/start-operation.mjs';
 import * as git from '../lib/git.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -36,11 +38,13 @@ steps:
     purpose: "Implement code"
     expectedWork:
       summary: "Implement"
+    consumesDependencies: true
     entryGates: []
     exitGates: []
     finalize: []
     transitions:
       - to: review
+        releasesDependencies: true
         execution:
           session: fresh
           role: reviewer
@@ -93,6 +97,8 @@ const SPEC_IDS = {
   'identity-mismatch-spec': 'bbbbbbbb-0006-4000-b000-000000000001',
   'cli-batch-finish-spec': 'bbbbbbbb-0007-4000-b000-000000000001',
   'cross-task-findings-spec': 'bbbbbbbb-0008-4000-b000-000000000001',
+  'intra-batch-dep-spec': 'cccccccc-0001-4000-c000-000000000001',
+  'intra-batch-dep-crash-spec': 'cccccccc-0002-4000-c000-000000000001',
 };
 
 function createTasksAndBootstrap(tmpRoot, slug, taskIds = ['t1', 't2', 't3']) {
@@ -130,6 +136,11 @@ function createTasksAndBootstrap(tmpRoot, slug, taskIds = ['t1', 't2', 't3']) {
     fs.writeFileSync(path.join(tmpRoot, 'src', `${id}.js`), `export const ${id} = '${id}';\n`, 'utf8');
     fs.writeFileSync(path.join(taskDir, `${id}.md`), `# Task ${id}\n`, 'utf8');
   }
+  // Tracked file outside every member's own allowed_paths — used to prove a real
+  // out-of-scope provenance violation still gets caught (batch-execution-
+  // generalization, task 03, Gap 2 widens the exclusion to each member's own declared
+  // scope, so an in-scope edit like src/t1.js is no longer, by itself, a violation).
+  fs.writeFileSync(path.join(tmpRoot, 'src', 'unrelated.js'), "export const unrelated = 'unrelated';\n", 'utf8');
 
   execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
   execFileSync('git', ['commit', '-m', 'Initial setup for batch finish test'], { cwd: tmpRoot });
@@ -222,21 +233,28 @@ test('1. AC1: 3 tasks with valid results on post-bootstrap fixture reaches compl
         t3: { result: 'fail', feedback: 't3 needs minor fix' },
       },
       crossTaskFindings: [{ id: 'CT-1', message: 'No conflicts found', affectedTaskIds: ['t1', 't2'] }],
+      'commit.title': 'docs(review): batch review report',
     },
   });
 
   assert.equal(finishRes.status, 'completed');
   assert.equal(finishRes.record.status, 'completed');
-  assert.equal(finishRes.record.stages.reportCommit.status, 'completed');
+  assert.equal(finishRes.record.stages.sharedCommit.status, 'completed');
 
-  // Check report commit landed with report path only
+  // Check exactly one shared commit landed, covering every member's transition AND the
+  // report together (batch-execution-generalization, task 03, Gap 2: one commit, not a
+  // separate report-only commit plus per-member commits).
   const commitCountAfter = execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: tmpRoot, encoding: 'utf8' }).trim();
-  assert.equal(Number(commitCountAfter), Number(commitCountBefore) + 1, 'Exactly one report commit must be added');
+  assert.equal(Number(commitCountAfter), Number(commitCountBefore) + 1, 'Exactly one shared commit must be added');
 
   // Check commit contents
-  const reportCommitSha = finishRes.record.stages.reportCommit.sha;
-  const changedFiles = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', reportCommitSha], { cwd: tmpRoot, encoding: 'utf8' }).trim();
-  assert.equal(changedFiles, reportPath.replace(/\\/g, '/'), 'Report commit must ONLY include report path');
+  const sharedCommitSha = finishRes.record.stages.sharedCommit.result.sha;
+  const changedFiles = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', sharedCommitSha], { cwd: tmpRoot, encoding: 'utf8' }).trim().split('\n').sort();
+  assert.deepEqual(
+    changedFiles,
+    [reportPath.replace(/\\/g, '/'), 'specs/active/three-tasks-spec/change.yaml'].sort(),
+    'The one shared commit must include both the report and change.yaml'
+  );
 
   // Verify task transitions and histories in change.yaml
   const changeYaml = fs.readFileSync(path.join(changeDir, 'change.yaml'), 'utf8');
@@ -379,8 +397,8 @@ test('3. AC3: Prevalidation provenance failure (HEAD divergence, modified doc/so
   fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
   fs.writeFileSync(fullReportPath, '# Report Content\n', 'utf8');
 
-  // Case A: Modified tracked source file
-  fs.writeFileSync(path.join(tmpRoot, 'src', 't1.js'), '// reviewer illegal edit\n', 'utf8');
+  // Case A: Modified tracked source file outside every member's own allowed_paths
+  fs.writeFileSync(path.join(tmpRoot, 'src', 'unrelated.js'), '// reviewer illegal edit\n', 'utf8');
   await assert.rejects(
     async () => {
       await executeBatchFinish({
@@ -391,14 +409,15 @@ test('3. AC3: Prevalidation provenance failure (HEAD divergence, modified doc/so
         sessionId,
         inputs: {
           tasks: { t1: 'pass', t2: 'pass' },
+          'commit.title': 'docs(review): batch review report',
         },
       });
     },
     { code: 'BATCH_PROVENANCE_VIOLATION' }
   );
 
-  // Restore t1.js to valid state
-  fs.writeFileSync(path.join(tmpRoot, 'src', 't1.js'), "export const t1 = 't1';\n", 'utf8');
+  // Restore unrelated.js to valid state
+  fs.writeFileSync(path.join(tmpRoot, 'src', 'unrelated.js'), "export const unrelated = 'unrelated';\n", 'utf8');
 
   // Case B: Newly created untracked source file
   fs.writeFileSync(path.join(tmpRoot, 'src', 'untracked-reviewer-artifact.js'), '// extra\n', 'utf8');
@@ -412,6 +431,7 @@ test('3. AC3: Prevalidation provenance failure (HEAD divergence, modified doc/so
         sessionId,
         inputs: {
           tasks: { t1: 'pass', t2: 'pass' },
+          'commit.title': 'docs(review): batch review report',
         },
       });
     },
@@ -431,6 +451,7 @@ test('3. AC3: Prevalidation provenance failure (HEAD divergence, modified doc/so
         sessionId,
         inputs: {
           tasks: { t1: 'pass', t2: 'pass' },
+          'commit.title': 'docs(review): batch review report',
         },
       });
     },
@@ -438,7 +459,7 @@ test('3. AC3: Prevalidation provenance failure (HEAD divergence, modified doc/so
   );
 });
 
-test('4. AC4: Crash immediately after report commit lands resumes without re-checking HEAD==baseRevision or re-committing', async () => {
+test('4. AC4: Crash immediately after the shared commit lands resumes without re-checking HEAD==baseRevision or re-committing', async () => {
   const { tmpRoot, activeDir } = setupTestRepo('crash-report-spec');
   const slug = 'crash-report-spec';
   const taskIds = ['t1', 't2'];
@@ -484,7 +505,9 @@ test('4. AC4: Crash immediately after report commit lands resumes without re-che
   fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
   fs.writeFileSync(fullReportPath, '# Report Content\n', 'utf8');
 
-  // Run with simulated crash immediately after report commit
+  // Run with simulated crash immediately after the one shared commit lands (after
+  // every member's own finish already completed — the shared commit is now the last
+  // durable step before 'completed', batch-execution-generalization task 03)
   await assert.rejects(
     async () => {
       await executeBatchFinish({
@@ -495,19 +518,23 @@ test('4. AC4: Crash immediately after report commit lands resumes without re-che
         sessionId,
         inputs: {
           tasks: { t1: 'pass', t2: 'pass' },
+          'commit.title': 'docs(review): batch review report',
         },
-        _crashAfterReportCommit: true,
+        _crashAfterSharedCommit: true,
       });
     },
-    /Simulated crash after report commit/
+    /Simulated crash after shared commit/
   );
 
-  // Verify report was committed and record saved
+  // Verify the shared commit landed and the record was saved
   const recordMid = loadBatchFinishRecord(tmpRoot, slug, batchExecutionId);
   assert.ok(recordMid);
-  assert.equal(recordMid.stages.reportCommit.status, 'completed');
-  const initialReportCommitSha = recordMid.stages.reportCommit.sha;
-  assert.ok(initialReportCommitSha);
+  assert.equal(recordMid.stages.sharedCommit.status, 'completed');
+  const initialSharedCommitSha = recordMid.stages.sharedCommit.result.sha;
+  assert.ok(initialSharedCommitSha);
+  // Every member finish already completed before the shared commit stage runs
+  assert.equal(recordMid.stages.memberFinishes.t1.status, 'completed');
+  assert.equal(recordMid.stages.memberFinishes.t2.status, 'completed');
 
   const commitCountMid = execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: tmpRoot, encoding: 'utf8' }).trim();
 
@@ -520,14 +547,15 @@ test('4. AC4: Crash immediately after report commit lands resumes without re-che
     sessionId,
     inputs: {
       tasks: { t1: 'pass', t2: 'pass' },
+      'commit.title': 'docs(review): batch review report',
     },
   });
 
   assert.equal(resumeRes.status, 'completed');
-  assert.equal(resumeRes.record.stages.reportCommit.sha, initialReportCommitSha, 'Must reuse recorded commit SHA');
+  assert.equal(resumeRes.record.stages.sharedCommit.result.sha, initialSharedCommitSha, 'Must reuse recorded commit SHA');
 
   const commitCountAfter = execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: tmpRoot, encoding: 'utf8' }).trim();
-  assert.equal(commitCountAfter, commitCountMid, 'Report must NOT be committed a second time');
+  assert.equal(commitCountAfter, commitCountMid, 'Shared commit must NOT be committed a second time');
 });
 
 test('5. AC5: Crash after report commit and task t1 finish resumes and completes t2 and t3 without re-touching t1', async () => {
@@ -587,6 +615,7 @@ test('5. AC5: Crash after report commit and task t1 finish resumes and completes
         sessionId,
         inputs: {
           tasks: { t1: 'pass', t2: 'pass', t3: 'pass' },
+          'commit.title': 'docs(review): batch review report',
         },
         _crashAfterMemberTaskId: 't1',
       });
@@ -608,6 +637,7 @@ test('5. AC5: Crash after report commit and task t1 finish resumes and completes
     sessionId,
     inputs: {
       tasks: { t1: 'pass', t2: 'pass', t3: 'pass' },
+      'commit.title': 'docs(review): batch review report',
     },
   });
 
@@ -846,6 +876,7 @@ test('8. CLI surface: handleWorkflowBatchFinish runs end-to-end via CLI options'
     silent: true,
     input: JSON.stringify({
       tasks: { t1: 'pass', t2: 'fail' },
+      'commit.title': 'docs(review): batch review report',
     }),
   });
 
@@ -912,6 +943,7 @@ test('9. AC9: Reviewer cross-task findings with affectedTaskIds reach canonical 
               affectedTaskIds: ['t1', 'unknown-foreign-task'],
             },
           ],
+          'commit.title': 'docs(review): batch review report',
         },
       });
     },
@@ -939,6 +971,7 @@ test('9. AC9: Reviewer cross-task findings with affectedTaskIds reach canonical 
           severity: 'warning',
         },
       ],
+      'commit.title': 'docs(review): batch review report',
     },
   });
 
@@ -950,4 +983,232 @@ test('9. AC9: Reviewer cross-task findings with affectedTaskIds reach canonical 
   assert.ok(reportContent.includes('FINDING-VALID'));
   assert.ok(reportContent.includes('Reviewer detected shared API contract divergence'));
   assert.ok(reportContent.includes('t1, t2'));
+});
+
+test("10. AC (Task 04): Intra-batch dependency-consumption materializes T2's pending entry with T1's real releaseEpoch, using T2's own pre-allocated consumptionSequence", async () => {
+  const { tmpRoot, activeDir, changeDir, taskDir } = setupTestRepo('intra-batch-dep-spec');
+  const slug = 'intra-batch-dep-spec';
+  const taskIds = ['t1', 't2'];
+
+  // Two brand-new tasks (no workflow_progress at all) — t2 depends_on t1, both
+  // targeting the shared, unconditional entry step 'implementation'.
+  fs.writeFileSync(
+    path.join(changeDir, 'change.yaml'),
+    `id: ${slug}
+spec_id: "cccccccc-0001-4000-c000-000000000001"
+workflow:
+  mode: deterministic
+  definition: standard.yaml
+tasks:
+  - id: t1
+    order: 1
+    title: Task 1
+    status: planned
+  - id: t2
+    order: 2
+    title: Task 2
+    status: planned
+    depends_on: [t1]
+`,
+    'utf8'
+  );
+  fs.writeFileSync(path.join(taskDir, 't1.md'), '# Task 1\n', 'utf8');
+  fs.writeFileSync(path.join(taskDir, 't2.md'), '# Task 2\n', 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
+  execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: tmpRoot });
+
+  const batchExecutionId = 'batch-exec-intra-dep-1';
+  const sessionId = 'session-intra-dep-1';
+
+  await createGroupReservation({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    taskIds,
+    batchExecutionId,
+    executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+  });
+
+  writeSessionFile(tmpRoot, slug, {
+    sessionId,
+    batchExecutionId,
+    executionScope: { kind: 'task-batch', changeSlug: slug, taskIds },
+  });
+
+  await acquireWorkspaceWriter({
+    repoRoot: tmpRoot,
+    kind: 'agent',
+    specId: slug,
+    sessionId,
+    turnId: 'turn-1',
+    scope: { kind: 'task-batch', taskIds },
+    batchExecutionId,
+  });
+
+  await executeBatchStart({
+    repoRoot: tmpRoot,
+    activeDir,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId,
+  });
+
+  // Both t1 and t2 target the unconditional 'implementation' step — no result field
+  const finishRes = await executeBatchFinish({
+    repoRoot: tmpRoot,
+    activeDir,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId,
+    inputs: {
+      tasks: {},
+      'commit.title': 'feat: implement t1 and t2',
+    },
+  });
+
+  assert.equal(finishRes.status, 'completed');
+
+  // T2's dependency-consumption record names T1's real releaseEpoch, using T2's own
+  // pre-allocated consumptionSequence (never a new one) — consumptionSequence is
+  // scoped per *consuming* task (D52/D58: scanMaxConsumptionSequence scans only that
+  // task's own prior records), so T2's first-ever allocation is 1, same as T1's.
+  const t2Consumption = loadDependencyConsumption(tmpRoot, slug, 't2', 'implementation', 1);
+  assert.ok(t2Consumption, 'T2 must have a recorded dependency-consumption entry');
+  assert.deepEqual(t2Consumption.dependencies, [
+    { taskId: 't1', releaseEpoch: { step: 'implementation', attempt: 1 } },
+  ]);
+  assert.equal(t2Consumption.consumptionSequence, 1);
+
+  // T1 has no dependencies at all — unaffected by the materialization machinery, its
+  // own (empty) consumption record is still correctly recorded, exactly as the
+  // single-task path would.
+  const t1Consumption = loadDependencyConsumption(tmpRoot, slug, 't1', 'implementation', 1);
+  assert.ok(t1Consumption);
+  assert.deepEqual(t1Consumption.dependencies, []);
+
+  // Both start-operations' record-consumption stage closed (no longer in-flight)
+  assert.equal(findInFlightStartOperation(tmpRoot, slug, 't1'), null);
+  assert.equal(findInFlightStartOperation(tmpRoot, slug, 't2'), null);
+});
+
+test('11. AC (Task 04): Crash between materializing T2\'s pending entry and finishing T3 resumes without duplicating or losing the materialized entry', async () => {
+  const { tmpRoot, activeDir, changeDir, taskDir } = setupTestRepo('intra-batch-dep-crash-spec');
+  const slug = 'intra-batch-dep-crash-spec';
+  const taskIds = ['t1', 't2', 't3'];
+
+  fs.writeFileSync(
+    path.join(changeDir, 'change.yaml'),
+    `id: ${slug}
+spec_id: "cccccccc-0002-4000-c000-000000000001"
+workflow:
+  mode: deterministic
+  definition: standard.yaml
+tasks:
+  - id: t1
+    order: 1
+    title: Task 1
+    status: planned
+  - id: t2
+    order: 2
+    title: Task 2
+    status: planned
+    depends_on: [t1]
+  - id: t3
+    order: 3
+    title: Task 3
+    status: planned
+`,
+    'utf8'
+  );
+  fs.writeFileSync(path.join(taskDir, 't1.md'), '# Task 1\n', 'utf8');
+  fs.writeFileSync(path.join(taskDir, 't2.md'), '# Task 2\n', 'utf8');
+  fs.writeFileSync(path.join(taskDir, 't3.md'), '# Task 3\n', 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
+  execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: tmpRoot });
+
+  const batchExecutionId = 'batch-exec-intra-dep-crash-1';
+  const sessionId = 'session-intra-dep-crash-1';
+
+  await createGroupReservation({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    taskIds,
+    batchExecutionId,
+    executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+  });
+
+  writeSessionFile(tmpRoot, slug, {
+    sessionId,
+    batchExecutionId,
+    executionScope: { kind: 'task-batch', changeSlug: slug, taskIds },
+  });
+
+  await acquireWorkspaceWriter({
+    repoRoot: tmpRoot,
+    kind: 'agent',
+    specId: slug,
+    sessionId,
+    turnId: 'turn-1',
+    scope: { kind: 'task-batch', taskIds },
+    batchExecutionId,
+  });
+
+  await executeBatchStart({
+    repoRoot: tmpRoot,
+    activeDir,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId,
+  });
+
+  // Crash immediately after t1 finishes — its own materialization sweep already ran
+  // (which resolves t2's pending entry, since t2 depends_on t1), but t3 has not started.
+  await assert.rejects(
+    async () => {
+      await executeBatchFinish({
+        repoRoot: tmpRoot,
+        activeDir,
+        changeSlug: slug,
+        batchExecutionId,
+        sessionId,
+        inputs: {
+          tasks: {},
+          'commit.title': 'feat: implement t1, t2, t3',
+        },
+        _crashAfterMemberTaskId: 't1',
+      });
+    },
+    /Simulated crash after member task t1/
+  );
+
+  // t2's dependency-consumption entry must already be materialized from this first
+  // attempt, before the crash
+  const t2ConsumptionMid = loadDependencyConsumption(tmpRoot, slug, 't2', 'implementation', 1);
+  assert.ok(t2ConsumptionMid, "t2's dependency-consumption must be materialized before the crash");
+  assert.deepEqual(t2ConsumptionMid.dependencies, [
+    { taskId: 't1', releaseEpoch: { step: 'implementation', attempt: 1 } },
+  ]);
+
+  // Resume
+  const resumeRes = await executeBatchFinish({
+    repoRoot: tmpRoot,
+    activeDir,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId,
+    inputs: {
+      tasks: {},
+      'commit.title': 'feat: implement t1, t2, t3',
+    },
+  });
+
+  assert.equal(resumeRes.status, 'completed');
+
+  // t2's materialized entry must be neither duplicated nor lost after resume
+  const t2ConsumptionAfter = loadDependencyConsumption(tmpRoot, slug, 't2', 'implementation', 1);
+  assert.deepEqual(t2ConsumptionAfter, t2ConsumptionMid, "t2's materialized entry must be unchanged by resume — not re-materialized");
+
+  // All three members' own finishes completed exactly once
+  assert.equal(resumeRes.record.stages.memberFinishes.t1.status, 'completed');
+  assert.equal(resumeRes.record.stages.memberFinishes.t2.status, 'completed');
+  assert.equal(resumeRes.record.stages.memberFinishes.t3.status, 'completed');
 });

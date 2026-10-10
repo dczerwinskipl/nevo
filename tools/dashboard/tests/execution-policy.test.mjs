@@ -24,7 +24,7 @@ import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
 import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
 import { createAgentSessionBindingService } from '../server/ai/sessions/binding-service.mjs';
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
-import { loadTaskQueue } from '../../specs/workflow/queue/store.mjs';
+import { getGroupReservation } from '../../specs/workflow/queue/reservation.mjs';
 import { reconcileContinuation } from '../server/ai/orchestration/reconciliation.mjs';
 import '../../specs/workflow/actions/index.mjs';
 
@@ -948,9 +948,8 @@ ${tasksYaml}
         assert.ok(data.batchExecutionId, 'batchExecutionId must be returned');
 
         // Verify frozen snapshot in reservation
-        const queueRecord = loadTaskQueue(harness.tmpRoot, harness.changeSlug);
-        const reservation = queueRecord?.groupReservations?.find((r) => r.batchExecutionId === data.batchExecutionId);
-        assert.ok(reservation, 'group reservation must exist in task queue');
+        const reservation = getGroupReservation(harness.tmpRoot, harness.changeSlug, data.batchExecutionId);
+        assert.ok(reservation, 'group reservation must exist');
         assert.equal(reservation.executionConfigSnapshot.model, 'sonnet');
 
         // Verify admitted session and provider execution used the frozen model

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-01T07:05:39.135Z",
+  "generated": "2026-10-10T13:16:51.065Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -944,6 +944,17 @@
       "title": "Agent admission, execution ownership, and terminal classification model",
       "status": "accepted",
       "date": "2026-09-30",
+      "supersedes": null,
+      "superseded_by": null
+    },
+    {
+      "file": "docs/decisions/ADR-0010-local-append-only-activity-history.md",
+      "id": "adr.0010-local-append-only-activity-history",
+      "type": "adr",
+      "title": "Local append-only activity history for workflow execution",
+      "status": "accepted",
+      "date": "2026-09-21",
+      "summary": "Persist an observational, append-only Activity ledger under .nevo-ai-local for runtime execution facts without violating the git-as-history boundary.",
       "supersedes": null,
       "superseded_by": null
     },

@@ -5,10 +5,16 @@ import { requireChange, requireTask, ACTIVE_DIR } from '../../store.mjs';
 import '../actions/index.mjs';
 import { loadWorkflowDefinition } from '../definitions/loader.mjs';
 import { getGroupReservation } from '../queue/reservation.mjs';
-import { assertBaseExecutionReadiness } from '../readiness-policy.mjs';
 import { resolveIncomingExecution } from '../resolve-incoming-execution.mjs';
 import { ensureStepActivated, compileStepContext } from '../step-context.mjs';
 import { resolveWorkflowPosition } from '../step-runner.mjs';
+import { evaluateDependencySatisfaction } from '../dependency-satisfaction.mjs';
+import {
+  planStart,
+  loadStartOperation,
+  findInFlightStartOperation,
+  completeActivateStage,
+} from '../start-operation.mjs';
 import { preflightBatchCapacity } from './preflight.mjs';
 import {
   createBatchStartRecord,
@@ -102,15 +108,17 @@ export async function executeBatchStart(params = {}) {
   });
 
   // 3. Pre-activation re-verification across all members (D37)
+  // The per-member single-task readiness replay (assertBaseExecutionReadiness) is
+  // deliberately not repeated here — validateBatchCompatibility, run when this
+  // reservation was created, is already authoritative for the in-batch-dependency
+  // exception (batch-execution-generalization, task 02); re-deriving single-task rules
+  // here would reject a member whose only blocker is another member of this same batch.
   const memberTasks = [];
   let targetStepName = null;
 
   for (const taskId of taskIds) {
     const task = requireTask(change, taskId);
     memberTasks.push(task);
-
-    // Underlying workflow eligibility check (dependencies, suspensions, executor, prior finish)
-    assertBaseExecutionReadiness(task, change, 'agent', { definition, repoRoot });
 
     // Incoming transition resolution
     const pos = resolveWorkflowPosition(definition, task);
@@ -124,15 +132,20 @@ export async function executeBatchStart(params = {}) {
       );
     }
 
+    const history = task?.workflow_progress?.history || [];
     const incoming = resolveIncomingExecution(task, definition, targetStepName);
     if (!incoming.transition) {
-      throw new WorkflowError(
-        `No valid incoming transition found for task '${taskId}' to step '${targetStepName}'`,
-        { code: 'NO_INCOMING_TRANSITION', taskId, targetStepName }
-      );
-    }
-
-    if (incoming.session !== 'fresh') {
+      // An entry-step member (no workflow history at all) has no incoming transition to
+      // resolve, by construction — this is the normal case for a fresh task, not a
+      // failure. It starts fresh, by construction `session: fresh`, so there is nothing
+      // further to validate here (batch-execution-generalization, task 02, Gap 1).
+      if (!(incoming.error === 'NO_INCOMING_TRANSITION' && history.length === 0)) {
+        throw new WorkflowError(
+          `No valid incoming transition found for task '${taskId}' to step '${targetStepName}'`,
+          { code: 'NO_INCOMING_TRANSITION', taskId, targetStepName }
+        );
+      }
+    } else if (incoming.session !== 'fresh') {
       throw new WorkflowError(
         `Incoming transition for task '${taskId}' requires session '${incoming.session}'; batch execution requires 'fresh'`,
         { code: 'INVALID_SESSION_SEMANTICS', taskId }
@@ -172,6 +185,7 @@ export async function executeBatchStart(params = {}) {
   }
 
   // 6. Sequential idempotent member activation (D37)
+  const targetStepConfig = definition.steps?.[targetStepName];
   for (const taskId of taskIds) {
     const stage = record.memberStages?.[taskId];
     if (stage?.status === 'completed') {
@@ -179,7 +193,60 @@ export async function executeBatchStart(params = {}) {
     }
 
     const task = requireTask(change, taskId);
+    const memberAttempt = (task.workflow_progress?.history || []).filter(h => h.step === targetStepName).length + 1;
+
+    // Dependency-consumption allocation (Gap 6, start half — batch-execution-
+    // generalization, task 02): allocate and freeze this member's own
+    // consumptionSequence before its own activation, reusing planStart exactly as the
+    // single-task path does (cli.mjs's handleWorkflowStepStart). An external dependency
+    // (outside this batch) already has a real releaseEpoch by construction — the batch
+    // would not have been admitted otherwise, per validateBatchCompatibility's in-batch
+    // exception — so it is snapshotted now. A dependency that is itself a member of this
+    // same batch has no releaseEpoch yet (its own implementation hasn't happened) and is
+    // recorded as a pending entry; task 04 materializes it at batch-finish time using
+    // this exact, already-allocated consumptionSequence. recordDependencyConsumption
+    // itself is intentionally not called yet for pending entries — only allocation
+    // happens here.
+    if (targetStepConfig?.consumesDependencies === true) {
+      const existingStartOp = loadStartOperation(repoRoot, changeSlug, taskId, targetStepName, memberAttempt)
+        || findInFlightStartOperation(repoRoot, changeSlug, taskId);
+
+      if (!existingStartOp) {
+        const dependencySnapshot = [];
+        const dependsOn = Array.isArray(task.depends_on) ? task.depends_on : [];
+        for (const depId of dependsOn) {
+          if (taskIds.includes(depId)) {
+            dependencySnapshot.push({ taskId: depId, releaseEpoch: null, pending: true });
+            continue;
+          }
+          const depTask = change.tasks?.find(t => t.id === depId) || (() => { try { return requireTask(change, depId); } catch { return null; } })();
+          if (depTask) {
+            const evalResult = evaluateDependencySatisfaction(depTask, change, definition);
+            if (evalResult.releaseEpoch) {
+              dependencySnapshot.push({ taskId: depId, releaseEpoch: evalResult.releaseEpoch });
+            }
+          }
+        }
+
+        planStart({
+          repoRoot,
+          change: changeSlug,
+          task: taskId,
+          step: targetStepName,
+          attempt: memberAttempt,
+          dependencySnapshot,
+        });
+      }
+    }
+
     ensureStepActivated(change, task, definition, { repoRoot, activeDir });
+
+    if (targetStepConfig?.consumesDependencies === true) {
+      const startOp = loadStartOperation(repoRoot, changeSlug, taskId, targetStepName, memberAttempt);
+      if (startOp) {
+        completeActivateStage(repoRoot, startOp);
+      }
+    }
 
     const reloaded = requireTask(change, taskId);
     const pos = resolveWorkflowPosition(definition, reloaded);

@@ -15,6 +15,9 @@ import { loadWorkflowDefinition } from '../definitions/loader.mjs';
 import { renderBatchReport, getCanonicalBatchReportRelativePath } from '../../reviews/batch-report.mjs';
 import { verifyBatchTrustedIdentity } from '../execution-identity.mjs';
 import { resolveStableSpecId } from '../../identity.mjs';
+import { resolveTaskScope, loadTaskFrontMatter } from '../../context.mjs';
+import { pathMatchesAllowedPattern } from '../../lifecycle/recovery.mjs';
+import { normalizeSourceControlConfig } from '../definitions/schema.mjs';
 export { loadPersistedSessionSync } from '../execution-identity.mjs';
 
 function arraysEqual(a, b) {
@@ -104,17 +107,23 @@ function listFilesRecursive(dir, repoRoot) {
       continue;
     }
 
-    if (normalizedExcludes.includes(filePath)) {
+    // Exclusion patterns may be exact paths (e.g. the canonical report path) or globs
+    // (e.g. a member task's own `allowed_paths`/`consequential_paths`, batch-execution-
+    // generalization task 03) — matched the same way the rest of this workflow matches
+    // scope patterns (`pathMatchesAllowedPattern`), never a second, narrower matcher.
+    if (normalizedExcludes.some(ex => pathMatchesAllowedPattern(filePath, ex))) {
       continue;
     }
 
     const fullPath = path.join(repoRoot, filePath);
 
-    // If an untracked directory exists solely to hold excluded report file(s), exclude it
+    // If an untracked directory exists solely to hold excluded path(s), exclude it
     if (filePath.endsWith('/') || (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory())) {
       const dirPrefix = filePath.endsWith('/') ? filePath : `${filePath}/`;
-      if (normalizedExcludes.some(ex => ex.startsWith(dirPrefix))) {
-        const remaining = listFilesRecursive(fullPath, repoRoot).filter(p => !normalizedExcludes.includes(p));
+      if (normalizedExcludes.some(ex => ex.startsWith(dirPrefix) || pathMatchesAllowedPattern(dirPrefix, ex))) {
+        const remaining = listFilesRecursive(fullPath, repoRoot).filter(
+          p => !normalizedExcludes.some(ex => pathMatchesAllowedPattern(p, ex))
+        );
         if (remaining.length === 0) {
           continue;
         }
@@ -272,7 +281,7 @@ export function prevalidateBatchFinish(params = {}) {
   const normalizedResults = extractTaskResults(inputs, taskIds);
 
   // Check for foreign task submissions outside reserved scope
-  const nonTaskKeys = new Set(['tasks', 'results', 'reportPath', 'report', 'crossTaskFindings', 'sessionId']);
+  const nonTaskKeys = new Set(['tasks', 'results', 'reportPath', 'report', 'crossTaskFindings', 'sessionId', 'commit.title', 'commit.message']);
   if (rawTasks && typeof rawTasks === 'object') {
     for (const key of Object.keys(rawTasks)) {
       if (!nonTaskKeys.has(key) && !taskIds.includes(key)) {
@@ -284,16 +293,17 @@ export function prevalidateBatchFinish(params = {}) {
     }
   }
 
+  // Validate each member against *its own* canonical contract — batch-execution-
+  // generalization, task 03, Gap 5: `result` is required only when that member's own
+  // target step is conditional (per the same `isConditional` test `buildFinishContract`
+  // uses); an unconditional step (e.g. `implementation`) neither requires one nor
+  // silently accepts one it doesn't expect.
+  const memberTaskScopes = {};
   for (const taskId of taskIds) {
     const taskResult = normalizedResults[taskId];
-    if (!taskResult || taskResult.result === undefined || taskResult.result === null) {
-      throw new WorkflowError(
-        `Missing result for batch member task '${taskId}'`,
-        { code: 'BATCH_RESULT_INVALID', taskId }
-      );
-    }
 
     const task = requireTask(change, taskId);
+    memberTaskScopes[taskId] = task;
     const position = resolveWorkflowPosition(definition, task);
     const stepName = position?.step || (position?.phase === 'new' ? definition.entryStep : position?.nextStep);
     const step = definition.steps?.[stepName];
@@ -307,7 +317,14 @@ export function prevalidateBatchFinish(params = {}) {
 
     const transitions = step.transitions || [];
     const isConditional = transitions.length > 1 || (transitions.length === 1 && transitions[0].value !== undefined);
+
     if (isConditional) {
+      if (!taskResult || taskResult.result === undefined || taskResult.result === null) {
+        throw new WorkflowError(
+          `Missing result for batch member task '${taskId}'`,
+          { code: 'BATCH_RESULT_INVALID', taskId }
+        );
+      }
       const allowedValues = transitions.map(t => t.value);
       const matched = transitions.find(t => t.value === taskResult.result);
       if (!matched) {
@@ -318,6 +335,27 @@ export function prevalidateBatchFinish(params = {}) {
         err.taskId = taskId;
         throw err;
       }
+    } else if (taskResult && taskResult.result !== undefined && taskResult.result !== null) {
+      throw new WorkflowError(
+        `Task '${taskId}' submitted result '${taskResult.result}' for unconditional step '${stepName}', which does not expect one`,
+        { code: 'BATCH_RESULT_INVALID', taskId, submittedValue: taskResult.result }
+      );
+    }
+  }
+
+  // Check 2.5: Shared batch-finalize commit contract (Gap 5) — one shared
+  // commit.title/commit.message for the whole batch, supplied once, never once per
+  // member (batch-execution-generalization, task 03). Only required when source
+  // control is actually enabled for this workflow — a disabled workflow never commits
+  // anything, so requiring this would be pointless friction.
+  const sourceControlConfig = normalizeSourceControlConfig(definition.sourceControl);
+  if (sourceControlConfig.enabled) {
+    const sharedCommitTitle = typeof inputs['commit.title'] === 'string' ? inputs['commit.title'].trim() : '';
+    if (!sharedCommitTitle || sharedCommitTitle.length < 5) {
+      throw new WorkflowError(
+        `Missing or invalid shared commit.title for batch finish '${batchExecutionId}' (must be a non-empty string, minimum length 5)`,
+        { code: 'BATCH_RESULT_INVALID' }
+      );
     }
   }
 
@@ -344,14 +382,31 @@ export function prevalidateBatchFinish(params = {}) {
       );
     }
 
+    // Widen the excluded set from "only the canonical review report" to every member's
+    // own declared scope (allowed_paths/consequential_paths, unioned) — batch-execution-
+    // generalization, task 03, Gap 2: an implementation/refinement batch's real source
+    // changes, inside the scope each member already declared, must not trip this check.
+    // Anything outside every member's own scope still must match the baseline exactly.
+    const scopePatterns = new Set();
+    for (const taskId of taskIds) {
+      const task = memberTaskScopes[taskId] || requireTask(change, taskId);
+      const { allowedPaths } = resolveTaskScope(change, task, { repoRoot, activeDir });
+      for (const p of allowedPaths) scopePatterns.add(p);
+      const taskFm = loadTaskFrontMatter(change, task, { repoRoot, activeDir });
+      for (const p of (taskFm.consequential_paths || [])) scopePatterns.add(p);
+    }
+    const excludePatterns = [canonicalReportPath, ...scopePatterns];
+
     const currentFingerprint = computeDeltaFingerprint(repoRoot, {
-      excludePath: canonicalReportPath,
+      excludePaths: excludePatterns,
     });
-    const baselineFingerprint = startRecord.workspaceBaseline.fingerprint || [];
+    const baselineFingerprint = (startRecord.workspaceBaseline.fingerprint || []).filter(
+      (entry) => !excludePatterns.some((ex) => pathMatchesAllowedPattern(entry.path, ex))
+    );
 
     if (!fingerprintsEqual(currentFingerprint, baselineFingerprint)) {
       throw new WorkflowError(
-        `Workspace delta diverged from post-bootstrap baseline outside canonical report path.\nCurrent: ${JSON.stringify(currentFingerprint)}\nBaseline: ${JSON.stringify(baselineFingerprint)}`,
+        `Workspace delta diverged from post-bootstrap baseline outside every member's own declared scope.\nCurrent: ${JSON.stringify(currentFingerprint)}\nBaseline: ${JSON.stringify(baselineFingerprint)}`,
         { code: 'BATCH_PROVENANCE_VIOLATION', currentFingerprint, baselineFingerprint }
       );
     }

@@ -129,21 +129,104 @@ tasks:
     file: tasks/04-activity-query-and-export.md
     status: approved
     depends_on: [ activity-core-model-and-contracts, activity-local-store ]
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: 2026-10-10T10:40:01.522Z
+          transitioned_to: review
+          sessionId: 0e8b3420-2d52-43da-962b-592925e5c06b
+        - step: review
+          attempt: 1
+          completed_at: 2026-10-10T10:42:42.004Z
+          transitioned_to: human-verification
+          sessionId: 72fb21a3-92e9-46e2-b084-94a4202d858f
+          result: pass
   - id: activity-dashboard-api
     order: 5
     file: tasks/05-activity-dashboard-api.md
     status: approved
     depends_on: [ activity-query-and-export ]
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: 2026-10-10T10:53:24.030Z
+          transitioned_to: review
+          sessionId: f7ad0b55-cc28-4eb8-b164-6a38e78472df
+        - step: review
+          attempt: 1
+          completed_at: 2026-10-10T10:57:07.651Z
+          transitioned_to: human-verification
+          sessionId: 11c5a47e-f229-4462-aa22-e14023030d11
+          result: pass
   - id: workflow-step-activity-producer
     order: 6
     file: tasks/06-workflow-step-activity-producer.md
     status: approved
     depends_on: [ activity-local-store, actor-resolver ]
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: 2026-10-10T11:18:35.769Z
+          transitioned_to: review
+          sessionId: d24706d5-a23c-42ac-ae12-32f7b6213ff5
+        - step: review
+          attempt: 1
+          completed_at: 2026-10-10T11:23:13.710Z
+          transitioned_to: human-verification
+          sessionId: d744c37d-5539-4a6b-8a2d-699d26ecd52f
+          result: pass
+          feedback: "Independent review: verified all 15 acceptance criteria against the
+            implementation. autoBindAgentSession returns bindSessionSync result
+            with explicit null early-returns (no specId, no context, caught
+            error). workflow.mjs producer module correctly owns type constants,
+            deterministic IDs, and data validators. Emission call sites match
+            spec exactly: agent step start in handleWorkflowStepStart, human
+            step start in startHumanStep (covers both CLI and dashboard HTTP
+            transport), step completed immediately after ensureUpdateTask
+            returns (not gated on its internal recovery branch), and both
+            already-completed/completed short-circuits re-attempt emission from
+            plan.existingRecord. Durable actor captured once at
+            createOperationRecord, read back via record.actor at every
+            completion site (never re-read from finishSteps per-call param),
+            correctly handling resume-under-different-actor. recordActivity
+            failures are swallowed in the producer module so finishStep never
+            fails on activity recording errors. All 11 new producer tests, 36
+            finish-operation tests, and 40 workflow-cli tests pass; node
+            tools/specs.mjs validate passes with 31 changes and no errors. No
+            gaps found; no corrective changes required."
   - id: human-verification-activity-producer
     order: 7
     file: tasks/07-human-verification-activity-producer.md
     status: approved
     depends_on: [ activity-local-store, actor-resolver ]
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: 2026-10-10T11:46:49.160Z
+          transitioned_to: review
+          sessionId: f5ecace0-2cab-4710-a9d3-b2424be18f68
+        - step: review
+          attempt: 1
+          completed_at: 2026-10-10T11:48:45.427Z
+          transitioned_to: human-verification
+          sessionId: 08296956-0c29-4170-8037-384133bbffe9
+          result: pass
   - id: activity-adr-and-docs
     order: 8
     file: tasks/08-activity-adr-and-docs.md
@@ -152,5 +235,20 @@ tasks:
       - activity-dashboard-api
       - workflow-step-activity-producer
       - human-verification-activity-producer
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: 2026-10-10T12:37:56.048Z
+          transitioned_to: review
+          sessionId: f3930156-ab0c-4d1e-8daa-c9a3a5d1841e
 
 spec_id: fe63d2b5-a66a-4c88-b3cc-6d38b193b725
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 53

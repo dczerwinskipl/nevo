@@ -89,6 +89,25 @@ export function registerActiveAgentExecution(specId, record) {
 }
 
 /**
+ * Best-effort trigger for durable pending grouped-handover work (batch-execution-
+ * generalization, task 13, second-round review finding 1): whenever a single task's
+ * own active-execution slot frees up here in Hook 1 — not only when a batch
+ * settlement's own Stage 2 frees it — a sibling settlement for the same spec may have
+ * a durably pending dispatch unit that just became admittable. Dynamic import avoids a
+ * static circular dependency (batch-completion-settlement.mjs imports this module).
+ * Never throws — `resumePendingHandoverForSpec` is itself already best-effort.
+ */
+async function triggerPendingHandoverResume({ repoRoot, changeSlug, activeDir, options }) {
+  if (!repoRoot || !changeSlug) return;
+  try {
+    const { resumePendingHandoverForSpec } = await import('./batch-completion-settlement.mjs');
+    await resumePendingHandoverForSpec({ repoRoot, changeSlug, excludeBatchExecutionId: null, activeDir, options });
+  } catch (err) {
+    console.error('[admission] Pending-handover resume trigger failed:', err);
+  }
+}
+
+/**
  * Admits an agent execution for a specification (D41, D49, D55, D66).
  * Single active execution gate per spec; claims workspace-writer slot;
  * performs ownership-conditional enrichments (D93, D98, D99).
@@ -564,8 +583,10 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             ...(expectedTurnId ? { expectedTurnId } : {}),
           });
           const currentActiveSettled = activeExecutions.get(specId);
+          let slotFreedBySettlement = false;
           if (currentActiveSettled?.ownerId === capturedOwnerId) {
             activeExecutions.delete(specId);
+            slotFreedBySettlement = true;
           }
           if (typeof onTurnTerminal === 'function') {
             await onTurnTerminal({ specId, scope: capturedScope, taskId: capturedTaskId, settled: true, outcome: 'completed', released: relRes.released });
@@ -595,6 +616,19 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
               console.error('[admission] Hook 1 continuation failed:', contErr);
             }
           }
+
+          // The one-active-execution-per-spec slot just freed (and the own-task
+          // continuation above, if any, has already had first claim on it) — a
+          // sibling settlement's own durable pending handover group (task 11/13, gap 1)
+          // may now be admittable.
+          if (slotFreedBySettlement && repoRoot && capturedChangeSlug) {
+            await triggerPendingHandoverResume({
+              repoRoot,
+              changeSlug: capturedChangeSlug,
+              activeDir: options.activeDir,
+              options: { ...options, sessionService, turnRuntime },
+            });
+          }
         } else if (outcome === 'resumable') {
           // outcome: 'resumable' -> release the claim without continuation, leave workflow_progress untouched (D1, D3, D4)
           const relRes = await releaseWorkspaceWriterIfOwned({
@@ -609,21 +643,10 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             ...(expectedTurnId ? { expectedTurnId } : {}),
           });
           const currentActiveResumable = activeExecutions.get(specId);
+          let slotFreedByResumable = false;
           if (currentActiveResumable?.ownerId === capturedOwnerId) {
             activeExecutions.delete(specId);
-          }
-
-          // Consume this task's durable sequential-queue entry (if any) now that its own
-          // execution ended resumable without genuinely advancing. ADR-0009: "later
-          // continuation is a new deterministic admission" — a resumable attempt requires
-          // its own fresh explicit admission to resume; it must never be silently
-          // rediscovered and auto-readmitted by some OTHER, unrelated task's settlement
-          // draining the same durable queue (reconcileContinuation's queue-wide section).
-          if (repoRoot && capturedChangeSlug && capturedTaskId && capturedScope.kind === 'task') {
-            try {
-              const { dequeueTask } = await import('../../../../specs/workflow/queue/store.mjs');
-              dequeueTask(repoRoot, capturedChangeSlug, capturedTaskId);
-            } catch {}
+            slotFreedByResumable = true;
           }
 
           if (typeof onTurnTerminal === 'function') {
@@ -689,6 +712,22 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           }
 
           hookOutcome = { settled: false, outcome: 'resumable', released: relRes.released };
+
+          // The slot just freed here too — a sibling's durable pending handover group
+          // (task 11/13, gap 1) may now be admittable even though this task itself is
+          // merely resumable, not finished. Scope-guarded to 'task' (task 15,
+          // third-round review finding 1) — a task-batch scope must never trigger this
+          // directly; its own settlement (executeBatchCompletionSettlement, Stage 2)
+          // is the only correct trigger for a batch scope, preserving fail-closed
+          // semantics while that batch's own outcome is still unresolved.
+          if (capturedScope.kind === 'task' && slotFreedByResumable && repoRoot && capturedChangeSlug) {
+            await triggerPendingHandoverResume({
+              repoRoot,
+              changeSlug: capturedChangeSlug,
+              activeDir: options.activeDir,
+              options: { ...options, sessionService, turnRuntime },
+            });
+          }
         } else {
           const markRes = await markWorkspaceWriterRecoveryRequiredIfOwned({
             repoRoot,
@@ -702,13 +741,31 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             ...(expectedTurnId ? { expectedTurnId } : {}),
           });
           const currentActiveFailed = activeExecutions.get(specId);
+          let slotFreedByRecovery = false;
           if (currentActiveFailed?.ownerId === capturedOwnerId) {
             activeExecutions.delete(specId);
+            slotFreedByRecovery = true;
           }
           if (typeof onTurnTerminal === 'function') {
             await onTurnTerminal({ specId, scope: capturedScope, taskId: capturedTaskId, settled: false, outcome: 'recovery-required', markedRecovery: markRes.marked });
           }
           hookOutcome = { settled: false, outcome: 'recovery-required', markedRecovery: markRes.marked };
+
+          // The slot just freed here too — a sibling's durable pending handover group
+          // (task 11/13, gap 1) may now be admittable even though this task itself now
+          // requires recovery. Scope-guarded to 'task' (task 15, third-round review
+          // finding 1) — see the matching comment in the 'resumable' branch above; a
+          // task-batch scope reaching recovery-required must never trigger this
+          // directly, or a sibling group could be woken while this batch's own
+          // outcome is still unresolved, violating fail-closed semantics.
+          if (capturedScope.kind === 'task' && slotFreedByRecovery && repoRoot && capturedChangeSlug) {
+            await triggerPendingHandoverResume({
+              repoRoot,
+              changeSlug: capturedChangeSlug,
+              activeDir: options.activeDir,
+              options: { ...options, sessionService, turnRuntime },
+            });
+          }
         }
 
         return hookOutcome;

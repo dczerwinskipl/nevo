@@ -704,160 +704,15 @@ test('Item 11: Direct CLI contends against live agent claim and does not evict i
   }
 });
 
-test('Item 12: Sequential queue automation advances nextRunnable task server-side upon settlement', async () => {
-  const tmpRepo = createTempRepo('item12-queue');
-  resetAdmissionStateForTest();
-
-  try {
-    const specId = '11111111-1111-4111-8111-111111111111';
-    const { enqueueTasks, loadTaskQueue } = await import('../specs/workflow/queue/index.mjs');
-    const { reconcileContinuation } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
-    const { requireChange, requireTask, setTaskStatus } = await import('../specs/store.mjs');
-
-    // 1. Enqueue both t1 and t2
-    enqueueTasks(tmpRepo, 'spec-test', ['t1', 't2']);
-    const initialQueue = loadTaskQueue(tmpRepo, 'spec-test');
-    assert.deepEqual(initialQueue.taskIds, ['t1', 't2']);
-
-    const startedTurns = [];
-    const mockSessionService = {
-      async createSession(provider, opts) {
-        return { sessionId: `sess-${opts.taskId}` };
-      },
-      async listSessions() {
-        return [];
-      },
-      async startTurn(provider, sessionId, opts) {
-        startedTurns.push({ taskId: opts.taskId, sessionId });
-        return { turnId: `turn-${opts.taskId}` };
-      },
-      subscribeToSession() {
-        return () => {};
-      },
-    };
-
-    // 2. Mark t1 as completed and t2 as approved (published for execution)
-    const activeDir = path.join(tmpRepo, 'specs', 'active');
-    const initialChange = requireChange('spec-test', activeDir);
-    setTaskStatus(initialChange, 't1', 'completed');
-    setTaskStatus(initialChange, 't2', 'approved');
-    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
-    execFileSync('git', ['commit', '-m', 'complete t1, approve t2'], { cwd: tmpRepo, stdio: 'ignore' });
-
-    const change = requireChange('spec-test', activeDir);
-    const task1 = requireTask(change, 't1');
-
-    // 3. Trigger continuation: t1 is complete, so queue is evaluated and t2 is automatically admitted!
-    const contRes = await reconcileContinuation(change, task1, {
-      repoRoot: tmpRepo,
-      activeDir,
-      sessionService: mockSessionService,
-    });
-
-    assert.equal(contRes.action, 'queue-agent-admitted');
-    assert.equal(contRes.nextRunnable.taskId, 't2');
-    assert.equal(startedTurns.length, 1);
-    assert.equal(startedTurns[0].taskId, 't2', 't2 must be admitted and started via queue continuation');
-
-    // 4. t1 was dequeued from persisted queue
-    const updatedQueue = loadTaskQueue(tmpRepo, 'spec-test');
-    assert.ok(!updatedQueue.taskIds.includes('t1'), 'Completed task t1 must be purged from queue');
-
-    // 5. Workspace claim is now held for t2
-    const claim = getWorkspaceWriterClaim(tmpRepo);
-    assert.ok(claim, 'Claim must exist for t2');
-    assert.equal(claim.taskId, 't2');
-    assert.equal(claim.kind, 'agent');
-  } finally {
-    resetAdmissionStateForTest();
-    fs.rmSync(tmpRepo, { recursive: true, force: true });
-  }
-});
-
-test('Item 9 regression: a resumable task\'s durable queue entry is consumed on its own release, so an unrelated task\'s later settlement cannot silently auto-readmit it (ADR-0009)', async () => {
-  const tmpRepo = createTempRepo('item9-stale-queue');
-  resetAdmissionStateForTest();
-
-  try {
-    const specId = '11111111-1111-4111-8111-111111111111';
-    const { enqueueTasks, loadTaskQueue } = await import('../specs/workflow/queue/index.mjs');
-    const { reconcileContinuation } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
-    const { requireChange, requireTask, setTaskStatus } = await import('../specs/store.mjs');
-    const { updateYamlFile } = await import('../lib/yaml.mjs');
-
-    const activeDir = path.join(tmpRepo, 'specs', 'active');
-    const changeFile = path.join(activeDir, 'spec-test', 'change.yaml');
-
-    // t1: explicitly admitted and durably queued (matching what routes.mjs does for every
-    // real execution request), then left mid-flight ("active") when its own turn ends
-    // resumable without ever finishing.
-    enqueueTasks(tmpRepo, 'spec-test', ['t1']);
-    updateYamlFile(changeFile, (doc) => {
-      const tasks = doc.get('tasks', true);
-      const t1 = tasks?.items?.find((it) => it.get('id') === 't1');
-      t1.set('workflow_progress', { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] });
-    });
-    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
-    execFileSync('git', ['commit', '-m', 'advance t1 to active'], { cwd: tmpRepo, stdio: 'ignore' });
-
-    const admissionT1 = await admitAgentExecution(
-      specId,
-      { taskId: 't1', changeSlug: 'spec-test', stepId: 'implementation', sessionId: 'sess-t1' },
-      { repoRoot: tmpRepo },
-    );
-    assert.equal(admissionT1.admitted, true);
-    const releaseT1 = await releaseAdmittedExecution(specId);
-    assert.equal(releaseT1.outcome, 'resumable', "t1's own turn must settle resumable (task-active)");
-    assert.equal(releaseT1.released, true);
-
-    // t1 must be consumed from the durable queue at the moment its own resumable release
-    // happens — not left behind for some other, unrelated task's settlement to rediscover.
-    assert.ok(
-      !loadTaskQueue(tmpRepo, 'spec-test')?.taskIds.includes('t1'),
-      'Resumable release must consume the durable queue entry (ADR-0009: later continuation is a new deterministic admission)',
-    );
-
-    // t2 (a different, unrelated task) now completes its own attempt — never durably queued.
-    const initialChange = requireChange('spec-test', activeDir);
-    setTaskStatus(initialChange, 't2', 'completed');
-    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
-    execFileSync('git', ['commit', '-m', 'complete t2'], { cwd: tmpRepo, stdio: 'ignore' });
-
-    const change = requireChange('spec-test', activeDir);
-    const task2 = requireTask(change, 't2');
-
-    const startedTurns = [];
-    const mockSessionService = {
-      async createSession(provider, opts) {
-        return { sessionId: `sess-${opts.taskId}` };
-      },
-      async listSessions() {
-        return [];
-      },
-      async startTurn(provider, sessionId, opts) {
-        startedTurns.push({ taskId: opts.taskId, sessionId });
-        return { turnId: `turn-${opts.taskId}` };
-      },
-      subscribeToSession() {
-        return () => {};
-      },
-    };
-
-    const contRes = await reconcileContinuation(change, task2, {
-      repoRoot: tmpRepo,
-      activeDir,
-      sessionService: mockSessionService,
-    });
-
-    // t2's own completion must never resurrect t1's dormant, resumable attempt.
-    assert.notEqual(contRes.action, 'queue-agent-admitted', "t2's settlement must not trigger an automatic admission of an unrelated stale queue entry");
-    assert.equal(startedTurns.length, 0, 'No turn must be auto-started for t1');
-    assert.equal(getWorkspaceWriterClaim(tmpRepo), null, 'No claim must be acquired for t1');
-  } finally {
-    resetAdmissionStateForTest();
-    fs.rmSync(tmpRepo, { recursive: true, force: true });
-  }
-});
+// "Item 12" (multi-task durable-queue-draining continuation) and "Item 9 regression"
+// (stale durable-queue-entry rediscovery) formerly tested here were both regression
+// coverage for the plain sequential queue's cross-task drain path inside
+// reconcileContinuation. That path is removed outright, not merely reworked
+// (batch-execution-generalization, task 01) — it had no `continuationPolicy` gate and
+// was the mechanism responsible for the original runaway-session-creation incident;
+// there is no replacement behavior left to assert here. Single-task continuation
+// (reconcileWorkflowPosition) keeps its own coverage elsewhere in this file; genuinely
+// advancing a *group* of tasks together is now the batch model's own job.
 
 test('Finding 1: Deterministic dashboard Start resolves canonical spec_id UUID from slug and uses UUID in admission and workspace claim', async () => {
   const tmpRepo = createTempRepo('finding1-uuid-resolution');
@@ -1447,64 +1302,11 @@ test('Finding 2c: Fresh auto-continuation inherits parentSessionId from bindingS
   }
 });
 
-test('Finding 2d: Queue continuation for next task sets parentSessionId to null', async () => {
-  const tmpRepo = createTempRepo('finding2d-queue-lineage');
-  resetAdmissionStateForTest();
-
-  try {
-    const { enqueueTasks } = await import('../specs/workflow/queue/index.mjs');
-    const { reconcileContinuation } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
-    const { requireChange, requireTask, setTaskStatus } = await import('../specs/store.mjs');
-    const specId = '11111111-1111-4111-8111-111111111111';
-
-    enqueueTasks(tmpRepo, 'spec-test', ['t1', 't2']);
-
-    const activeDir = path.join(tmpRepo, 'specs', 'active');
-    const initialChange = requireChange('spec-test', activeDir);
-    setTaskStatus(initialChange, 't1', 'completed');
-    setTaskStatus(initialChange, 't2', 'approved');
-    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
-    execFileSync('git', ['commit', '-m', 'complete t1, approve t2'], { cwd: tmpRepo, stdio: 'ignore' });
-
-    const change = requireChange('spec-test', activeDir);
-    const task1 = requireTask(change, 't1');
-
-    let admittedCandidate = null;
-    const mockSessionService = {
-      async createSession() {
-        return { sessionId: 'sess-t2' };
-      },
-      async listSessions() {
-        return [];
-      },
-      async startTurn(provider, sessionId, opts) {
-        return { turnId: 'turn-t2' };
-      },
-      subscribeToSession() {
-        return () => {};
-      },
-    };
-
-    const res = await reconcileContinuation(change, task1, {
-      repoRoot: tmpRepo,
-      activeDir,
-      sessionService: mockSessionService,
-      provider: 'mock',
-      priorSessionId: 'sess-t1-old', // Should NOT be used for queued next task!
-    });
-
-    assert.equal(res.action, 'queue-agent-admitted');
-    assert.equal(res.nextRunnable.taskId, 't2');
-    assert.equal(
-      res.nextRunnable.parentSessionId,
-      null,
-      'Queued task advancement must set parentSessionId to null and not inherit previous task session',
-    );
-  } finally {
-    resetAdmissionStateForTest();
-    fs.rmSync(tmpRepo, { recursive: true, force: true });
-  }
-});
+// "Finding 2d" (queue continuation's parentSessionId handling for a next queued task)
+// tested the same removed multi-task durable-queue-draining path as "Item 12"/"Item 9
+// regression" above — removed for the same reason (batch-execution-generalization,
+// task 01). Single-task continuation's own parentSessionId resolution keeps its
+// coverage in "Finding 2a-2c" in this file.
 
 test('Finding 3: Hook 3 boot recovery does not match older reused-session turn without positive proof and marks recovery-required; recovers when turnId matches', async () => {
   const tmpRepo = createTempRepo('finding3-hook3');
@@ -3158,14 +2960,13 @@ tasks:
   }
 });
 
-test('Rejected deterministic Start does not mutate durable queue (role mismatch, stepId mismatch, policy mismatch) and persists only on valid start', async () => {
+test('Rejected deterministic Start does not acquire a workspace-writer claim (role mismatch, stepId mismatch, policy mismatch); only a valid start does', async () => {
   const tmpRepo = createTempRepo('queue-no-mutation-on-reject');
   resetAdmissionStateForTest();
 
   try {
     const { executionPolicyService } = await import('../dashboard/server/ai/sessions/execution-policy-service.mjs');
     const { waitForActiveExecutionSettled } = await import('../dashboard/server/ai/orchestration/admission.mjs');
-    const { loadTaskQueue } = await import('../specs/workflow/queue/index.mjs');
     const slug = 'spec-queue-reject';
     const canonicalSpecId = '55555555-5555-4555-8555-555555555555';
     const activeDir = path.join(tmpRepo, 'specs', 'active');
@@ -3228,10 +3029,10 @@ tasks:
 
     const app = await buildAiTestApp({ service, repoRoot: tmpRepo });
 
-    // Initial check: no queue file exists
-    assert.equal(loadTaskQueue(tmpRepo, slug), null, 'Queue file should be absent initially');
+    // Initial check: no workspace-writer claim exists
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null, 'No claim should exist initially');
 
-    // 1. Invalid role -> 400 -> queue file unchanged / absent
+    // 1. Invalid role -> 400 -> no claim acquired
     const resRole = await app.inject({
       method: 'POST',
       url: '/api/agent-sessions/turns',
@@ -3246,9 +3047,9 @@ tasks:
       },
     });
     assert.equal(resRole.statusCode, 400);
-    assert.equal(loadTaskQueue(tmpRepo, slug), null, 'Queue file must remain absent after role mismatch');
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null, 'No claim must be acquired after role mismatch');
 
-    // 2. Invalid stepId -> 400 -> queue file unchanged / absent
+    // 2. Invalid stepId -> 400 -> no claim acquired
     const resStep = await app.inject({
       method: 'POST',
       url: '/api/agent-sessions/turns',
@@ -3263,9 +3064,9 @@ tasks:
       },
     });
     assert.equal(resStep.statusCode, 400);
-    assert.equal(loadTaskQueue(tmpRepo, slug), null, 'Queue file must remain absent after stepId mismatch');
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null, 'No claim must be acquired after stepId mismatch');
 
-    // 3. Invalid provider/mode policy mismatch -> 400 -> queue file unchanged / absent
+    // 3. Invalid provider/mode policy mismatch -> 400 -> no claim acquired
     const resPolicy = await app.inject({
       method: 'POST',
       url: '/api/agent-sessions/turns',
@@ -3280,9 +3081,9 @@ tasks:
       },
     });
     assert.equal(resPolicy.statusCode, 400);
-    assert.equal(loadTaskQueue(tmpRepo, slug), null, 'Queue file must remain absent after provider policy mismatch');
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null, 'No claim must be acquired after provider policy mismatch');
 
-    // 4. Valid request -> queue persisted -> admission proceeds
+    // 4. Valid request -> admission proceeds -> claim acquired for t1
     const resValid = await app.inject({
       method: 'POST',
       url: '/api/agent-sessions/turns',
@@ -3296,9 +3097,9 @@ tasks:
       },
     });
     assert.equal(resValid.statusCode, 201);
-    const persistedQueue = loadTaskQueue(tmpRepo, slug);
-    assert.ok(persistedQueue, 'Queue file must exist after valid start');
-    assert.deepEqual(persistedQueue.taskIds, ['t1'], 'Queue must contain the admitted task');
+    const claimAfterValid = getWorkspaceWriterClaim(tmpRepo);
+    assert.ok(claimAfterValid, 'Claim must exist after valid start');
+    assert.equal(claimAfterValid.taskId, 't1');
 
     await waitForActiveExecutionSettled(canonicalSpecId);
     await app.close();
@@ -3308,7 +3109,7 @@ tasks:
   }
 });
 
-test('Authoritative nextRunnable priority resolution overrides browser taskId/prompt hint; prompt and session bind to nextRunnable', async () => {
+test('Authoritative nextRunnable order resolution overrides browser taskId/prompt hint; prompt and session bind to nextRunnable', async () => {
   const tmpRepo = createTempRepo('priority-overrides-browser-hint');
   resetAdmissionStateForTest();
 
@@ -3321,7 +3122,11 @@ test('Authoritative nextRunnable priority resolution overrides browser taskId/pr
     const tasksDir = path.join(activeDir, slug, 'tasks');
     fs.mkdirSync(tasksDir, { recursive: true });
 
-    // Spec with taskA (in review, priority 10) and taskB (in implementation, priority 0) under standard-v1
+    // Spec with taskA (in review, order 2) and taskB (in implementation, order 1) under
+    // standard-v1 — both individually ready; server resolves taskB as authoritative via
+    // task.order ascending (the queue's own cross-task tie-break is removed in
+    // batch-execution-generalization, task 01; task.order is the one remaining,
+    // unambiguous tie-break for an explicit multi-task selection).
     fs.writeFileSync(
       path.join(activeDir, slug, 'change.yaml'),
       `id: ${slug}
@@ -3336,6 +3141,7 @@ tasks:
     title: "Task A Review"
     status: in-implementation
     file: tasks/taskA.md
+    order: 2
     workflow_progress:
       current_step: review
       current_attempt: 1
@@ -3350,6 +3156,7 @@ tasks:
     title: "Task B Implementation"
     status: in-implementation
     file: tasks/taskB.md
+    order: 1
     workflow_progress:
       current_step: implementation
       current_attempt: 1
@@ -3589,7 +3396,6 @@ test('Test 33: Normal deterministic Start is fully server-authoritative for prov
       steps: {
         implementation: {
           executor: 'agent',
-          schedulingPriority: 0,
           status: { active: 'in-progress', completed: 'implemented' },
           transitions: [
             { to: 'review', execution: { role: 'reviewer', session: 'fresh' } },
@@ -3597,7 +3403,6 @@ test('Test 33: Normal deterministic Start is fully server-authoritative for prov
         },
         review: {
           executor: 'agent',
-          schedulingPriority: 10,
           status: { active: 'in-review', completed: 'reviewed' },
           transitions: [
             { to: 'verification' },
@@ -3653,8 +3458,10 @@ tasks:
     status: planned
   - id: taskEntry
     status: planned
+    order: 1
   - id: taskReview
     status: in-implementation
+    order: 2
     workflow_progress:
       current_step: implementation
       current_attempt: 1
@@ -3697,7 +3504,7 @@ status: planned
 New task content`;
     fs.writeFileSync(path.join(tasksDir, 'tNew.md'), tNewContent);
 
-    // 4. taskEntry: fresh entry step (no history, priority 0)
+    // 4. taskEntry: fresh entry step (no history, order 1)
     fs.writeFileSync(path.join(tasksDir, 'taskEntry.md'), `---
 id: taskEntry
 title: "Batch Task Entry"
@@ -3705,7 +3512,7 @@ status: planned
 ---
 Entry task`);
 
-    // 5. taskReview: in review (priority 10)
+    // 5. taskReview: in review (order 2)
     fs.writeFileSync(path.join(tasksDir, 'taskReview.md'), `---
 id: taskReview
 title: "Batch Task Review"
@@ -3818,7 +3625,7 @@ Review task`);
     assert.equal(resNew.json().provider, 'claude', 'Normal start on entry step must use default policy provider');
     await waitForActiveExecutionSettled(canonicalSpecId);
 
-    // 4. Batch Start where server-selected nextRunnable (taskEntry, prio 0) differs from browser's initial candidate (taskReview, prio 10)
+    // 4. Batch Start where server-selected nextRunnable (taskEntry, order 1) differs from browser's initial candidate (taskReview, order 2)
     const resBatch = await app.inject({
       method: 'POST',
       url: '/api/agent-sessions/turns',

@@ -266,6 +266,19 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
         }
       }
       reply.code(status).send(errorBody);
+    } finally {
+      // Runs on both success AND failure: executeHumanStepAction can resolve its own
+      // workspace-request/claim lifecycle (e.g. a human-submit request moving to
+      // 'failed' and releasing its claim) and *then* throw — a try-only sweep would
+      // silently miss exactly that case (batch-execution-generalization, task 18,
+      // sixth-round review finding 1). This never reaches into
+      // tools/specs/workflow/** itself; it only observes that the call already
+      // settled, one way or the other. A durably pending grouped-handover settlement
+      // elsewhere may now be admittable. Best-effort; never fails this response.
+      try {
+        const { sweepAllPendingHandovers } = await import('../ai/orchestration/batch-completion-settlement.mjs');
+        await sweepAllPendingHandovers({ repoRoot: paths.root, activeDir: paths.activeDir });
+      } catch {}
     }
   };
 
@@ -298,6 +311,18 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
         error: message,
         code: 'TASK_PUBLISH_FAILED',
       });
+    } finally {
+      // Runs on both success AND failure: publishTask can resolve its own
+      // workspace-request/claim lifecycle (it marks the request 'failed' and
+      // releases its claim in its own finally) and *then* throw — a try-only sweep
+      // would silently miss exactly that case (batch-execution-generalization, task
+      // 18, sixth-round review finding 1). No reach into tools/specs/workflow/**
+      // itself; it only observes that the call already settled. Best-effort; never
+      // fails this response.
+      try {
+        const { sweepAllPendingHandovers } = await import('../ai/orchestration/batch-completion-settlement.mjs');
+        await sweepAllPendingHandovers({ repoRoot: paths.root, activeDir: paths.activeDir });
+      } catch {}
     }
   };
 
@@ -528,6 +553,17 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
           expectedKind: 'batch-publish',
           expectedRequestId: requestId,
         });
+
+        // This request (and the worktree-wide claim it held) just left the
+        // admission-blocking state (DEFERRED_TO_PENDING_WORKSPACE_REQUEST /
+        // WORKSPACE_WRITER_CONTENDED) for good — a durably pending grouped-handover
+        // settlement elsewhere may now be admittable (batch-execution-generalization,
+        // task 16, third-round review finding 1). Best-effort; never fails this
+        // request's own response.
+        try {
+          const { sweepAllPendingHandovers } = await import('../ai/orchestration/batch-completion-settlement.mjs');
+          await sweepAllPendingHandovers({ repoRoot: paths.root, activeDir: paths.activeDir });
+        } catch {}
       }
     } catch (error) {
       const message = error.message || 'Unable to batch publish tasks.';
