@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-10T21:56:47.301Z",
+  "generated": "2026-10-10T22:10:52.207Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -142,7 +142,10 @@
           "id": "transition-aware-exit-gates",
           "order": 5,
           "file": "tasks/05-transition-aware-exit-gates.md",
-          "status": "approved"
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "262e22f4679e709bb0df81623ba32f446cbce9d6"
+          }
         },
         {
           "id": "gate-failure-recovery-and-taxonomy",

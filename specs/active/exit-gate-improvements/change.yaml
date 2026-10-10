@@ -42,7 +42,9 @@ tasks:
   - id: transition-aware-exit-gates
     order: 5
     file: tasks/05-transition-aware-exit-gates.md
-    status: approved
+    status: verified
+    implementation:
+      baseline_revision: 262e22f4679e709bb0df81623ba32f446cbce9d6
   - id: gate-failure-recovery-and-taxonomy
     order: 6
     file: tasks/06-gate-failure-recovery-and-taxonomy.md

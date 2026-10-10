@@ -116,8 +116,36 @@ export function mergeResolvedInputs(persisted, supplied) {
 
 function computeMissingInputs(requiredInputsMap, resolved) {
   return Object.entries(requiredInputsMap || {})
-    .filter(([name, schema]) => schema.required && (resolved[name] === undefined || resolved[name] === null))
+    .filter(([name, schema]) => {
+      if (!schema.required) return false;
+      const val = resolved[name];
+      if (val === undefined || val === null) return true;
+      if (typeof val === 'string' && val.trim().length === 0) return true;
+      return false;
+    })
     .map(([name]) => name);
+}
+
+/**
+ * Filters a step's exit gates by the resolved transition result.
+ * Gates with `when: [result...]` are only evaluated when `result` matches one of the declared values.
+ * Gates without `when` (or empty `when`) are evaluated for all transitions.
+ *
+ * @param {Array<object>} exitGates
+ * @param {string|null|undefined} result
+ * @returns {Array<object>} Filtered exit gates
+ */
+export function filterExitGatesByResult(exitGates, result) {
+  if (!Array.isArray(exitGates)) return [];
+  return exitGates.filter(gate => {
+    if (!gate || !gate.when || !Array.isArray(gate.when) || gate.when.length === 0) {
+      return true;
+    }
+    if (result === undefined || result === null) {
+      return false;
+    }
+    return gate.when.includes(result);
+  });
 }
 
 // ── Non-mutating finish planning (D11) ──────────────────────────────────────
@@ -235,8 +263,6 @@ export async function planFinish({
     changeSlug: effectiveChangeSlug,
   };
   const finalizeCheck = await aggregateFinalizeCheck(step, checkContext, { engine, actionRegistry });
-  const requiredInputs = buildFinishContract(finalizeCheck, step);
-
   const { resolved, conflicts } = mergeResolvedInputs(existingRecord?.resolvedInputs, inputs);
 
   // Transitions matching & result validation
@@ -273,10 +299,13 @@ export async function planFinish({
     matched = transitions[0] || null;
   }
 
+  const requiredInputs = buildFinishContract(finalizeCheck, step, resolved.result);
+
   // D29: gate inspection needs the resolved step identity in context so a
   // HumanVerificationGate can build its query with real stepId identity.
   const gateContext = { ...context, stepId: stepName, attempt };
-  const exitGateResults = await inspectGates(step.exitGates, gateContext, { gateRegistry });
+  const applicableGates = filterExitGatesByResult(step.exitGates, resolved.result);
+  const exitGateResults = await inspectGates(applicableGates, gateContext, { gateRegistry });
   // Only a definitively 'blocked'/'failed' gate blocks planning — a command gate's
   // 'pending' inspect status (not yet verify()'d) must not, or the finalize sequence
   // that actually runs and records it could never be reached (deadlock). Gates execute
@@ -370,8 +399,10 @@ async function ensureVerifyGates(record, step, context, gateRegistry, repoRoot) 
   const stage = findStage(record, 'verify-gates');
   if (stage.status === 'completed') return;
 
+  const result = record.resolvedInputs?.result;
+  const applicableGates = filterExitGatesByResult(step.exitGates, result);
   const gateContext = { ...context, stepId: record.step, attempt: record.attempt };
-  const results = await verifyGates(step.exitGates, gateContext, { gateRegistry });
+  const results = await verifyGates(applicableGates, gateContext, { gateRegistry });
   if (!allGatesPassed(results)) {
     stage.status = 'failed';
     stage.result = { gates: results };

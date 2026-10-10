@@ -72,7 +72,7 @@ export function normalizeSourceControlFacts(rawContext) {
  * @param {object} [step] - Normalized step definition
  * @returns {Record<string, object>} Canonical parameters schema map
  */
-export function buildFinishContract(finalizeCheckResult, step = null) {
+export function buildFinishContract(finalizeCheckResult, step = null, result = null) {
   const parameters = {};
   if (finalizeCheckResult?.actions) {
     for (const actionResult of Object.values(finalizeCheckResult.actions)) {
@@ -109,9 +109,12 @@ export function buildFinishContract(finalizeCheckResult, step = null) {
     description: 'Optional list of artifact reference strings (e.g. file paths) associated with this completion.',
   };
 
+  const matched = result ? transitions.find(t => t.value === result) : null;
+  const feedbackRequired = Boolean(matched?.action?.feedback?.required);
+
   parameters.feedback = {
     type: 'string',
-    required: false,
+    required: feedbackRequired,
     description: 'Optional review feedback or requested changes text associated with this completion.',
   };
 
@@ -145,7 +148,7 @@ export function validateFinishInputs(inputs, parameters, { allowMissing = false 
   if (!allowMissing) {
     for (const [name, schema] of Object.entries(parameters)) {
       if (schema.required) {
-        if (inputs[name] === undefined || inputs[name] === null || inputs[name] === '') {
+        if (inputs[name] === undefined || inputs[name] === null || (typeof inputs[name] === 'string' && inputs[name].trim() === '')) {
           throw new WorkflowError(`Missing required finish input '${name}'`, {
             code: 'MISSING_REQUIRED_INPUT',
             property: name,

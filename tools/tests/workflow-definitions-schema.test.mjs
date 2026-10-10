@@ -337,6 +337,11 @@ describe('Task 25: standard.yaml and standard-v1.yaml migrated definition confor
       assert.deepEqual(failTrans, {
         value: 'fail',
         to: 'implementation',
+        action: {
+          feedback: {
+            required: true,
+          },
+        },
         continuation: 'auto',
         invalidatesDependencyRelease: true,
         execution: {

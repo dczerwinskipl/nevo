@@ -51,6 +51,7 @@ steps:
     exitGates:
       - type: command
         action: test
+        when: [pass]
     finalize:
       - id: commit-and-push
     transitions:
@@ -59,6 +60,9 @@ steps:
         continuation: auto
       - value: fail
         to: implementation
+        action:
+          feedback:
+            required: true
         continuation: auto
         invalidatesDependencyRelease: true
         execution:
