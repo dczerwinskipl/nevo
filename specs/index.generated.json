@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-10T10:21:53.695Z",
+  "generated": "2026-10-10T10:22:18.691Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -949,7 +949,7 @@
           "id": "task18-provenance-correction",
           "order": 19,
           "file": "tasks/19-task18-provenance-correction.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "live-sweep-failure-path-completion"
           ],
