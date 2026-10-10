@@ -561,7 +561,7 @@ tasks:
   - id: task18-provenance-correction
     order: 19
     file: tasks/19-task18-provenance-correction.md
-    status: in-implementation
+    status: implemented
     depends_on: [ live-sweep-failure-path-completion ]
     implementation:
       baseline_revision: de1031d4b1458f92dfc851608f4c5a87332f3c18
