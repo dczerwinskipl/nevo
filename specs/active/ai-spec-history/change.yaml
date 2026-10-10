@@ -151,7 +151,7 @@ tasks:
     status: approved
     depends_on: [ activity-query-and-export ]
     workflow_progress:
-      current_step: implementation
+      current_step: review
       current_attempt: 1
       state: completed
       history:
@@ -160,6 +160,12 @@ tasks:
           completed_at: 2026-10-10T10:53:24.030Z
           transitioned_to: review
           sessionId: f7ad0b55-cc28-4eb8-b164-6a38e78472df
+        - step: review
+          attempt: 1
+          completed_at: 2026-10-10T10:57:07.651Z
+          transitioned_to: human-verification
+          sessionId: 11c5a47e-f229-4462-aa22-e14023030d11
+          result: pass
   - id: workflow-step-activity-producer
     order: 6
     file: tasks/06-workflow-step-activity-producer.md
