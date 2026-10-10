@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-10T10:22:18.691Z",
+  "generated": "2026-10-10T10:23:30.506Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -184,794 +184,6 @@
             "workflow-step-activity-producer",
             "human-verification-activity-producer"
           ]
-        }
-      ]
-    },
-    {
-      "id": "batch-execution-generalization",
-      "specId": "b5011a2e-1197-4fc4-97ea-19758c1891ea",
-      "title": "Generalize task-batch into the primary multi-task execution model",
-      "status": "draft",
-      "priority": 10,
-      "created": "2026-10-03",
-      "tasks": [
-        {
-          "id": "queue-removal-and-reservation-storage-migration",
-          "order": 1,
-          "file": "tasks/01-queue-removal-and-reservation-storage-migration.md",
-          "status": "verified",
-          "implementation": {
-            "baseline_revision": "04ff07e4ea63fdc8d6dd8dcea47d66610deee3b8",
-            "review_revision": "24531ec2b97f8c94e071fc6d46eb1698686fc6e9",
-            "changed_paths": [
-              ".nevo-ai/workflows/standard-v1.yaml",
-              ".nevo-ai/workflows/standard.yaml",
-              "tools/dashboard/server/ai/orchestration/admission.mjs",
-              "tools/dashboard/server/ai/orchestration/deterministic-execution-plan.mjs",
-              "tools/dashboard/server/ai/orchestration/reconciliation.mjs",
-              "tools/dashboard/server/ai/sessions/turns/routes.mjs",
-              "tools/dashboard/tests/execution-policy.test.mjs",
-              "tools/specs/workflow/definitions/schema.mjs",
-              "tools/specs/workflow/queue/evaluator.mjs",
-              "tools/specs/workflow/queue/index.mjs",
-              "tools/specs/workflow/queue/reservation.mjs",
-              "tools/specs/workflow/queue/store.mjs",
-              "tools/specs/workflow/templates/standard.yaml",
-              "tools/tests/deterministic-status-corrective.test.mjs",
-              "tools/tests/deterministic-task-queue.test.mjs",
-              "tools/tests/workflow-continuation.test.mjs",
-              "tools/tests/workflow-definitions-schema.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "9a2f824284bd3247bdb051dd0d6c94d1fd34cd32a0a9c33caa5c56d28e7203ec",
-            "revision": "24531ec2b97f8c94e071fc6d46eb1698686fc6e9",
-            "commands": [
-              {
-                "command": "node --test tools/tests/*.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "batch-admission-generalization",
-          "order": 2,
-          "file": "tasks/02-batch-admission-generalization.md",
-          "status": "verified",
-          "implementation": {
-            "baseline_revision": "64faf3a1a71d667d48aaa0ec16c09938669acdb7",
-            "review_revision": "b6c6cf2dd5c95529bfbfaaee14eb9e1fb5bb4075",
-            "changed_paths": [
-              "tools/specs/context/batch-context.mjs",
-              "tools/specs/workflow/batch-start/operation.mjs",
-              "tools/specs/workflow/queue/reservation.mjs",
-              "tools/tests/batch-start-and-context-bootstrap.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "47e17e75378534246222b89246a0546b74dded9d597764ec001b31ad3c946f8e",
-            "revision": "b6c6cf2dd5c95529bfbfaaee14eb9e1fb5bb4075",
-            "commands": [
-              {
-                "command": "node --test tools/tests/batch-queue-reservation.test.mjs tools/tests/batch-start-and-context-bootstrap.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "batch-finish-phase-neutral-generalization",
-          "order": 3,
-          "file": "tasks/03-batch-finish-phase-neutral-generalization.md",
-          "status": "verified",
-          "depends_on": [
-            "batch-admission-generalization"
-          ],
-          "implementation": {
-            "baseline_revision": "bf47d47bfe8c412d6939e60732b2582bb5a99760",
-            "review_revision": "bfeb42e66b98793e27e24dbf88d4cb5821383096",
-            "changed_paths": [
-              "tools/specs/context/batch-context.mjs",
-              "tools/specs/workflow/batch-finish/operation.mjs",
-              "tools/specs/workflow/batch-finish/preflight.mjs",
-              "tools/tests/batch-cli-and-security.test.mjs",
-              "tools/tests/batch-finish-operation.test.mjs",
-              "tools/tests/batch-lifecycle-assembled.test.mjs"
-            ],
-            "worktree_patch_fingerprint": "2e9ced0fc4a0a8c51886274af31f1668dc772c16275297c0d3f6df34947fc5ef"
-          },
-          "self_check": {
-            "fingerprint": "876cd9029658513cbb54d641d58b4585babc835ef77d6867d84da0ade94a2897",
-            "revision": "bfeb42e66b98793e27e24dbf88d4cb5821383096",
-            "commands": [
-              {
-                "command": "node --test tools/tests/batch-finish-operation.test.mjs tools/tests/batch-claim-release-ordering.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "intra-batch-dependency-consumption-materialization",
-          "order": 4,
-          "file": "tasks/04-intra-batch-dependency-consumption-materialization.md",
-          "status": "verified",
-          "depends_on": [
-            "batch-admission-generalization",
-            "batch-finish-phase-neutral-generalization"
-          ],
-          "implementation": {
-            "baseline_revision": "8b51948564b92d4ad556a2b7b7c846524d60779d",
-            "review_revision": "9b9695d21d824f878a06ef9e26d4a080c494b22a",
-            "changed_paths": [
-              "tools/specs/workflow/batch-finish/operation.mjs",
-              "tools/tests/batch-finish-operation.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "fea39b7439c1565b4f341dfe756abfaedda898e229e315000354ae09a51a807d",
-            "revision": "9b9695d21d824f878a06ef9e26d4a080c494b22a",
-            "commands": [
-              {
-                "command": "node --test tools/tests/batch-finish-operation.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "batch-completion-handover-partitioning",
-          "order": 5,
-          "file": "tasks/05-batch-completion-handover-partitioning.md",
-          "status": "verified",
-          "depends_on": [
-            "batch-finish-phase-neutral-generalization",
-            "intra-batch-dependency-consumption-materialization"
-          ],
-          "implementation": {
-            "baseline_revision": "0605f7f2d2b08a63be2a776821e9076f00a407f5",
-            "review_revision": "93fa6f8328931fee06da988d6e10da3f3ceccf02",
-            "changed_paths": [
-              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
-              "tools/tests/batch-completion-orchestration.test.mjs",
-              "tools/tests/batch-hook3-restart-recovery.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "53071ff5872bbb2d15f1b99cc8ccbfb866d293a592751523f4adb6977112b49d",
-            "revision": "93fa6f8328931fee06da988d6e10da3f3ceccf02",
-            "commands": [
-              {
-                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "ui-canonical-dependency-projection",
-          "order": 6,
-          "file": "tasks/06-ui-canonical-dependency-projection.md",
-          "status": "verified",
-          "implementation": {
-            "baseline_revision": "d80455ff1bc665541c277cf9dc1033df408a070e",
-            "review_revision": "028cd6cbeb6d06cda0ce5c11e374c04839f9bb98",
-            "changed_paths": [
-              "tools/dashboard/tests/specification-overview-dependency-projection.test.tsx",
-              "tools/dashboard/ui/screens/specification-detail/specification-overview.tsx"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "e87120a81cc7414b0533083fac6b13f732042282b855b942530ffb69a09a8cde",
-            "revision": "028cd6cbeb6d06cda0ce5c11e374c04839f9bb98",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "acceptance-initial-implementation-batch",
-          "order": 7,
-          "file": "tasks/07-acceptance-initial-implementation-batch.md",
-          "status": "verified",
-          "depends_on": [
-            "batch-admission-generalization",
-            "batch-finish-phase-neutral-generalization",
-            "intra-batch-dependency-consumption-materialization",
-            "batch-completion-handover-partitioning"
-          ],
-          "implementation": {
-            "baseline_revision": "9d30fc6a66850005afec1b611c7e853b0958ac62",
-            "review_revision": "7c14072a284b4d597d1af326eb69e27495047ec2",
-            "changed_paths": [
-              "tools/tests/acceptance-initial-implementation-batch.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "c4a404f9bd6dafe5fc5732dc736f2f8cd1fadc4a8efecf50b335bfd79d5c7cf1",
-            "revision": "7c14072a284b4d597d1af326eb69e27495047ec2",
-            "commands": [
-              {
-                "command": "node --test tools/tests/acceptance-initial-implementation-batch.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "single-task-convergence-verification",
-          "order": 8,
-          "file": "tasks/08-single-task-convergence-verification.md",
-          "status": "verified",
-          "depends_on": [
-            "queue-removal-and-reservation-storage-migration",
-            "batch-admission-generalization",
-            "batch-finish-phase-neutral-generalization"
-          ],
-          "implementation": {
-            "baseline_revision": "c37fccc21fa7d1de258829712a79914aa98a1dd3",
-            "review_revision": "a6a01f74e7be292b7c82fb5b39b1a5f4cfb21675",
-            "changed_paths": [
-              "tools/tests/single-task-convergence.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "1cb572381a7c4ed2f17189677d3fc01810a3233669f244480a3365411e07029d",
-            "revision": "a6a01f74e7be292b7c82fb5b39b1a5f4cfb21675",
-            "commands": [
-              {
-                "command": "node --test tools/tests/single-task-convergence.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "batch-finish-gate-correctness",
-          "order": 9,
-          "file": "tasks/09-batch-finish-gate-correctness.md",
-          "status": "verified",
-          "depends_on": [
-            "batch-finish-phase-neutral-generalization",
-            "intra-batch-dependency-consumption-materialization"
-          ],
-          "implementation": {
-            "baseline_revision": "cca783dda2ba68034e4ba9eaad4cd11832823b63",
-            "review_revision": "483356cd067407c16e9221eec190267734bdb97c",
-            "changed_paths": [
-              "tools/specs/workflow/batch-finish/operation.mjs",
-              "tools/tests/batch-cli-and-security.test.mjs",
-              "tools/tests/batch-finish-gate-correctness.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "b5f1f567b015f2a417b409e8396c502cbc047a971f248c4bf5d45dedd313b08b",
-            "revision": "483356cd067407c16e9221eec190267734bdb97c",
-            "commands": [
-              {
-                "command": "node --test tools/tests/batch-finish-gate-correctness.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/batch-finish-operation.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "production-batch-admission-generalization",
-          "order": 10,
-          "file": "tasks/10-production-batch-admission-generalization.md",
-          "status": "verified",
-          "depends_on": [
-            "queue-removal-and-reservation-storage-migration",
-            "batch-admission-generalization",
-            "batch-finish-gate-correctness"
-          ],
-          "implementation": {
-            "baseline_revision": "d64b520c795d2c6559c99878d02bf4e0106dd40d",
-            "review_revision": "5bf238b9288e59dfda1d8f1bf9449ca79d40429b",
-            "changed_paths": [
-              "tools/dashboard/server/ai/sessions/turns/routes.mjs",
-              "tools/dashboard/tests/production-batch-admission.test.mjs",
-              "tools/tests/dashboard-orchestration-wiring.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "1386be088a93816bb95294ecbcd28e2d59dddfe21e0ab90d342654526ba16467",
-            "revision": "5bf238b9288e59dfda1d8f1bf9449ca79d40429b",
-            "commands": [
-              {
-                "command": "node --test tools/dashboard/tests/production-batch-admission.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/dashboard/tests/execution-policy.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/dashboard-orchestration-wiring.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "durable-grouped-handover-dispatch",
-          "order": 11,
-          "file": "tasks/11-durable-grouped-handover-dispatch.md",
-          "status": "verified",
-          "depends_on": [
-            "batch-admission-generalization",
-            "batch-completion-handover-partitioning",
-            "production-batch-admission-generalization"
-          ],
-          "implementation": {
-            "baseline_revision": "659fad0adaf0a87d9192d95972265c027b037528",
-            "review_revision": "44d5af000f95c06a018a0a936d7659f88be37206",
-            "changed_paths": [
-              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
-              "tools/tests/batch-completion-orchestration.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "825e71a2c9fe05520f2fbc9f3d2fd80ac8bd88dcb65fa3a7a8bdd9cce80b9cd0",
-            "revision": "44d5af000f95c06a018a0a936d7659f88be37206",
-            "commands": [
-              {
-                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/batch-hook3-restart-recovery.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "real-end-to-end-corrective-acceptance",
-          "order": 12,
-          "file": "tasks/12-real-end-to-end-corrective-acceptance.md",
-          "status": "verified",
-          "depends_on": [
-            "batch-finish-gate-correctness",
-            "production-batch-admission-generalization",
-            "durable-grouped-handover-dispatch"
-          ],
-          "implementation": {
-            "baseline_revision": "e3c24229b0f8c196ab1e567b319d18c4ef2d6b98",
-            "review_revision": "8e0fa3f0a2f7a24d2411d2d80a467922e75440cd",
-            "changed_paths": [
-              "tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "a4b1cfeb3b30e19813780193b91e5fb46817d9b759368cb93ae2fe9b3dc40499",
-            "revision": "8e0fa3f0a2f7a24d2411d2d80a467922e75440cd",
-            "commands": [
-              {
-                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "durable-grouped-handover-resume-generalization",
-          "order": 13,
-          "file": "tasks/13-durable-grouped-handover-resume-generalization.md",
-          "status": "verified",
-          "depends_on": [
-            "durable-grouped-handover-dispatch"
-          ],
-          "implementation": {
-            "baseline_revision": "0aa90c65246340da3574806b68c2b948d4f8e446",
-            "review_revision": "71c6eedda8fa7941f202b4c3176eed0de9c5c03f",
-            "changed_paths": [
-              "tools/dashboard/server/ai/orchestration/admission.mjs",
-              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
-              "tools/tests/batch-completion-orchestration.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "d0f211868582f8248f24d0d142b9b77c813002faeee3f905c0a8ab500d517e0e",
-            "revision": "71c6eedda8fa7941f202b4c3176eed0de9c5c03f",
-            "commands": [
-              {
-                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/batch-hook3-restart-recovery.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "real-end-to-end-automatic-resume-proof",
-          "order": 14,
-          "file": "tasks/14-real-end-to-end-automatic-resume-proof.md",
-          "status": "verified",
-          "depends_on": [
-            "real-end-to-end-corrective-acceptance",
-            "durable-grouped-handover-resume-generalization"
-          ],
-          "implementation": {
-            "baseline_revision": "334e10d832eb71d89ff25b704b0c279db8ddfb13",
-            "review_revision": "a839272167d299d76e42a234c06124f666fa666e",
-            "changed_paths": [
-              "tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "b1f0f0f185970488078a705760dfb4549afd7fc1483ee62132eb84951902aa42",
-            "revision": "a839272167d299d76e42a234c06124f666fa666e",
-            "commands": [
-              {
-                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "resume-trigger-scope-guard-and-coverage-hardening",
-          "order": 15,
-          "file": "tasks/15-resume-trigger-scope-guard-and-coverage-hardening.md",
-          "status": "verified",
-          "depends_on": [
-            "durable-grouped-handover-resume-generalization",
-            "real-end-to-end-automatic-resume-proof"
-          ],
-          "implementation": {
-            "baseline_revision": "a6ef72f83a91fa10b1c66e9ff1c862bddf5acf6b",
-            "review_revision": "adc5c190e66575bfb06df74da895e4b5e9de63f3",
-            "changed_paths": [
-              "specs/active/batch-execution-generalization/tasks/14-real-end-to-end-automatic-resume-proof.md",
-              "tools/dashboard/server/ai/orchestration/admission.mjs",
-              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
-              "tools/tests/batch-completion-orchestration.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "7263041294483c85b09ba0e36d204b22453034c46066656d6cd6f1fb57f38d78",
-            "revision": "adc5c190e66575bfb06df74da895e4b5e9de63f3",
-            "commands": [
-              {
-                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "worktree-wide-pending-handover-sweep",
-          "order": 16,
-          "file": "tasks/16-worktree-wide-pending-handover-sweep.md",
-          "status": "verified",
-          "depends_on": [
-            "resume-trigger-scope-guard-and-coverage-hardening"
-          ],
-          "implementation": {
-            "baseline_revision": "22c279da0737abf822c7283ceb5b717d7b68df34",
-            "review_revision": "d8da2c73f047746f6a1ad60abfc172bc4b7bb299",
-            "changed_paths": [
-              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
-              "tools/dashboard/server/ai/orchestration/reconciliation.mjs",
-              "tools/dashboard/server/specs/routes.mjs",
-              "tools/dashboard/tests/task-publish-transport.test.mjs",
-              "tools/tests/batch-completion-orchestration.test.mjs",
-              "tools/tests/batch-hook3-restart-recovery.test.mjs"
-            ],
-            "worktree_patch_fingerprint": null,
-            "provenance_correction": "Task 17 (fifth-round review) corrected this block after the fourth review round found it historically inaccurate: the real implementation landed in commit d8da2c73 (titled \"fix(orchestration): worktree-wide sweep for pending handovers blocked by transient contention (task 16)\"), committed BEFORE this task's own approve transition (98079d65) — an ordering inversion in how this task was executed, not a data-loss or rewritten-history issue. The automated approve/self-check metadata capture could not see the pre-existing commit and recorded 98079d65 with an empty changed_paths. baseline_revision, review_revision, and changed_paths above are now corrected to reflect reality (22c279da = the spec-scaffolding commit immediately before d8da2c73's own production changes). No git history was rewritten; only this YAML metadata was corrected. See overview.md's \"Fifth-round review correction\" for the full writeup."
-          },
-          "self_check": {
-            "fingerprint": "148b8a809d2f91506ffbf21ad58e4e3868eea21daa709b28faf2f50834b75a57",
-            "revision": "d8da2c73f047746f6a1ad60abfc172bc4b7bb299",
-            "commands": [
-              {
-                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/batch-hook3-restart-recovery.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/dashboard/tests/task-publish-transport.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "settlement-serialization-and-live-sweep-completion",
-          "order": 17,
-          "file": "tasks/17-settlement-serialization-and-live-sweep-completion.md",
-          "status": "verified",
-          "depends_on": [
-            "worktree-wide-pending-handover-sweep"
-          ],
-          "implementation": {
-            "baseline_revision": "88b7686425ec150f24a196c878c782091b0ad3fa",
-            "review_revision": "f0a353b0b1fe150c15aaa9556cb734ccb8a0f4cb",
-            "changed_paths": [
-              "specs/active/batch-execution-generalization/change.yaml",
-              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
-              "tools/dashboard/server/specs/routes.mjs",
-              "tools/dashboard/tests/task-publish-transport.test.mjs",
-              "tools/tests/batch-completion-orchestration.test.mjs"
-            ],
-            "worktree_patch_fingerprint": "790ae81451980805c1ab63aa086a10cb8f6f81b7de760fd4e091d523e89d1474"
-          },
-          "self_check": {
-            "fingerprint": "8e6125fb1d74a5f8f06e9f8f1d1bf52719ba794faf89906c22d6c0bc67474548",
-            "revision": "f0a353b0b1fe150c15aaa9556cb734ccb8a0f4cb",
-            "commands": [
-              {
-                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/batch-hook3-restart-recovery.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/dashboard/tests/task-publish-transport.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "live-sweep-failure-path-completion",
-          "order": 18,
-          "file": "tasks/18-live-sweep-failure-path-completion.md",
-          "status": "verified",
-          "depends_on": [
-            "settlement-serialization-and-live-sweep-completion"
-          ],
-          "implementation": {
-            "baseline_revision": "d9470ff6fae9a93d064eb96c31c934dac0bbf829",
-            "review_revision": "19a8c281dae48d13bceb65f3a351f1295f5f8461",
-            "changed_paths": [
-              "tools/dashboard/server/specs/routes.mjs",
-              "tools/dashboard/tests/task-publish-transport.test.mjs",
-              "specs/active/batch-execution-generalization/tasks/16-worktree-wide-pending-handover-sweep.md"
-            ],
-            "worktree_patch_fingerprint": null,
-            "provenance_correction": "Task 19 (seventh-round review) corrected this block after the seventh review round found it historically inaccurate: one of task 18's own acceptance criteria (the \"superseded by tasks 17-18\" note on tasks/16-worktree-wide-pending-handover-sweep.md) was actually applied in commit ac9d3ed0 (titled \"chore(specs): add sixth-round corrective task 18, correct task 16 scope-boundary text, scoped re-review\"), committed BEFORE this task's own approve transition (d9be4441) — the same execution-ordering inversion task 16 itself once had, not a data-loss or rewritten-history issue. baseline_revision is now corrected to d9470ff6 (the commit immediately preceding ac9d3ed0), and changed_paths now includes the task-16 documentation file. review_revision and self_check.revision are unchanged (19a8c281, the final commit containing the full set of task 18 changes) — the span from the corrected baseline already covers both commits. No git history was rewritten; only this YAML metadata was corrected. See overview.md's \"Seventh-round review correction\" for the full writeup."
-          },
-          "self_check": {
-            "fingerprint": "eea208f08d7a7348eee5d50bdd19a02a6fe719392894f7d4122ce30657ce82ef",
-            "revision": "19a8c281dae48d13bceb65f3a351f1295f5f8461",
-            "commands": [
-              {
-                "command": "node --test tools/dashboard/tests/task-publish-transport.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/batch-hook3-restart-recovery.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "task18-provenance-correction",
-          "order": 19,
-          "file": "tasks/19-task18-provenance-correction.md",
-          "status": "verified",
-          "depends_on": [
-            "live-sweep-failure-path-completion"
-          ],
-          "implementation": {
-            "baseline_revision": "de1031d4b1458f92dfc851608f4c5a87332f3c18",
-            "review_revision": "004a0a25eb764842f193016d0b2215d311b38357",
-            "changed_paths": [
-              "specs/active/batch-execution-generalization/change.yaml"
-            ],
-            "worktree_patch_fingerprint": "7611089f3f2e0fc9bd8f819ca451488c203c554b654ec799e485607f39016999"
-          },
-          "self_check": {
-            "fingerprint": "fc8431b5bd92959835b4afc0d70ca7402d265e6e69cd73efa97ed62463903bb0",
-            "revision": "004a0a25eb764842f193016d0b2215d311b38357",
-            "commands": [
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
         }
       ]
     },
@@ -2307,6 +1519,794 @@
           "order": 1,
           "file": "tasks/01-core-architecture-docs.md",
           "status": "verified"
+        }
+      ]
+    },
+    {
+      "id": "batch-execution-generalization",
+      "specId": "b5011a2e-1197-4fc4-97ea-19758c1891ea",
+      "title": "Generalize task-batch into the primary multi-task execution model",
+      "status": "archived",
+      "priority": 10,
+      "created": "2026-10-03",
+      "tasks": [
+        {
+          "id": "queue-removal-and-reservation-storage-migration",
+          "order": 1,
+          "file": "tasks/01-queue-removal-and-reservation-storage-migration.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "04ff07e4ea63fdc8d6dd8dcea47d66610deee3b8",
+            "review_revision": "24531ec2b97f8c94e071fc6d46eb1698686fc6e9",
+            "changed_paths": [
+              ".nevo-ai/workflows/standard-v1.yaml",
+              ".nevo-ai/workflows/standard.yaml",
+              "tools/dashboard/server/ai/orchestration/admission.mjs",
+              "tools/dashboard/server/ai/orchestration/deterministic-execution-plan.mjs",
+              "tools/dashboard/server/ai/orchestration/reconciliation.mjs",
+              "tools/dashboard/server/ai/sessions/turns/routes.mjs",
+              "tools/dashboard/tests/execution-policy.test.mjs",
+              "tools/specs/workflow/definitions/schema.mjs",
+              "tools/specs/workflow/queue/evaluator.mjs",
+              "tools/specs/workflow/queue/index.mjs",
+              "tools/specs/workflow/queue/reservation.mjs",
+              "tools/specs/workflow/queue/store.mjs",
+              "tools/specs/workflow/templates/standard.yaml",
+              "tools/tests/deterministic-status-corrective.test.mjs",
+              "tools/tests/deterministic-task-queue.test.mjs",
+              "tools/tests/workflow-continuation.test.mjs",
+              "tools/tests/workflow-definitions-schema.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "9a2f824284bd3247bdb051dd0d6c94d1fd34cd32a0a9c33caa5c56d28e7203ec",
+            "revision": "24531ec2b97f8c94e071fc6d46eb1698686fc6e9",
+            "commands": [
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "batch-admission-generalization",
+          "order": 2,
+          "file": "tasks/02-batch-admission-generalization.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "64faf3a1a71d667d48aaa0ec16c09938669acdb7",
+            "review_revision": "b6c6cf2dd5c95529bfbfaaee14eb9e1fb5bb4075",
+            "changed_paths": [
+              "tools/specs/context/batch-context.mjs",
+              "tools/specs/workflow/batch-start/operation.mjs",
+              "tools/specs/workflow/queue/reservation.mjs",
+              "tools/tests/batch-start-and-context-bootstrap.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "47e17e75378534246222b89246a0546b74dded9d597764ec001b31ad3c946f8e",
+            "revision": "b6c6cf2dd5c95529bfbfaaee14eb9e1fb5bb4075",
+            "commands": [
+              {
+                "command": "node --test tools/tests/batch-queue-reservation.test.mjs tools/tests/batch-start-and-context-bootstrap.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "batch-finish-phase-neutral-generalization",
+          "order": 3,
+          "file": "tasks/03-batch-finish-phase-neutral-generalization.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-admission-generalization"
+          ],
+          "implementation": {
+            "baseline_revision": "bf47d47bfe8c412d6939e60732b2582bb5a99760",
+            "review_revision": "bfeb42e66b98793e27e24dbf88d4cb5821383096",
+            "changed_paths": [
+              "tools/specs/context/batch-context.mjs",
+              "tools/specs/workflow/batch-finish/operation.mjs",
+              "tools/specs/workflow/batch-finish/preflight.mjs",
+              "tools/tests/batch-cli-and-security.test.mjs",
+              "tools/tests/batch-finish-operation.test.mjs",
+              "tools/tests/batch-lifecycle-assembled.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "2e9ced0fc4a0a8c51886274af31f1668dc772c16275297c0d3f6df34947fc5ef"
+          },
+          "self_check": {
+            "fingerprint": "876cd9029658513cbb54d641d58b4585babc835ef77d6867d84da0ade94a2897",
+            "revision": "bfeb42e66b98793e27e24dbf88d4cb5821383096",
+            "commands": [
+              {
+                "command": "node --test tools/tests/batch-finish-operation.test.mjs tools/tests/batch-claim-release-ordering.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "intra-batch-dependency-consumption-materialization",
+          "order": 4,
+          "file": "tasks/04-intra-batch-dependency-consumption-materialization.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-admission-generalization",
+            "batch-finish-phase-neutral-generalization"
+          ],
+          "implementation": {
+            "baseline_revision": "8b51948564b92d4ad556a2b7b7c846524d60779d",
+            "review_revision": "9b9695d21d824f878a06ef9e26d4a080c494b22a",
+            "changed_paths": [
+              "tools/specs/workflow/batch-finish/operation.mjs",
+              "tools/tests/batch-finish-operation.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "fea39b7439c1565b4f341dfe756abfaedda898e229e315000354ae09a51a807d",
+            "revision": "9b9695d21d824f878a06ef9e26d4a080c494b22a",
+            "commands": [
+              {
+                "command": "node --test tools/tests/batch-finish-operation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "batch-completion-handover-partitioning",
+          "order": 5,
+          "file": "tasks/05-batch-completion-handover-partitioning.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-finish-phase-neutral-generalization",
+            "intra-batch-dependency-consumption-materialization"
+          ],
+          "implementation": {
+            "baseline_revision": "0605f7f2d2b08a63be2a776821e9076f00a407f5",
+            "review_revision": "93fa6f8328931fee06da988d6e10da3f3ceccf02",
+            "changed_paths": [
+              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
+              "tools/tests/batch-completion-orchestration.test.mjs",
+              "tools/tests/batch-hook3-restart-recovery.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "53071ff5872bbb2d15f1b99cc8ccbfb866d293a592751523f4adb6977112b49d",
+            "revision": "93fa6f8328931fee06da988d6e10da3f3ceccf02",
+            "commands": [
+              {
+                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "ui-canonical-dependency-projection",
+          "order": 6,
+          "file": "tasks/06-ui-canonical-dependency-projection.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "d80455ff1bc665541c277cf9dc1033df408a070e",
+            "review_revision": "028cd6cbeb6d06cda0ce5c11e374c04839f9bb98",
+            "changed_paths": [
+              "tools/dashboard/tests/specification-overview-dependency-projection.test.tsx",
+              "tools/dashboard/ui/screens/specification-detail/specification-overview.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "e87120a81cc7414b0533083fac6b13f732042282b855b942530ffb69a09a8cde",
+            "revision": "028cd6cbeb6d06cda0ce5c11e374c04839f9bb98",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "acceptance-initial-implementation-batch",
+          "order": 7,
+          "file": "tasks/07-acceptance-initial-implementation-batch.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-admission-generalization",
+            "batch-finish-phase-neutral-generalization",
+            "intra-batch-dependency-consumption-materialization",
+            "batch-completion-handover-partitioning"
+          ],
+          "implementation": {
+            "baseline_revision": "9d30fc6a66850005afec1b611c7e853b0958ac62",
+            "review_revision": "7c14072a284b4d597d1af326eb69e27495047ec2",
+            "changed_paths": [
+              "tools/tests/acceptance-initial-implementation-batch.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "c4a404f9bd6dafe5fc5732dc736f2f8cd1fadc4a8efecf50b335bfd79d5c7cf1",
+            "revision": "7c14072a284b4d597d1af326eb69e27495047ec2",
+            "commands": [
+              {
+                "command": "node --test tools/tests/acceptance-initial-implementation-batch.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "single-task-convergence-verification",
+          "order": 8,
+          "file": "tasks/08-single-task-convergence-verification.md",
+          "status": "verified",
+          "depends_on": [
+            "queue-removal-and-reservation-storage-migration",
+            "batch-admission-generalization",
+            "batch-finish-phase-neutral-generalization"
+          ],
+          "implementation": {
+            "baseline_revision": "c37fccc21fa7d1de258829712a79914aa98a1dd3",
+            "review_revision": "a6a01f74e7be292b7c82fb5b39b1a5f4cfb21675",
+            "changed_paths": [
+              "tools/tests/single-task-convergence.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "1cb572381a7c4ed2f17189677d3fc01810a3233669f244480a3365411e07029d",
+            "revision": "a6a01f74e7be292b7c82fb5b39b1a5f4cfb21675",
+            "commands": [
+              {
+                "command": "node --test tools/tests/single-task-convergence.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "batch-finish-gate-correctness",
+          "order": 9,
+          "file": "tasks/09-batch-finish-gate-correctness.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-finish-phase-neutral-generalization",
+            "intra-batch-dependency-consumption-materialization"
+          ],
+          "implementation": {
+            "baseline_revision": "cca783dda2ba68034e4ba9eaad4cd11832823b63",
+            "review_revision": "483356cd067407c16e9221eec190267734bdb97c",
+            "changed_paths": [
+              "tools/specs/workflow/batch-finish/operation.mjs",
+              "tools/tests/batch-cli-and-security.test.mjs",
+              "tools/tests/batch-finish-gate-correctness.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "b5f1f567b015f2a417b409e8396c502cbc047a971f248c4bf5d45dedd313b08b",
+            "revision": "483356cd067407c16e9221eec190267734bdb97c",
+            "commands": [
+              {
+                "command": "node --test tools/tests/batch-finish-gate-correctness.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/batch-finish-operation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "production-batch-admission-generalization",
+          "order": 10,
+          "file": "tasks/10-production-batch-admission-generalization.md",
+          "status": "verified",
+          "depends_on": [
+            "queue-removal-and-reservation-storage-migration",
+            "batch-admission-generalization",
+            "batch-finish-gate-correctness"
+          ],
+          "implementation": {
+            "baseline_revision": "d64b520c795d2c6559c99878d02bf4e0106dd40d",
+            "review_revision": "5bf238b9288e59dfda1d8f1bf9449ca79d40429b",
+            "changed_paths": [
+              "tools/dashboard/server/ai/sessions/turns/routes.mjs",
+              "tools/dashboard/tests/production-batch-admission.test.mjs",
+              "tools/tests/dashboard-orchestration-wiring.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "1386be088a93816bb95294ecbcd28e2d59dddfe21e0ab90d342654526ba16467",
+            "revision": "5bf238b9288e59dfda1d8f1bf9449ca79d40429b",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/production-batch-admission.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/dashboard/tests/execution-policy.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/dashboard-orchestration-wiring.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "durable-grouped-handover-dispatch",
+          "order": 11,
+          "file": "tasks/11-durable-grouped-handover-dispatch.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-admission-generalization",
+            "batch-completion-handover-partitioning",
+            "production-batch-admission-generalization"
+          ],
+          "implementation": {
+            "baseline_revision": "659fad0adaf0a87d9192d95972265c027b037528",
+            "review_revision": "44d5af000f95c06a018a0a936d7659f88be37206",
+            "changed_paths": [
+              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
+              "tools/tests/batch-completion-orchestration.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "825e71a2c9fe05520f2fbc9f3d2fd80ac8bd88dcb65fa3a7a8bdd9cce80b9cd0",
+            "revision": "44d5af000f95c06a018a0a936d7659f88be37206",
+            "commands": [
+              {
+                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/batch-hook3-restart-recovery.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "real-end-to-end-corrective-acceptance",
+          "order": 12,
+          "file": "tasks/12-real-end-to-end-corrective-acceptance.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-finish-gate-correctness",
+            "production-batch-admission-generalization",
+            "durable-grouped-handover-dispatch"
+          ],
+          "implementation": {
+            "baseline_revision": "e3c24229b0f8c196ab1e567b319d18c4ef2d6b98",
+            "review_revision": "8e0fa3f0a2f7a24d2411d2d80a467922e75440cd",
+            "changed_paths": [
+              "tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "a4b1cfeb3b30e19813780193b91e5fb46817d9b759368cb93ae2fe9b3dc40499",
+            "revision": "8e0fa3f0a2f7a24d2411d2d80a467922e75440cd",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "durable-grouped-handover-resume-generalization",
+          "order": 13,
+          "file": "tasks/13-durable-grouped-handover-resume-generalization.md",
+          "status": "verified",
+          "depends_on": [
+            "durable-grouped-handover-dispatch"
+          ],
+          "implementation": {
+            "baseline_revision": "0aa90c65246340da3574806b68c2b948d4f8e446",
+            "review_revision": "71c6eedda8fa7941f202b4c3176eed0de9c5c03f",
+            "changed_paths": [
+              "tools/dashboard/server/ai/orchestration/admission.mjs",
+              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
+              "tools/tests/batch-completion-orchestration.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "d0f211868582f8248f24d0d142b9b77c813002faeee3f905c0a8ab500d517e0e",
+            "revision": "71c6eedda8fa7941f202b4c3176eed0de9c5c03f",
+            "commands": [
+              {
+                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/batch-hook3-restart-recovery.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "real-end-to-end-automatic-resume-proof",
+          "order": 14,
+          "file": "tasks/14-real-end-to-end-automatic-resume-proof.md",
+          "status": "verified",
+          "depends_on": [
+            "real-end-to-end-corrective-acceptance",
+            "durable-grouped-handover-resume-generalization"
+          ],
+          "implementation": {
+            "baseline_revision": "334e10d832eb71d89ff25b704b0c279db8ddfb13",
+            "review_revision": "a839272167d299d76e42a234c06124f666fa666e",
+            "changed_paths": [
+              "tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "b1f0f0f185970488078a705760dfb4549afd7fc1483ee62132eb84951902aa42",
+            "revision": "a839272167d299d76e42a234c06124f666fa666e",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "resume-trigger-scope-guard-and-coverage-hardening",
+          "order": 15,
+          "file": "tasks/15-resume-trigger-scope-guard-and-coverage-hardening.md",
+          "status": "verified",
+          "depends_on": [
+            "durable-grouped-handover-resume-generalization",
+            "real-end-to-end-automatic-resume-proof"
+          ],
+          "implementation": {
+            "baseline_revision": "a6ef72f83a91fa10b1c66e9ff1c862bddf5acf6b",
+            "review_revision": "adc5c190e66575bfb06df74da895e4b5e9de63f3",
+            "changed_paths": [
+              "specs/active/batch-execution-generalization/tasks/14-real-end-to-end-automatic-resume-proof.md",
+              "tools/dashboard/server/ai/orchestration/admission.mjs",
+              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
+              "tools/tests/batch-completion-orchestration.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "7263041294483c85b09ba0e36d204b22453034c46066656d6cd6f1fb57f38d78",
+            "revision": "adc5c190e66575bfb06df74da895e4b5e9de63f3",
+            "commands": [
+              {
+                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "worktree-wide-pending-handover-sweep",
+          "order": 16,
+          "file": "tasks/16-worktree-wide-pending-handover-sweep.md",
+          "status": "verified",
+          "depends_on": [
+            "resume-trigger-scope-guard-and-coverage-hardening"
+          ],
+          "implementation": {
+            "baseline_revision": "22c279da0737abf822c7283ceb5b717d7b68df34",
+            "review_revision": "d8da2c73f047746f6a1ad60abfc172bc4b7bb299",
+            "changed_paths": [
+              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
+              "tools/dashboard/server/ai/orchestration/reconciliation.mjs",
+              "tools/dashboard/server/specs/routes.mjs",
+              "tools/dashboard/tests/task-publish-transport.test.mjs",
+              "tools/tests/batch-completion-orchestration.test.mjs",
+              "tools/tests/batch-hook3-restart-recovery.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null,
+            "provenance_correction": "Task 17 (fifth-round review) corrected this block after the fourth review round found it historically inaccurate: the real implementation landed in commit d8da2c73 (titled \"fix(orchestration): worktree-wide sweep for pending handovers blocked by transient contention (task 16)\"), committed BEFORE this task's own approve transition (98079d65) — an ordering inversion in how this task was executed, not a data-loss or rewritten-history issue. The automated approve/self-check metadata capture could not see the pre-existing commit and recorded 98079d65 with an empty changed_paths. baseline_revision, review_revision, and changed_paths above are now corrected to reflect reality (22c279da = the spec-scaffolding commit immediately before d8da2c73's own production changes). No git history was rewritten; only this YAML metadata was corrected. See overview.md's \"Fifth-round review correction\" for the full writeup."
+          },
+          "self_check": {
+            "fingerprint": "148b8a809d2f91506ffbf21ad58e4e3868eea21daa709b28faf2f50834b75a57",
+            "revision": "d8da2c73f047746f6a1ad60abfc172bc4b7bb299",
+            "commands": [
+              {
+                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/batch-hook3-restart-recovery.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/dashboard/tests/task-publish-transport.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "settlement-serialization-and-live-sweep-completion",
+          "order": 17,
+          "file": "tasks/17-settlement-serialization-and-live-sweep-completion.md",
+          "status": "verified",
+          "depends_on": [
+            "worktree-wide-pending-handover-sweep"
+          ],
+          "implementation": {
+            "baseline_revision": "88b7686425ec150f24a196c878c782091b0ad3fa",
+            "review_revision": "f0a353b0b1fe150c15aaa9556cb734ccb8a0f4cb",
+            "changed_paths": [
+              "specs/active/batch-execution-generalization/change.yaml",
+              "tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs",
+              "tools/dashboard/server/specs/routes.mjs",
+              "tools/dashboard/tests/task-publish-transport.test.mjs",
+              "tools/tests/batch-completion-orchestration.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "790ae81451980805c1ab63aa086a10cb8f6f81b7de760fd4e091d523e89d1474"
+          },
+          "self_check": {
+            "fingerprint": "8e6125fb1d74a5f8f06e9f8f1d1bf52719ba794faf89906c22d6c0bc67474548",
+            "revision": "f0a353b0b1fe150c15aaa9556cb734ccb8a0f4cb",
+            "commands": [
+              {
+                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/batch-hook3-restart-recovery.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/dashboard/tests/task-publish-transport.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "live-sweep-failure-path-completion",
+          "order": 18,
+          "file": "tasks/18-live-sweep-failure-path-completion.md",
+          "status": "verified",
+          "depends_on": [
+            "settlement-serialization-and-live-sweep-completion"
+          ],
+          "implementation": {
+            "baseline_revision": "d9470ff6fae9a93d064eb96c31c934dac0bbf829",
+            "review_revision": "19a8c281dae48d13bceb65f3a351f1295f5f8461",
+            "changed_paths": [
+              "tools/dashboard/server/specs/routes.mjs",
+              "tools/dashboard/tests/task-publish-transport.test.mjs",
+              "specs/active/batch-execution-generalization/tasks/16-worktree-wide-pending-handover-sweep.md"
+            ],
+            "worktree_patch_fingerprint": null,
+            "provenance_correction": "Task 19 (seventh-round review) corrected this block after the seventh review round found it historically inaccurate: one of task 18's own acceptance criteria (the \"superseded by tasks 17-18\" note on tasks/16-worktree-wide-pending-handover-sweep.md) was actually applied in commit ac9d3ed0 (titled \"chore(specs): add sixth-round corrective task 18, correct task 16 scope-boundary text, scoped re-review\"), committed BEFORE this task's own approve transition (d9be4441) — the same execution-ordering inversion task 16 itself once had, not a data-loss or rewritten-history issue. baseline_revision is now corrected to d9470ff6 (the commit immediately preceding ac9d3ed0), and changed_paths now includes the task-16 documentation file. review_revision and self_check.revision are unchanged (19a8c281, the final commit containing the full set of task 18 changes) — the span from the corrected baseline already covers both commits. No git history was rewritten; only this YAML metadata was corrected. See overview.md's \"Seventh-round review correction\" for the full writeup."
+          },
+          "self_check": {
+            "fingerprint": "eea208f08d7a7348eee5d50bdd19a02a6fe719392894f7d4122ce30657ce82ef",
+            "revision": "19a8c281dae48d13bceb65f3a351f1295f5f8461",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/task-publish-transport.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/batch-completion-orchestration.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/batch-hook3-restart-recovery.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/dashboard/tests/real-end-to-end-corrective-acceptance.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "task18-provenance-correction",
+          "order": 19,
+          "file": "tasks/19-task18-provenance-correction.md",
+          "status": "verified",
+          "depends_on": [
+            "live-sweep-failure-path-completion"
+          ],
+          "implementation": {
+            "baseline_revision": "de1031d4b1458f92dfc851608f4c5a87332f3c18",
+            "review_revision": "004a0a25eb764842f193016d0b2215d311b38357",
+            "changed_paths": [
+              "specs/active/batch-execution-generalization/change.yaml"
+            ],
+            "worktree_patch_fingerprint": "7611089f3f2e0fc9bd8f819ca451488c203c554b654ec799e485607f39016999"
+          },
+          "self_check": {
+            "fingerprint": "fc8431b5bd92959835b4afc0d70ca7402d265e6e69cd73efa97ed62463903bb0",
+            "revision": "004a0a25eb764842f193016d0b2215d311b38357",
+            "commands": [
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         }
       ]
     },

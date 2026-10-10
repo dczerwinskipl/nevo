@@ -2,7 +2,7 @@
 id: batch-execution-generalization
 title: "Generalize task-batch into the primary multi-task execution model"
 type: architectural
-status: draft
+status: archived
 priority: 10
 created: 2026-10-03
 

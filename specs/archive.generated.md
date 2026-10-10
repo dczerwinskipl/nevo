@@ -9,6 +9,7 @@
 | `ai-session-issues-and-diagnostics` | AI session issues and diagnostics | archived | 10 | 2026-08-30 |
 | `ai-sessions-live-chat-integration` | AI sessions and live chat integration | archived | 10 | 2026-08-15 |
 | `architecture-documentation` | Architecture documentation | archived | 10 | 2026-08-01 |
+| `batch-execution-generalization` | Generalize task-batch into the primary multi-task execution model | archived | 10 | 2026-10-03 |
 | `chat-ux-improvements-pt1` | Chat UX Improvements pt1 | archived | 10 | 2026-08-21 |
 | `dashboard-loading-and-progress` | Dashboard data loading and long-running operation progress | archived | 20 | 2026-08-15 |
 | `deterministic-execution-follow-up-hardening` | Deterministic execution follow up hardening | archived | 10 | 2026-09-30 |
