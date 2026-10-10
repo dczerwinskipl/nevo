@@ -35,8 +35,10 @@ tasks:
   - id: specs-index-projection-stability
     order: 4
     file: tasks/04-specs-index-projection-stability.md
-    status: approved
+    status: verified
     depends_on: [ derived-registry-and-deterministic-generators ]
+    implementation:
+      baseline_revision: 660257cade653706f05e2c725245f2199ba40576
   - id: transition-aware-exit-gates
     order: 5
     file: tasks/05-transition-aware-exit-gates.md
