@@ -543,13 +543,7 @@ tasks:
   - id: task18-provenance-correction
     order: 19
     file: tasks/19-task18-provenance-correction.md
-    status: draft
+    status: approved
     depends_on: [ live-sweep-failure-path-completion ]
-    execution:
-      suspension:
-        kind: confirm-required
-        code: REC-07
-        previous_action: approve
-        created_at: 2026-10-10T10:19:53.102Z
 
 spec_id: b5011a2e-1197-4fc4-97ea-19758c1891ea
