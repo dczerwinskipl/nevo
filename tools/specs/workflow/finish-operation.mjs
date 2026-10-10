@@ -23,6 +23,9 @@ import * as git from '../../lib/git.mjs';
 // between this module and `step-context.mjs`.
 import { loadOperationRecord, saveOperationRecord, findInFlightOperationRecord } from './operation-record.mjs';
 import { withGitFinalizeLock } from './git-finalize-lock.mjs';
+import { SYSTEM_ACTOR } from '../activity/actor-resolver.mjs';
+import { resolveSpecId } from '../activity/store.mjs';
+import { recordWorkflowStepCompletedFromRecord } from '../activity/producers/workflow.mjs';
 
 export const FINISH_STAGE_IDS = ['verify-gates', 'update-task', 'commit', 'push', 'transition'];
 
@@ -30,13 +33,14 @@ export const FINISH_STAGE_IDS = ['verify-gates', 'update-task', 'commit', 'push'
 // `index.mjs` barrel) is unaffected by the extraction above.
 export { loadOperationRecord, saveOperationRecord, findInFlightOperationRecord };
 
-function createOperationRecord({ change, task, step, attempt, resolvedInputs }) {
+function createOperationRecord({ change, task, step, attempt, resolvedInputs, actor = SYSTEM_ACTOR }) {
   return {
     operationId: randomUUID(),
     change,
     task,
     step,
     attempt,
+    actor: actor || SYSTEM_ACTOR,
     status: 'running',
     resolvedInputs,
     operations: FINISH_STAGE_IDS.map(id => ({ id, status: 'pending' })),
@@ -699,6 +703,7 @@ export async function finishStep({
   engine = defaultWorkflowEngine,
   gateRegistry = defaultGateRegistry,
   actionRegistry = defaultActionRegistry,
+  actor = SYSTEM_ACTOR,
 } = {}) {
   if (!context.repoRoot) {
     throw new WorkflowError('finishStep requires context.repoRoot');
@@ -739,9 +744,19 @@ export async function finishStep({
     // AC7 (D37 correction): distinct from a first-time `completed` result — no gate was
     // re-evaluated and no finalize action ran for this call; the previous operation's
     // own result is returned as factual context only.
+    recordWorkflowStepCompletedFromRecord({
+      specId: resolveSpecId(changeSlug, { repoRoot, activeDir: resolvedActiveDir }),
+      taskId: task.id,
+      record: plan.existingRecord,
+    }, { repoRoot, activeDir: resolvedActiveDir });
     return { status: 'already-completed', result: buildCompletionResult(plan.existingRecord, definition) };
   }
   if (plan.status === 'completed') {
+    recordWorkflowStepCompletedFromRecord({
+      specId: resolveSpecId(changeSlug, { repoRoot, activeDir: resolvedActiveDir }),
+      taskId: task.id,
+      record: plan.existingRecord,
+    }, { repoRoot, activeDir: resolvedActiveDir });
     return { status: 'completed', result: buildCompletionResult(plan.existingRecord, definition) };
   }
   if (plan.status === 'input-required') {
@@ -768,6 +783,7 @@ export async function finishStep({
       step: plan.stepName,
       attempt: plan.attempt,
       resolvedInputs: plan.resolvedInputs,
+      actor,
     });
     saveOperationRecord(repoRoot, record);
   }
@@ -779,6 +795,11 @@ export async function finishStep({
     const existingLease = context.finalizeLease || effectiveContext.finalizeLease;
     await withGitFinalizeLock(async () => {
       await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id, repoRoot, effectiveContext);
+      recordWorkflowStepCompletedFromRecord({
+        specId: resolveSpecId(changeSlug, { repoRoot, activeDir: resolvedActiveDir }),
+        taskId: task.id,
+        record,
+      }, { repoRoot, activeDir: resolvedActiveDir });
       await ensureCommit(record, effectiveContext, repoRoot);
     }, existingLease, { repoRoot });
     await ensurePush(record, effectiveContext, repoRoot);

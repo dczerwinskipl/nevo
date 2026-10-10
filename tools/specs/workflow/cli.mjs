@@ -34,6 +34,9 @@ import { resolveHumanScopeTarget } from './gates/human-gate.mjs';
 // producing an empty finish contract for every real invocation.
 import './actions/index.mjs';
 import { autoBindAgentSession } from '../../specs.mjs';
+import { SYSTEM_ACTOR, resolveAgentSessionActor } from '../activity/actor-resolver.mjs';
+import { resolveSpecId } from '../activity/store.mjs';
+import { recordWorkflowStepStarted } from '../activity/producers/workflow.mjs';
 import { assertStepExecutor } from './executor-guard.mjs';
 import { startHumanStep, submitHumanStepResult, activateAndSubmitHumanStep } from './human-step/operations.mjs';
 import { assertExecutionReadiness } from './readiness-policy.mjs';
@@ -457,7 +460,18 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
 
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, slug, task.id, currentAttempt);
   const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });
-  autoBindAgentSession(change, task.id, 'execution', { step: stepContext.currentStep, attempt: stepContext.attempt, repoRoot: context.repoRoot });
+  const binding = autoBindAgentSession(change, task.id, 'execution', { step: stepContext.currentStep, attempt: stepContext.attempt, repoRoot: context.repoRoot });
+  if (stepContext.currentStep) {
+    const actor = binding?.sessionId ? resolveAgentSessionActor(binding.sessionId) : SYSTEM_ACTOR;
+    const specId = resolveSpecId(change, { repoRoot: context.repoRoot, activeDir: context.activeDir });
+    recordWorkflowStepStarted({
+      specId,
+      taskId: task.id,
+      step: stepContext.currentStep,
+      attempt: stepContext.attempt,
+      actor,
+    }, { repoRoot: context.repoRoot, activeDir: context.activeDir });
+  }
   return emit(stepContext, opts);
 }
 
@@ -511,16 +525,15 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
     return emit(plan, opts);
   }
 
+  const binding = autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt, repoRoot: context.repoRoot, clearActiveTask: true });
+  const actor = binding?.sessionId ? resolveAgentSessionActor(binding.sessionId) : SYSTEM_ACTOR;
+
   let result;
   let finishError = null;
   try {
-    result = await finishStep({ change, task, definition, context, inputs, activeDir: context.activeDir, gateRegistry });
+    result = await finishStep({ change, task, definition, context, inputs, activeDir: context.activeDir, gateRegistry, actor });
   } catch (err) {
     finishError = err;
-  }
-
-  if (!finishError) {
-    autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt, repoRoot: context.repoRoot, clearActiveTask: true });
   }
 
   // D69: Settlement-gated release of cli-manual claim
