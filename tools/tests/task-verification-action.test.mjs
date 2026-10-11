@@ -326,4 +326,121 @@ describe('Explicit task-verification catalog action (Task 08, D6)', () => {
     const res = validateWorkflowDefinition(pinnedDef);
     assert.equal(res.valid, true, `Expected valid, got: ${res.errors.join('; ')}`);
   });
+
+  test('command: task-verification treats task-verification as literal command, not action', async () => {
+    let capturedAction = 'unset';
+    let capturedCommand = 'unset';
+    const customRegistry = createDefaultGateRegistry({
+      commandRunner: async (command, context) => {
+        capturedAction = context.action;
+        capturedCommand = command;
+        return { passed: true, exitCode: 0, stdout: 'ran literal', stderr: '' };
+      },
+      commandVerificationStore: new MemoryCommandVerificationStore(),
+    });
+
+    const change = requireChange('demo-change', join(fixture.repo, 'specs', 'active'));
+    const task = requireTask(change, 't1');
+
+    const def = normalizeWorkflowDefinition({
+      id: 'literal-command-named-task-verification-def',
+      steps: {
+        review: {
+          status: { active: 'reviewing', completed: 'reviewed' },
+          exitGates: [
+            { type: 'command', command: 'task-verification' },
+          ],
+          finalize: [{ id: 'commit-and-push' }],
+          transitions: [
+            { to: 'verified', outcome: 'success' },
+          ],
+        },
+      },
+    });
+
+    const result = await finishStep({
+      change,
+      task,
+      definition: def,
+      context: {
+        repoRoot: fixture.repo,
+        activeDir: join(fixture.repo, 'specs', 'active'),
+        changeSlug: 'demo-change',
+      },
+      inputs: { 'commit.title': 'review(t1): approve' },
+      gateRegistry: customRegistry,
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.equal(capturedAction, null);
+    assert.equal(capturedCommand, 'task-verification');
+  });
+
+  test('spawn error and store persistence failure result in status blocked (taxonomy)', async () => {
+    const change = requireChange('demo-change', join(fixture.repo, 'specs', 'active'));
+    const task = requireTask(change, 't1');
+
+    // 1. Runner returning spawnError -> status: 'blocked'
+    const spawnErrorRegistry = createDefaultGateRegistry({
+      commandRunner: async () => {
+        return { passed: false, exitCode: 1, spawnError: new Error('ENOENT: spawn failed') };
+      },
+      commandVerificationStore: new MemoryCommandVerificationStore(),
+    });
+
+    const def = normalizeWorkflowDefinition({
+      id: 'spawn-error-def',
+      steps: {
+        review: {
+          status: { active: 'reviewing', completed: 'reviewed' },
+          exitGates: [
+            { type: 'command', action: 'test' },
+          ],
+          transitions: [{ to: 'verified', outcome: 'success' }],
+        },
+      },
+    });
+
+    const spawnResult = await finishStep({
+      change,
+      task,
+      definition: def,
+      context: {
+        repoRoot: fixture.repo,
+        activeDir: join(fixture.repo, 'specs', 'active'),
+        changeSlug: 'demo-change',
+      },
+      inputs: { 'commit.title': 'review(t1): approve' },
+      gateRegistry: spawnErrorRegistry,
+    });
+    assert.equal(spawnResult.status, 'blocked');
+    assert.ok(spawnResult.blockers.some(b => b.status === 'blocked'));
+
+    // 2. Verification store throwing on recordCommandResult -> status: 'blocked'
+    const failingStore = {
+      getCommandResult: async () => null,
+      recordCommandResult: async () => {
+        throw new Error('EACCES: permission denied writing verification store');
+      },
+    };
+    const storeErrorRegistry = createDefaultGateRegistry({
+      commandRunner: async () => ({ passed: true, exitCode: 0, stdout: 'ok' }),
+      commandVerificationStore: failingStore,
+    });
+
+    const storeResult = await finishStep({
+      change,
+      task,
+      definition: def,
+      context: {
+        repoRoot: fixture.repo,
+        activeDir: join(fixture.repo, 'specs', 'active'),
+        changeSlug: 'demo-change',
+      },
+      inputs: { 'commit.title': 'review(t1): approve' },
+      gateRegistry: storeErrorRegistry,
+    });
+    assert.equal(storeResult.status, 'blocked');
+    assert.ok(storeResult.blockers.some(b => b.status === 'blocked'));
+  });
 });

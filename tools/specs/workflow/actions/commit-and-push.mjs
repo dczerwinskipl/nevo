@@ -240,20 +240,20 @@ export class CommitAndPushAction extends ActionContract {
       });
     }
 
+    const derivedOwnedPaths = Array.isArray(context.derivedOwnedPaths) ? context.derivedOwnedPaths : [];
     const taskAllowedPaths = Array.isArray(context.taskAllowedPaths)
       ? context.taskAllowedPaths
       : (Array.isArray(context.allowedPaths) ? context.allowedPaths : null);
     const workflowOwnedPaths = resolveWorkflowOwnedPaths(context);
 
     const hasScopeConstraint = Array.isArray(taskAllowedPaths) && taskAllowedPaths.length > 0;
+    const allowedPatterns = [
+      ...(taskAllowedPaths || []),
+      ...workflowOwnedPaths,
+      ...derivedOwnedPaths,
+    ];
 
-    if (hasScopeConstraint) {
-      const derivedOwnedPaths = Array.isArray(context.derivedOwnedPaths) ? context.derivedOwnedPaths : [];
-      const allowedPatterns = [
-        ...taskAllowedPaths,
-        ...workflowOwnedPaths,
-        ...derivedOwnedPaths,
-      ];
+    if (hasScopeConstraint && context.enforceWorktreeScope !== false) {
       const outOfScopePaths = dirtyPaths.filter(p => !allowedPatterns.some(pattern => matchesFileSelectionPattern(p, pattern)));
       if (outOfScopePaths.length > 0) {
         throw new WorkflowError(
@@ -289,7 +289,29 @@ export class CommitAndPushAction extends ActionContract {
 
     const included = resolveFileSelection(dirtyPaths, includePatterns);
     const excluded = new Set(resolveFileSelection(included, inputs.exclude));
-    const finalPaths = included.filter(p => !excluded.has(p));
+    let finalPaths = included.filter(p => !excluded.has(p));
+
+    // Mandatory inclusion: dirty derived artifacts owned by planned generators MUST be included in the commit (Task 02, Area A)
+    const dirtyDerived = dirtyPaths.filter(p => derivedOwnedPaths.some(pattern => matchesFileSelectionPattern(p, pattern)));
+    for (const dPath of dirtyDerived) {
+      if (!finalPaths.includes(dPath)) {
+        finalPaths.push(dPath);
+      }
+    }
+
+    if (hasScopeConstraint) {
+      const outOfScopeFinal = finalPaths.filter(p => !allowedPatterns.some(pattern => matchesFileSelectionPattern(p, pattern)));
+      if (outOfScopeFinal.length > 0) {
+        throw new WorkflowError(
+          `Commit staging contains paths outside authorized scope (${outOfScopeFinal.join(', ')}): ${outOfScopeFinal.join(', ')}`,
+          {
+            code: 'OUT_OF_SCOPE_COMMIT_SELECTION',
+            outOfScopePaths: outOfScopeFinal,
+            allowedPaths: allowedPatterns,
+          }
+        );
+      }
+    }
 
     if (finalPaths.length === 0) {
       throw new PreconditionError(
@@ -306,9 +328,21 @@ export class CommitAndPushAction extends ActionContract {
     const sha = git.getCurrentRevision(repoRoot);
     const outputs = { commit: { sha, status: 'completed' } };
 
+    const remainingRaw = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+    const remainingDirty = expandDirtyPaths(repoRoot, remainingRaw);
+
+    // Unconditionally verify derived artifacts are never left dirty after commit (Task 02, Area A)
+    if (derivedOwnedPaths.length > 0) {
+      const uncommittedDerived = remainingDirty.filter(p => derivedOwnedPaths.some(pattern => matchesFileSelectionPattern(p, pattern)));
+      if (uncommittedDerived.length > 0) {
+        throw new WorkflowError(
+          `Derived artifacts were left uncommitted after commit: ${uncommittedDerived.join(', ')}`,
+          { code: 'DIRTY_DERIVED_ARTIFACTS_AFTER_COMMIT', dirtyPaths: uncommittedDerived }
+        );
+      }
+    }
+
     if (isDefaultInclude || context.verifyCleanTree) {
-      const remainingRaw = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
-      const remainingDirty = expandDirtyPaths(repoRoot, remainingRaw);
       if (remainingDirty.length > 0) {
         throw new WorkflowError(
           `Working tree is not clean after commit: ${remainingDirty.join(', ')}`,

@@ -25,8 +25,9 @@ import {
 import { loadBatchStartRecord } from '../batch-start/record.mjs';
 import { renderBatchReport } from '../../reviews/batch-report.mjs';
 import { prevalidateBatchFinish } from './preflight.mjs';
-import { planDerivedSync, resolveDerivedOwnedPaths } from '../../derived/registry.mjs';
-import { expandDirtyPaths, resolveWorkflowOwnedPaths } from '../actions/commit-and-push.mjs';
+import { planDerivedSync, resolveDerivedOwnedPaths, syncAndValidateDerivedArtifacts } from '../../derived/registry.mjs';
+import { withGitFinalizeLock } from '../git-finalize-lock.mjs';
+import { expandDirtyPaths, resolveWorkflowOwnedPaths, matchesFileSelectionPattern } from '../actions/commit-and-push.mjs';
 
 /**
  * Orders a batch's own members by `depends_on` (filtered to ids that are members of
@@ -166,6 +167,7 @@ export async function executeBatchFinish(params = {}) {
     activeDir = ACTIVE_DIR,
     skipProvenanceCheck = false,
     _crashAfterMemberTaskId = null,
+    _crashBeforeSharedCommitRecord = false,
     _crashAfterSharedCommit = false,
   } = params;
 
@@ -393,42 +395,35 @@ export async function executeBatchFinish(params = {}) {
   if (!record.stages.sharedCommit) {
     record.stages.sharedCommit = { status: 'pending' };
   }
+
+  // Crash recovery / reconciliation for shared commit (Task 03/06 recovery contract)
+  if (record.stages.sharedCommit.status === 'running' || record.stages.sharedCommit.status === 'unknown') {
+    const currentHead = git.getCurrentRevision(repoRoot);
+    const preCommitHead = record.stages.sharedCommit.intent?.preCommitHead;
+    if (preCommitHead && currentHead !== preCommitHead) {
+      const info = git.getCommitInfo(repoRoot, 'HEAD');
+      const expectedTitle = record.stages.sharedCommit.intent?.commitTitle;
+      if (info.parentSha === preCommitHead && (!expectedTitle || info.subject === expectedTitle)) {
+        record.stages.sharedCommit = {
+          status: 'completed',
+          result: { sha: info.sha, status: 'completed' },
+        };
+        saveBatchFinishRecord(repoRoot, changeSlug, record);
+      } else {
+        record.stages.sharedCommit = { status: 'unknown' };
+        record.status = 'blocked';
+        saveBatchFinishRecord(repoRoot, changeSlug, record);
+        throw new WorkflowError(`Batch shared commit reconciliation required: HEAD moved to ${currentHead} unexpectedly`, {
+          code: 'RECONCILIATION_REQUIRED',
+          stage: 'sharedCommit',
+          details: { preCommitHead, currentHead, info },
+        });
+      }
+    }
+  }
+
   if (record.stages.sharedCommit.status !== 'completed') {
     if (sourceControl.enabled) {
-      // 1. Derived artifact sync before shared commit (Task 03, Area A)
-      const rawDirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
-      const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
-      let derivedPlan = planDerivedSync(dirtyPaths);
-      derivedPlan = derivedPlan.filter(gen => (gen.outputs || []).some(out => fs.existsSync(path.join(repoRoot, out))));
-      if (derivedPlan.length > 0) {
-        try {
-          for (const gen of derivedPlan) {
-            if (typeof gen.sync === 'function') {
-              gen.sync({ repoRoot, activeDir: path.join(repoRoot, 'specs', 'active'), archiveDir: path.join(repoRoot, 'specs', 'archive') });
-            }
-          }
-        } catch (err) {
-          throw new WorkflowError(`Derived artifact sync failed: ${err.message}`, {
-            code: 'DERIVED_ARTIFACT_SYNC_FAILED',
-            cause: err,
-          });
-        }
-        for (const gen of derivedPlan) {
-          if (typeof gen.check === 'function') {
-            const problems = gen.check({ repoRoot, activeDir: path.join(repoRoot, 'specs', 'active'), archiveDir: path.join(repoRoot, 'specs', 'archive') });
-            if (Array.isArray(problems) && problems.length > 0) {
-              throw new WorkflowError(`Derived artifact integrity check failed for ${gen.id}: ${problems.join(', ')}`, {
-                code: 'DERIVED_INTEGRITY_FAILED',
-                generatorId: gen.id,
-                problems,
-              });
-            }
-          }
-        }
-      }
-
-      const derivedOwnedPaths = resolveDerivedOwnedPaths(derivedPlan);
-
       // Collect all member allowed paths so staging is restricted and unrelated dirty files are not staged
       const allMemberAllowedPaths = [];
       for (const taskId of taskIds) {
@@ -440,24 +435,66 @@ export async function executeBatchFinish(params = {}) {
           }
         } catch {}
       }
-
+      const batchAllowedPaths = [...new Set(allMemberAllowedPaths)];
       const workflowOwnedPaths = resolveWorkflowOwnedPaths({ repoRoot, changeSlug, activeDir });
-      const batchIncludePatterns = Array.isArray(inputs.include)
-        ? inputs.include
-        : [
-            ...allMemberAllowedPaths,
-            ...workflowOwnedPaths,
-            ...derivedOwnedPaths,
-          ];
+
+      const rawDirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+      const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
+
+      // Derived artifact sync before shared commit (Task 03, Area A) via unified syncAndValidateDerivedArtifacts
+      const shouldValidateRepo = fs.existsSync(path.join(repoRoot, 'package.json')) && fs.existsSync(path.join(repoRoot, 'docs'));
+      const { derivedOwnedPaths } = syncAndValidateDerivedArtifacts({
+        repoRoot,
+        dirtyPaths,
+        context: {
+          taskAllowedPaths: batchAllowedPaths,
+          allowedPaths: batchAllowedPaths,
+          workflowOwnedPaths,
+        },
+        validateRepo: shouldValidateRepo,
+        activeDir: path.join(repoRoot, 'specs', 'active'),
+        archiveDir: path.join(repoRoot, 'specs', 'archive'),
+      });
+
+      const authorizedScope = [
+        ...batchAllowedPaths,
+        ...workflowOwnedPaths,
+        ...derivedOwnedPaths,
+      ];
+
+      let batchIncludePatterns;
+      if (Array.isArray(inputs.include)) {
+        batchIncludePatterns = inputs.include.filter(pattern =>
+          authorizedScope.some(auth => matchesFileSelectionPattern(pattern, auth) || matchesFileSelectionPattern(auth, pattern))
+        );
+        if (batchIncludePatterns.length === 0) {
+          batchIncludePatterns = authorizedScope;
+        }
+      } else {
+        batchIncludePatterns = authorizedScope;
+      }
 
       const commitTitle = typeof inputs['commit.title'] === 'string' ? inputs['commit.title'].trim() : '';
+
+      // Persist durable commit intent BEFORE running git commit (Task 06 / D25 recovery contract)
+      const preCommitHead = git.getCurrentRevision(repoRoot);
+      record.stages.sharedCommit = {
+        status: 'running',
+        intent: { preCommitHead, commitTitle },
+      };
+      saveBatchFinishRecord(repoRoot, changeSlug, record);
+
       const action = defaultActionRegistry.require('commit-and-push');
       const actionContext = {
         repoRoot,
         changeSlug,
         activeDir,
         sourceControl: { enabled: true, push: false },
+        taskAllowedPaths: batchAllowedPaths,
+        allowedPaths: batchAllowedPaths,
+        workflowOwnedPaths,
         derivedOwnedPaths,
+        enforceWorktreeScope: false,
       };
       const actionInputs = {
         'commit.title': commitTitle,
@@ -467,12 +504,19 @@ export async function executeBatchFinish(params = {}) {
       if (commitMessage) {
         actionInputs['commit.message'] = commitMessage;
       }
-      const execResult = await action.execute(actionInputs, actionContext);
-      record.stages.sharedCommit = { status: 'completed', result: execResult.outputs.commit };
+
+      await withGitFinalizeLock(async () => {
+        const execResult = await action.execute(actionInputs, actionContext);
+        if (_crashBeforeSharedCommitRecord) {
+          throw new Error('[test-hook] Simulated crash before saving shared commit completion record');
+        }
+        record.stages.sharedCommit = { status: 'completed', result: execResult.outputs.commit };
+        saveBatchFinishRecord(repoRoot, changeSlug, record);
+      }, { repoRoot });
     } else {
       record.stages.sharedCommit = { status: 'completed', skipped: true };
+      saveBatchFinishRecord(repoRoot, changeSlug, record);
     }
-    saveBatchFinishRecord(repoRoot, changeSlug, record);
 
     if (_crashAfterSharedCommit) {
       throw new Error('[test-hook] Simulated crash after shared commit');

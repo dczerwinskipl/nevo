@@ -322,7 +322,15 @@ export class CommandGate extends GateContract {
 
     if (typeof runner === 'function') {
       try {
-        const rawResult = await runner(targetCommand, context);
+        const runnerContext = {
+          ...context,
+          action: config.action || null,
+          command: config.command || null,
+        };
+        const rawResult = await runner(targetCommand, runnerContext);
+        if (rawResult && rawResult.spawnError) {
+          runnerError = rawResult.spawnError instanceof Error ? rawResult.spawnError : new Error(String(rawResult.spawnError));
+        }
         evalResult = evaluateRunnerResult(rawResult, targetCommand);
       } catch (err) {
         runnerError = err;
@@ -418,7 +426,7 @@ export class CommandGate extends GateContract {
       return new GateVerificationResult({
         gateType: this.type,
         passed: false,
-        status: 'failed',
+        status: 'blocked',
         message: `Failed to record authoritative verification state: ${err.message} (command: '${targetCommand}')`,
         details: {
           targetCommand,

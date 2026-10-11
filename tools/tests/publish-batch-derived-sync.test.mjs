@@ -413,4 +413,186 @@ describe('Publish and batch-finish derived-artifact sync (Task 03)', () => {
     const headAfterResume = git.getCurrentRevision(fx.repo);
     assert.equal(headAfterResume, headAfterCrash, 'No duplicate commit must be created on resume');
   });
+
+  test('Batch finish crash before shared commit record reconciles moved HEAD on resume', async () => {
+    const slug = 'batch-crash-before-rec';
+    createSpecFixture(fx.repo, slug, 2);
+    gitCmd(fx.repo, ['add', '-A']);
+    gitCmd(fx.repo, ['commit', '-m', 'Add batch spec']);
+
+    const batchExecutionId = 'batch-exec-03';
+    const sessionId = 'session-03';
+    const taskIds = ['t1', 't2'];
+
+    const change = loadChange(slug, fx.activeDir);
+    for (const id of taskIds) {
+      setTaskWorkflowState(change, id, {
+        status: 'in-review',
+        workflowProgress: {
+          current_step: 'review',
+          current_attempt: 1,
+          state: 'active',
+          history: [],
+        },
+      });
+    }
+
+    await createGroupReservation({
+      repoRoot: fx.repo,
+      changeSlug: slug,
+      taskIds,
+      batchExecutionId,
+      executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+    });
+
+    const specId = '11111111-2222-3333-4444-555555555555';
+    const sessionFile = join(fx.repo, '.nevo-ai-local', 'sessions', `${specId}.json`);
+    mkdirSync(join(fx.repo, '.nevo-ai-local', 'sessions'), { recursive: true });
+    writeFileSync(
+      sessionFile,
+      JSON.stringify({
+        sessions: [{
+          sessionId,
+          specId,
+          batchExecutionId,
+          executionScope: { kind: 'task-batch', changeSlug: slug, taskIds },
+        }],
+        bindings: [],
+      }, null, 2)
+    );
+
+    await acquireWorkspaceWriter({
+      repoRoot: fx.repo,
+      kind: 'agent',
+      specId,
+      sessionId,
+      turnId: 'turn-1',
+      scope: { kind: 'task-batch', taskIds },
+      batchExecutionId,
+    });
+
+    // Run with _crashBeforeSharedCommitRecord: true (git commit succeeds, crash happens before saving completed record)
+    await assert.rejects(
+      () => executeBatchFinish({
+        repoRoot: fx.repo,
+        activeDir: fx.activeDir,
+        changeSlug: slug,
+        batchExecutionId,
+        skipProvenanceCheck: true,
+        inputs: {
+          'commit.title': 'chore(workflow): batch finish crash before record',
+          t1: { result: 'pass' },
+          t2: { result: 'pass' },
+        },
+        sessionId,
+        _crashBeforeSharedCommitRecord: true,
+      }),
+      /Simulated crash before saving shared commit completion record/
+    );
+
+    const headAfterCrash = git.getCurrentRevision(fx.repo);
+
+    // Resume execution: must detect moved HEAD via persisted intent, reconcile, and complete
+    const resumeResult = await executeBatchFinish({
+      repoRoot: fx.repo,
+      activeDir: fx.activeDir,
+      changeSlug: slug,
+      batchExecutionId,
+      skipProvenanceCheck: true,
+      inputs: {
+        'commit.title': 'chore(workflow): batch finish crash before record',
+        t1: { result: 'pass' },
+        t2: { result: 'pass' },
+      },
+      sessionId,
+    });
+
+    assert.equal(resumeResult.status, 'completed');
+    assert.equal(resumeResult.record.stages.sharedCommit.status, 'completed');
+    const headAfterResume = git.getCurrentRevision(fx.repo);
+    assert.equal(headAfterResume, headAfterCrash, 'Reconciliation must not produce duplicate commit');
+  });
+
+  test('Batch finish preflight rejects inputs.include containing out-of-scope paths', async () => {
+    const slug = 'batch-include-scope';
+    createSpecFixture(fx.repo, slug, 2);
+    gitCmd(fx.repo, ['add', '-A']);
+    gitCmd(fx.repo, ['commit', '-m', 'Add batch spec']);
+
+    const batchExecutionId = 'batch-exec-04';
+    const sessionId = 'session-04';
+    const taskIds = ['t1', 't2'];
+
+    const change = loadChange(slug, fx.activeDir);
+    for (const id of taskIds) {
+      setTaskWorkflowState(change, id, {
+        status: 'in-review',
+        workflowProgress: {
+          current_step: 'review',
+          current_attempt: 1,
+          state: 'active',
+          history: [],
+        },
+      });
+    }
+
+    await createGroupReservation({
+      repoRoot: fx.repo,
+      changeSlug: slug,
+      taskIds,
+      batchExecutionId,
+      executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+    });
+
+    const specId = '11111111-2222-3333-4444-555555555555';
+    const sessionFile = join(fx.repo, '.nevo-ai-local', 'sessions', `${specId}.json`);
+    mkdirSync(join(fx.repo, '.nevo-ai-local', 'sessions'), { recursive: true });
+    writeFileSync(
+      sessionFile,
+      JSON.stringify({
+        sessions: [{
+          sessionId,
+          specId,
+          batchExecutionId,
+          executionScope: { kind: 'task-batch', changeSlug: slug, taskIds },
+        }],
+        bindings: [],
+      }, null, 2)
+    );
+
+    await acquireWorkspaceWriter({
+      repoRoot: fx.repo,
+      kind: 'agent',
+      specId,
+      sessionId,
+      turnId: 'turn-1',
+      scope: { kind: 'task-batch', taskIds },
+      batchExecutionId,
+    });
+
+    await assert.rejects(
+      () => executeBatchFinish({
+        repoRoot: fx.repo,
+        activeDir: fx.activeDir,
+        changeSlug: slug,
+        batchExecutionId,
+        skipProvenanceCheck: true,
+        inputs: {
+          'commit.title': 'chore(workflow): batch finish with unauthorized include',
+          include: ['unauthorized/secret.key'],
+          tasks: {
+            t1: { result: 'pass' },
+            t2: { result: 'pass' },
+          },
+        },
+        sessionId,
+      }),
+      (err) => {
+        assert.ok(err instanceof WorkflowError);
+        assert.equal(err.code, 'OUT_OF_SCOPE_COMMIT_SELECTION');
+        return true;
+      }
+    );
+  });
 });
+

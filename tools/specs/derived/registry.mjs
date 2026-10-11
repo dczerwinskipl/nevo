@@ -1,8 +1,11 @@
 // tools/specs/derived/registry.mjs — Static registry of derived repository artifacts
 // D1-D5, Area A: derived-artifact ownership and deterministic synchronization.
 
+import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validateSpecs } from '../validation.mjs';
+import { WorkflowError } from '../workflow/errors.mjs';
 
 import {
   buildSpecsIndexes,
@@ -147,20 +150,7 @@ function pathMatchesInput(path, pattern) {
   const normPattern = pattern.replace(/\\/g, '/').replace(/^\.\//, '');
 
   if (normPath === normPattern) return true;
-  if (pathMatchesRule(normPath, normPattern)) return true;
-
-  // Handle explicit change.yaml checks or basename references
-  if ((normPath === 'change.yaml' || normPath.endsWith('/change.yaml')) &&
-      (normPattern.endsWith('/change.yaml') || normPattern === 'change.yaml')) {
-    return true;
-  }
-
-  // Handle docs path matches when pattern is docs/**/*.md
-  if (normPattern === 'docs/**/*.md' && normPath.startsWith('docs/') && normPath.endsWith('.md')) {
-    return true;
-  }
-
-  return false;
+  return pathMatchesRule(normPath, normPattern);
 }
 
 /**
@@ -257,3 +247,102 @@ export function syncDerivedArtifacts(options = {}) {
     written: Array.from(new Set(written)),
   };
 }
+
+/**
+ * Executes planning, precondition validation, synchronization, and integrity checks
+ * across all derived generators affected by dirtyPaths (D1-D5, Area A).
+ * Single unified entry point used across finishStep, publish, and batchFinish.
+ *
+ * @param {object} options
+ * @param {string} [options.repoRoot]
+ * @param {string[]} [options.dirtyPaths]
+ * @param {object} [options.context]
+ * @param {boolean} [options.validateRepo=false]
+ * @param {string} [options.activeDir]
+ * @param {string} [options.archiveDir]
+ * @returns {{ plan: Array<object>, derivedOwnedPaths: string[] }}
+ */
+export function syncAndValidateDerivedArtifacts(options = {}) {
+  const repoRoot = options.repoRoot || ROOT;
+  const dirtyPaths = options.dirtyPaths || [];
+  const context = options.context || {};
+  const validateRepo = Boolean(options.validateRepo);
+  const activeDir = options.activeDir || join(repoRoot, 'specs', 'active');
+  const archiveDir = options.archiveDir || join(repoRoot, 'specs', 'archive');
+
+  let derivedPlan = planDerivedSync(dirtyPaths);
+  if (derivedPlan.length === 0) {
+    return { plan: [], derivedOwnedPaths: [] };
+  }
+
+  // 1. Precondition: Every dirty path matching a triggered generator's inputs
+  // must belong to the operation's commit set (taskAllowedPaths ∪ workflowOwnedPaths).
+  const operationAllowedPatterns = [
+    ...(context.taskAllowedPaths || context.allowedPaths || []),
+    ...(context.workflowOwnedPaths || []),
+  ];
+  if (operationAllowedPatterns.length > 0) {
+    for (const dirtyPath of dirtyPaths) {
+      const matchesTriggeredInput = derivedPlan.some(gen =>
+        (gen.inputs || []).some(pattern => pathMatchesRule(dirtyPath, pattern) || pathMatchesInput(dirtyPath, pattern))
+      );
+      if (matchesTriggeredInput) {
+        const isAllowed = operationAllowedPatterns.some(pattern =>
+          pathMatchesRule(dirtyPath, pattern) || pathMatchesInput(dirtyPath, pattern)
+        );
+        if (!isAllowed) {
+          throw new WorkflowError(
+            `Dirty path '${dirtyPath}' matches derived generator inputs but is outside operation scope`,
+            { code: 'DERIVED_INPUT_DIRTY_OUTSIDE_OPERATION', dirtyPath }
+          );
+        }
+      }
+    }
+  }
+
+  // 2. Execute sync
+  try {
+    for (const gen of derivedPlan) {
+      if (typeof gen.sync === 'function') {
+        gen.sync({ repoRoot, activeDir, archiveDir, ...context });
+      }
+    }
+  } catch (err) {
+    throw new WorkflowError(`Derived artifact sync failed: ${err.message}`, {
+      code: 'DERIVED_ARTIFACT_SYNC_FAILED',
+      cause: err,
+    });
+  }
+
+  // 3. Generator integrity self-check
+  for (const gen of derivedPlan) {
+    if (typeof gen.check === 'function') {
+      const problems = gen.check({ repoRoot, activeDir, archiveDir, ...context });
+      if (Array.isArray(problems) && problems.length > 0) {
+        throw new WorkflowError(`Derived artifact integrity check failed for ${gen.id}: ${problems.join(', ')}`, {
+          code: 'DERIVED_INTEGRITY_FAILED',
+          generatorId: gen.id,
+          problems,
+        });
+      }
+    }
+  }
+
+  // 4. Repo-wide validate for specs and docs (D5)
+  if (validateRepo) {
+    const specErrors = validateSpecs({ activeDir, archiveDir });
+    const docs = scanDocs({ repoRoot, docsDir: join(repoRoot, 'docs') });
+    const docErrors = validateDocs(docs);
+    const repoErrors = [...(specErrors || []), ...(docErrors || [])];
+    if (repoErrors.length > 0) {
+      throw new WorkflowError(
+        `Repository-wide validation failed after derived sync: ${repoErrors.join('; ')}`,
+        { code: 'REPO_INTEGRITY_FAILED', errors: repoErrors }
+      );
+    }
+  }
+
+  const derivedOwnedPaths = resolveDerivedOwnedPaths(derivedPlan);
+  return { plan: derivedPlan, derivedOwnedPaths };
+}
+

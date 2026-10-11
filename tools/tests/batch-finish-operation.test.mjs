@@ -252,8 +252,14 @@ test('1. AC1: 3 tasks with valid results on post-bootstrap fixture reaches compl
   const changedFiles = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', sharedCommitSha], { cwd: tmpRoot, encoding: 'utf8' }).trim().split('\n').sort();
   assert.deepEqual(
     changedFiles,
-    [reportPath.replace(/\\/g, '/'), 'specs/active/three-tasks-spec/change.yaml'].sort(),
-    'The one shared commit must include both the report and change.yaml'
+    [
+      reportPath.replace(/\\/g, '/'),
+      'specs/active/three-tasks-spec/change.yaml',
+      'specs/active.generated.md',
+      'specs/archive.generated.md',
+      'specs/index.generated.json',
+    ].sort(),
+    'The one shared commit must include the report, change.yaml, and regenerated specs indexes'
   );
 
   // Verify task transitions and histories in change.yaml

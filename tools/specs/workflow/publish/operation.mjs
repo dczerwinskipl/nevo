@@ -43,7 +43,7 @@ import {
   getDirtyPaths,
 } from '../../../lib/git.mjs';
 import { WorkflowError } from '../errors.mjs';
-import { planDerivedSync, resolveDerivedOwnedPaths } from '../../derived/registry.mjs';
+import { planDerivedSync, resolveDerivedOwnedPaths, syncAndValidateDerivedArtifacts } from '../../derived/registry.mjs';
 import { expandDirtyPaths, matchesFileSelectionPattern } from '../actions/commit-and-push.mjs';
 import { pathMatchesRule } from '../../../docs/service.mjs';
 
@@ -413,63 +413,14 @@ export function publishTask(changeSlug, taskId, options = {}) {
             const relChangeFile = relative(repoRoot, change._file).replace(/\\/g, '/');
             const rawDirtyPaths = getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
             const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
-            const derivedPlan = planDerivedSync(dirtyPaths);
-
-            if (derivedPlan.length > 0) {
-              // Precondition: Every dirty path matching a triggered generator's inputs
-              // must belong to this operation's commit set (relChangeFile).
-              for (const dirtyPath of dirtyPaths) {
-                const matchesTriggeredInput = derivedPlan.some(gen =>
-                  (gen.inputs || []).some(pattern => pathMatchesPattern(dirtyPath, pattern))
-                );
-                if (matchesTriggeredInput && dirtyPath !== relChangeFile) {
-                  throw new WorkflowError(
-                    `Dirty path '${dirtyPath}' matches derived generator inputs but is outside operation scope`,
-                    {
-                      code: 'DERIVED_INPUT_DIRTY_OUTSIDE_OPERATION',
-                      dirtyPath,
-                    }
-                  );
-                }
-              }
-
-              // Execute generation
-              try {
-                for (const gen of derivedPlan) {
-                  if (typeof gen.sync === 'function') {
-                    gen.sync({ repoRoot, activeDir: join(repoRoot, 'specs', 'active'), archiveDir: join(repoRoot, 'specs', 'archive') });
-                  }
-                }
-              } catch (err) {
-                throw new WorkflowError(
-                  `Derived artifact sync failed: ${err.message}`,
-                  {
-                    code: 'DERIVED_ARTIFACT_SYNC_FAILED',
-                    cause: err,
-                  }
-                );
-              }
-
-              // Integrity checks
-              for (const gen of derivedPlan) {
-                if (typeof gen.check === 'function') {
-                  const problems = gen.check({ repoRoot, activeDir: join(repoRoot, 'specs', 'active'), archiveDir: join(repoRoot, 'specs', 'archive') });
-                  if (Array.isArray(problems) && problems.length > 0) {
-                    throw new WorkflowError(
-                      `Derived artifact integrity check failed for ${gen.id}: ${problems.join(', ')}`,
-                      {
-                        code: 'DERIVED_INTEGRITY_FAILED',
-                        generatorId: gen.id,
-                        problems,
-                      }
-                    );
-                  }
-                }
-              }
-            }
-
-            const derivedOwned = resolveDerivedOwnedPaths(derivedPlan);
-            const commitPaths = [relChangeFile, ...derivedOwned];
+            const shouldValidateRepo = existsSync(join(repoRoot, 'package.json')) && existsSync(join(repoRoot, 'docs'));
+            const { derivedOwnedPaths } = syncAndValidateDerivedArtifacts({
+              repoRoot,
+              dirtyPaths,
+              context: { workflowOwnedPaths: [relChangeFile] },
+              validateRepo: shouldValidateRepo,
+            });
+            const commitPaths = [relChangeFile, ...derivedOwnedPaths];
 
             commitStage.status = 'running';
             saveOperationRecord(repoRoot, record);

@@ -19,7 +19,7 @@ import { resolveActiveStepName, resolveWorkflowPosition, inspectGates, verifyGat
 import { aggregateFinalizeCheck, buildFinishContract, normalizeSourceControlFacts, resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
 import { WorkflowError, PreconditionError } from './errors.mjs';
 import * as git from '../../lib/git.mjs';
-import { planDerivedSync, resolveDerivedOwnedPaths } from '../derived/registry.mjs';
+import { planDerivedSync, resolveDerivedOwnedPaths, syncAndValidateDerivedArtifacts } from '../derived/registry.mjs';
 import { validateSpecs } from '../validation.mjs';
 import { scanDocs, validateDocs, pathMatchesRule } from '../../docs/service.mjs';
 import { expandDirtyPaths, matchesFileSelectionPattern } from './actions/commit-and-push.mjs';
@@ -659,93 +659,18 @@ async function ensureCommit(record, context, repoRoot) {
     : (Array.isArray(context.allowedPaths) ? context.allowedPaths : []);
   const workflowOwnedPaths = resolveWorkflowOwnedPaths(context);
 
-  const derivedPlan = planDerivedSync(dirtyPaths);
-  let derivedOwnedPaths = [];
+  const shouldValidateRepo = context.validateRepo !== undefined
+    ? Boolean(context.validateRepo)
+    : (existsSync(join(repoRoot, 'package.json')) && existsSync(join(repoRoot, 'docs')));
 
-  if (derivedPlan.length > 0) {
-    // Precondition: Every dirty path matching a triggered generator's inputs
-    // must belong to the operation's commit set (taskAllowedPaths ∪ workflowOwnedPaths).
-    const operationAllowedPatterns = [...taskAllowedPaths, ...workflowOwnedPaths];
-    for (const dirtyPath of dirtyPaths) {
-      const matchesTriggeredInput = derivedPlan.some(gen =>
-        (gen.inputs || []).some(pattern => pathMatchesPattern(dirtyPath, pattern))
-      );
-      if (matchesTriggeredInput) {
-        const isAllowed = operationAllowedPatterns.some(pattern =>
-          pathMatchesPattern(dirtyPath, pattern)
-        );
-        if (!isAllowed) {
-          throw new WorkflowError(
-            `Dirty path '${dirtyPath}' matches derived generator inputs but is outside operation scope`,
-            {
-              code: 'DERIVED_INPUT_DIRTY_OUTSIDE_OPERATION',
-              dirtyPath,
-            }
-          );
-        }
-      }
-    }
-
-    // Execute generation
-    try {
-      for (const gen of derivedPlan) {
-        if (typeof gen.sync === 'function') {
-          gen.sync({ repoRoot, ...context });
-        }
-      }
-    } catch (err) {
-      throw new WorkflowError(
-        `Derived artifact sync failed: ${err.message}`,
-        {
-          code: 'DERIVED_ARTIFACT_SYNC_FAILED',
-          cause: err,
-        }
-      );
-    }
-
-    derivedOwnedPaths = resolveDerivedOwnedPaths(derivedPlan);
-
-    // Integrity checks:
-    // 1. Generator self-check
-    for (const gen of derivedPlan) {
-      if (typeof gen.check === 'function') {
-        const problems = gen.check({ repoRoot, ...context });
-        if (Array.isArray(problems) && problems.length > 0) {
-          throw new WorkflowError(
-            `Derived artifact integrity check failed for ${gen.id}: ${problems.join(', ')}`,
-            {
-              code: 'DERIVED_INTEGRITY_FAILED',
-              generatorId: gen.id,
-              problems,
-            }
-          );
-        }
-      }
-    }
-
-    // 2. Repo-wide validate for specs and docs (D5)
-    const shouldValidateRepo = context.validateRepo !== undefined
-      ? Boolean(context.validateRepo)
-      : (existsSync(join(repoRoot, 'package.json')) && existsSync(join(repoRoot, 'docs')));
-
-    if (shouldValidateRepo) {
-      const activeDir = context.activeDir || join(repoRoot, 'specs', 'active');
-      const archiveDir = context.archiveDir || join(repoRoot, 'specs', 'archive');
-      const specErrors = validateSpecs({ activeDir, archiveDir });
-      const docs = scanDocs({ repoRoot, docsDir: join(repoRoot, 'docs') });
-      const docErrors = validateDocs(docs);
-      const repoErrors = [...(specErrors || []), ...(docErrors || [])];
-      if (repoErrors.length > 0) {
-        throw new WorkflowError(
-          `Repository-wide validation failed after derived sync: ${repoErrors.join('; ')}`,
-          {
-            code: 'REPO_INTEGRITY_FAILED',
-            errors: repoErrors,
-          }
-        );
-      }
-    }
-  }
+  const { derivedOwnedPaths } = syncAndValidateDerivedArtifacts({
+    repoRoot,
+    dirtyPaths,
+    context: { ...context, taskAllowedPaths, workflowOwnedPaths },
+    validateRepo: shouldValidateRepo,
+    activeDir: context.activeDir,
+    archiveDir: context.archiveDir,
+  });
 
   const preCommitHead = git.getCurrentRevision(repoRoot);
   stage.intent = { preCommitHead };

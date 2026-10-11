@@ -125,6 +125,7 @@ async function executeSingleCommandWithLiveOutput(command, cwd, silent) {
       resolve({
         passed: false,
         exitCode: 1,
+        spawnError: err,
         stdout,
         stderr: stderr + '\n' + err.message,
       });
@@ -144,7 +145,7 @@ async function runCliCommandWithLiveOutput(command, context = {}) {
     } catch {}
   }
 
-  if (command === 'task-verification') {
+  if (context.action === 'task-verification') {
     if (task && changeSlug) {
       const taskFile = task.file || (task.id ? `tasks/${task.id}.md` : null);
       if (taskFile) {

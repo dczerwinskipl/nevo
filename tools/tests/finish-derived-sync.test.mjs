@@ -457,4 +457,48 @@ describe('Derived-artifact sync inside finish transaction (Task 02)', () => {
     // The index file must NOT be in outOfScopeDirty
     assert.deepEqual(assessment.outOfScopeDirty, []);
   });
+
+  test('Explicit include restricted to change.yaml still mandatorily commits dirty derived artifacts', async () => {
+    const change = requireChange('test-change', fx.activeDir);
+    const task = requireTask(change, 'task-01');
+    task.workflow_progress = {
+      current_step: 'implementation',
+      current_attempt: 1,
+      state: 'active',
+      history: [],
+    };
+
+    const gateRegistry = makeGateRegistry();
+    const result = await finishStep({
+      change,
+      task,
+      definition: DEFINITION,
+      context: {
+        repoRoot: fx.repo,
+        activeDir: fx.activeDir,
+        taskId: 'task-01',
+        taskAllowedPaths: ['src/**'],
+        sourceControl: { enabled: true, push: false },
+      },
+      inputs: {
+        'commit.title': 'feat: complete task with explicit include',
+        include: ['specs/active/test-change/change.yaml'],
+      },
+      activeDir: fx.activeDir,
+      gateRegistry,
+    });
+
+    assert.equal(result.status, 'completed');
+
+    // Both change.yaml and generated specs indexes must be committed together
+    const commitFiles = git(fx.repo, ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']).split('\n').filter(Boolean);
+    assert.ok(commitFiles.includes('specs/active/test-change/change.yaml'), 'change.yaml must be committed');
+    assert.ok(commitFiles.includes('specs/index.generated.json'), 'specs/index.generated.json must be committed despite explicit include');
+    assert.ok(commitFiles.includes('specs/active.generated.md'), 'specs/active.generated.md must be committed despite explicit include');
+
+    // Working tree must be completely clean (no dirty derived artifacts left behind)
+    const status = git(fx.repo, ['status', '--porcelain']);
+    assert.equal(status, '', 'Working tree must be clean after finish');
+  });
 });
+
