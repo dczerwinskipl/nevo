@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-11T08:28:11.451Z",
+  "generated": "2026-10-11T08:30:21.645Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -404,6 +404,78 @@
           "status": "draft",
           "depends_on": [
             "transition-aware-exit-gates"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "session-continuity-choice",
+      "specId": "91dbd0e6-a840-4feb-8ee0-8560f6bd82fd",
+      "title": "Session continuity choice",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-10-11",
+      "tasks": [
+        {
+          "id": "definition-session-choice-schema",
+          "order": 1,
+          "file": "tasks/01-definition-session-choice-schema.md",
+          "status": "draft"
+        },
+        {
+          "id": "server-session-choice-resolution",
+          "order": 2,
+          "file": "tasks/02-server-session-choice-resolution.md",
+          "status": "draft",
+          "depends_on": [
+            "definition-session-choice-schema"
+          ]
+        },
+        {
+          "id": "actions-session-choice-projection",
+          "order": 3,
+          "file": "tasks/03-actions-session-choice-projection.md",
+          "status": "draft",
+          "depends_on": [
+            "server-session-choice-resolution"
+          ]
+        },
+        {
+          "id": "step-start-session-choice-ui",
+          "order": 4,
+          "file": "tasks/04-step-start-session-choice-ui.md",
+          "status": "draft",
+          "depends_on": [
+            "actions-session-choice-projection"
+          ]
+        },
+        {
+          "id": "batch-sequential-session-continuation",
+          "order": 5,
+          "file": "tasks/05-batch-sequential-session-continuation.md",
+          "status": "draft",
+          "depends_on": [
+            "server-session-choice-resolution"
+          ]
+        },
+        {
+          "id": "batch-review-session-choice-ui",
+          "order": 6,
+          "file": "tasks/06-batch-review-session-choice-ui.md",
+          "status": "draft",
+          "depends_on": [
+            "step-start-session-choice-ui",
+            "batch-sequential-session-continuation"
+          ]
+        },
+        {
+          "id": "session-choice-documentation-and-adr",
+          "order": 7,
+          "file": "tasks/07-session-choice-documentation-and-adr.md",
+          "status": "draft",
+          "depends_on": [
+            "step-start-session-choice-ui",
+            "batch-review-session-choice-ui"
           ]
         }
       ]
