@@ -322,8 +322,16 @@ test('A real initial-implementation batch: T1, T2 depends_on T1, T3 depends_on T
       .trim().split('\n').sort();
     assert.deepEqual(
       changedFiles,
-      ['src/t1.js', 'src/t2.js', 'src/t3.js', `specs/active/${SLUG}/change.yaml`].sort(),
-      'The one shared commit must cover every member\'s own changes',
+      [
+        'src/t1.js',
+        'src/t2.js',
+        'src/t3.js',
+        `specs/active/${SLUG}/change.yaml`,
+        'specs/active.generated.md',
+        'specs/archive.generated.md',
+        'specs/index.generated.json',
+      ].sort(),
+      'The one shared commit must cover every member\'s own changes and derived indexes',
     );
 
     // Every member's own workflow transition was correctly applied: `finishStep`

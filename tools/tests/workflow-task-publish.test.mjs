@@ -572,4 +572,56 @@ describe('Task 31: Advanced arbitration, durability, CAS, and reconciliation', (
     assert.equal(cas2.reason, 'state-conflict');
     assert.equal(cas2.currentStatus, 'running');
   });
+
+  test('Crash recovery: simulated crash before commit record persistence reconciles moved HEAD and does not duplicate commit', async () => {
+    const slug = 'pub-crash-rec';
+    createDeterministicSpec(env.activeDir, slug);
+    execFileSync('git', ['add', '.'], { cwd: env.baseDir });
+    execFileSync('git', ['commit', '-m', `chore: add ${slug}`], { cwd: env.baseDir });
+
+    // Step 1: Run publishTask with simulated crash before saving the commit completion record
+    await assert.rejects(
+      () => publishTask(slug, 't1', {
+        activeDir: env.activeDir,
+        repoRoot: env.baseDir,
+        _crashBeforeCommitRecord: true,
+      }),
+      /Simulated crash before saving publish commit completion record/
+    );
+
+    const headAfterCrash = git.getCurrentRevision(env.baseDir);
+
+    // Verify Git commit did land and message matches expected
+    const commitInfo = git.getCommitInfo(env.baseDir, 'HEAD');
+    assert.equal(commitInfo.subject, 'chore(workflow): publish t1');
+
+    // Verify record on disk has commitStage in 'running' with intent recorded
+    const record = loadOperationRecord(env.baseDir, slug, 't1', 'publish', 1);
+    assert.ok(record, 'Operation record must exist');
+    assert.equal(record.status, 'running');
+    const commitStage = record.operations.find(o => o.id === 'commit');
+    assert.equal(commitStage.status, 'running');
+    assert.equal(commitStage.intent?.preCommitHead, commitInfo.parentSha);
+    assert.equal(commitStage.intent?.commitMessage, 'chore(workflow): publish t1');
+
+    // Step 2: Resume publishTask
+    const resumeRes = await publishTask(slug, 't1', {
+      activeDir: env.activeDir,
+      repoRoot: env.baseDir,
+    });
+
+    assert.equal(resumeRes.ok, true);
+    assert.equal(resumeRes.status, 'approved');
+
+    // HEAD must NOT have moved (no duplicate commit)
+    const headAfterResume = git.getCurrentRevision(env.baseDir);
+    assert.equal(headAfterResume, headAfterCrash, 'Reconciliation must reuse existing commit and not produce duplicate commit');
+
+    // Record on disk must now be completed
+    const completedRecord = loadOperationRecord(env.baseDir, slug, 't1', 'publish', 1);
+    assert.equal(completedRecord.status, 'completed');
+    const completedCommitStage = completedRecord.operations.find(o => o.id === 'commit');
+    assert.equal(completedCommitStage.status, 'completed');
+    assert.equal(completedCommitStage.result.sha, headAfterCrash);
+  });
 });

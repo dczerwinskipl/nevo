@@ -150,7 +150,22 @@ function pathMatchesInput(path, pattern) {
   const normPattern = pattern.replace(/\\/g, '/').replace(/^\.\//, '');
 
   if (normPath === normPattern) return true;
-  return pathMatchesRule(normPath, normPattern);
+  if (pathMatchesRule(normPath, normPattern)) return true;
+
+  // Bare 'change.yaml' matches any generator input expecting change.yaml
+  if (normPath === 'change.yaml' && (normPattern === 'change.yaml' || normPattern.endsWith('/change.yaml'))) {
+    return true;
+  }
+  if (normPattern === 'change.yaml' && (normPath === 'change.yaml' || normPath.endsWith('/change.yaml'))) {
+    return true;
+  }
+
+  // Docs markdown pattern
+  if (normPattern === 'docs/**/*.md' && normPath.startsWith('docs/') && normPath.endsWith('.md')) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

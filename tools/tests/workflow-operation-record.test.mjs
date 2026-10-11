@@ -218,7 +218,7 @@ describe('isFinishOperationReplayable (Task 01, D2)', () => {
       }), true);
     });
 
-    test('returns false if any stage in operations is unknown, blocked, or failed', () => {
+    test('returns false if any stage in operations is unknown, blocked, or failed (except verify-gates with pending subsequent stages)', () => {
       assert.equal(isFinishOperationReplayable({
         status: 'running',
         operations: [
@@ -231,6 +231,7 @@ describe('isFinishOperationReplayable (Task 01, D2)', () => {
         status: 'running',
         operations: [
           { id: 'verify-gates', status: 'failed' },
+          { id: 'update-task', status: 'running' },
         ],
       }), false);
 
@@ -476,7 +477,7 @@ tasks:
       rmSync(join(gitFx.repo, '.nevo-ai-local'), { recursive: true, force: true });
     });
 
-    test('classifies real record produced by ensureVerifyGates failure as non-replayable (false)', async () => {
+    test('classifies real record produced by ensureVerifyGates failure as safely replayable pre-mutation (Task 06)', async () => {
       const gateDef = normalizeWorkflowDefinition({
         id: 'failing-gate-v1',
         title: 'Failing Gate',
@@ -518,9 +519,15 @@ tasks:
 
       const record = loadOperationRecord(gitFx.repo, 'demo-change', 'demo-task', 'implementation', 1);
       assert.ok(record);
-      assert.equal(record.status, 'blocked');
+      assert.equal(record.status, 'running');
       const verifyStage = record.operations.find(o => o.id === 'verify-gates');
       assert.equal(verifyStage.status, 'failed');
+      const updateTaskStage = record.operations.find(o => o.id === 'update-task');
+      assert.equal(updateTaskStage.status, 'pending');
+      assert.equal(isFinishOperationReplayable(record), true);
+
+      // Once update-task transitions beyond pending, record is no longer replayable
+      updateTaskStage.status = 'running';
       assert.equal(isFinishOperationReplayable(record), false);
 
       rmSync(join(gitFx.repo, '.nevo-ai-local'), { recursive: true, force: true });

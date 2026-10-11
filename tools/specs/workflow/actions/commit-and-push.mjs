@@ -246,12 +246,15 @@ export class CommitAndPushAction extends ActionContract {
       : (Array.isArray(context.allowedPaths) ? context.allowedPaths : null);
     const workflowOwnedPaths = resolveWorkflowOwnedPaths(context);
 
-    const hasScopeConstraint = Array.isArray(taskAllowedPaths) && taskAllowedPaths.length > 0;
-    const allowedPatterns = [
-      ...(taskAllowedPaths || []),
-      ...workflowOwnedPaths,
-      ...derivedOwnedPaths,
-    ];
+    const hasScopeConstraint = (Array.isArray(context.authorizedScope) && context.authorizedScope.length > 0)
+      || (Array.isArray(taskAllowedPaths) && taskAllowedPaths.length > 0);
+    const allowedPatterns = Array.isArray(context.authorizedScope)
+      ? context.authorizedScope
+      : [
+          ...(taskAllowedPaths || []),
+          ...workflowOwnedPaths,
+          ...derivedOwnedPaths,
+        ];
 
     if (hasScopeConstraint && context.enforceWorktreeScope !== false) {
       const outOfScopePaths = dirtyPaths.filter(p => !allowedPatterns.some(pattern => matchesFileSelectionPattern(p, pattern)));

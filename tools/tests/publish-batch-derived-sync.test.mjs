@@ -594,5 +594,147 @@ describe('Publish and batch-finish derived-artifact sync (Task 03)', () => {
       }
     );
   });
+
+  test('Batch finish with empty allowed_paths and inputs.include: [\'*\'] enforces authorized scope and does not stage unrelated dirty files', async () => {
+    const slug = 'batch-empty-allowed';
+    const changeDir = join(fx.repo, 'specs', 'active', slug);
+    const taskDir = join(changeDir, 'tasks');
+    mkdirSync(taskDir, { recursive: true });
+
+    writeFileSync(
+      join(changeDir, 'change.yaml'),
+      `id: ${slug}
+spec_id: "22222222-3333-4444-5555-666666666666"
+title: "Spec ${slug}"
+type: standard
+status: approved
+created: 2026-10-10
+workflow:
+  mode: deterministic
+  definition: standard.yaml
+tasks:
+  - id: t1
+    order: 1
+    title: Task t1
+    status: draft
+    file: tasks/01-t1.md
+    allowed_paths: []
+  - id: t2
+    order: 2
+    title: Task t2
+    status: draft
+    file: tasks/02-t2.md
+    allowed_paths: []
+`
+    );
+
+    writeFileSync(
+      join(taskDir, '01-t1.md'),
+      `---
+id: t1
+status: draft
+allowed_paths: []
+---
+# Task t1
+`
+    );
+
+    writeFileSync(
+      join(taskDir, '02-t2.md'),
+      `---
+id: t2
+status: draft
+allowed_paths: []
+---
+# Task t2
+`
+    );
+
+    gitCmd(fx.repo, ['add', '-A']);
+    gitCmd(fx.repo, ['commit', '-m', 'Add batch spec with empty allowed_paths']);
+
+    // Create an unrelated dirty file in the worktree
+    writeFileSync(join(fx.repo, 'unrelated-dirty.txt'), 'unrelated dirty content\n');
+
+    const batchExecutionId = 'batch-exec-empty-allowed';
+    const sessionId = 'session-empty-allowed';
+    const taskIds = ['t1', 't2'];
+
+    const change = loadChange(slug, fx.activeDir);
+    for (const id of taskIds) {
+      setTaskWorkflowState(change, id, {
+        status: 'in-review',
+        workflowProgress: {
+          current_step: 'review',
+          current_attempt: 1,
+          state: 'active',
+          history: [],
+        },
+      });
+    }
+
+    await createGroupReservation({
+      repoRoot: fx.repo,
+      changeSlug: slug,
+      taskIds,
+      batchExecutionId,
+      executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+    });
+
+    const specId = '22222222-3333-4444-5555-666666666666';
+    const sessionFile = join(fx.repo, '.nevo-ai-local', 'sessions', `${specId}.json`);
+    mkdirSync(join(fx.repo, '.nevo-ai-local', 'sessions'), { recursive: true });
+    writeFileSync(
+      sessionFile,
+      JSON.stringify({
+        sessions: [{
+          sessionId,
+          specId,
+          batchExecutionId,
+          executionScope: { kind: 'task-batch', changeSlug: slug, taskIds },
+        }],
+        bindings: [],
+      }, null, 2)
+    );
+
+    await acquireWorkspaceWriter({
+      repoRoot: fx.repo,
+      kind: 'agent',
+      specId,
+      sessionId,
+      turnId: 'turn-1',
+      scope: { kind: 'task-batch', taskIds },
+      batchExecutionId,
+    });
+
+    const finishResult = await executeBatchFinish({
+      repoRoot: fx.repo,
+      activeDir: fx.activeDir,
+      changeSlug: slug,
+      batchExecutionId,
+      skipProvenanceCheck: true,
+      inputs: {
+        'commit.title': 'chore(workflow): batch finish with empty allowed paths',
+        include: ['*'],
+        tasks: {
+          t1: { result: 'pass' },
+          t2: { result: 'pass' },
+        },
+      },
+      sessionId,
+    });
+
+    assert.equal(finishResult.status, 'completed');
+    assert.equal(finishResult.record.stages.sharedCommit.status, 'completed');
+
+    // Verify commit contains only change.yaml and derived outputs, NOT unrelated-dirty.txt
+    const committedFiles = git.getChangedFiles(fx.repo, 'HEAD~1', 'HEAD');
+    assert.ok(committedFiles.some(f => f.includes('change.yaml')), 'change.yaml must be committed');
+    assert.equal(committedFiles.includes('unrelated-dirty.txt'), false, 'unrelated-dirty.txt must NOT be committed');
+
+    // Verify unrelated-dirty.txt remains dirty in worktree
+    const dirtyPaths = git.getDirtyPaths(fx.repo);
+    assert.ok(dirtyPaths.includes('unrelated-dirty.txt'), 'unrelated-dirty.txt must remain dirty');
+  });
 });
 

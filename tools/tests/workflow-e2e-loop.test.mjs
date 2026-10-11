@@ -75,6 +75,11 @@ function makeFixtureRepo({
     '---',
     `# Task: ${taskId}`,
     '',
+    '## Verification',
+    '```bash',
+    'npm test',
+    '```',
+    '',
   ].join('\n'));
 
   // Load repository standard workflow definition — it declares sourceControl itself now.
@@ -83,6 +88,11 @@ function makeFixtureRepo({
   mkdirSync(workflowsDir, { recursive: true });
   writeFileSync(join(workflowsDir, 'standard.yaml'), standardWorkflowYaml);
   writeFileSync(join(workflowsDir, 'standard-v1.yaml'), standardWorkflowYaml);
+
+  const docsAiDir = join(root, 'docs', 'ai');
+  mkdirSync(docsAiDir, { recursive: true });
+  writeFileSync(join(docsAiDir, 'task-routing.md'), '# Task Routing\n\n## Routing table\n| rule_id | path_glob | doc_ref |\n|---|---|---|\n');
+  writeFileSync(join(docsAiDir, 'change-impact-map.md'), '# Change Impact\n\n## Routing table\n| rule_id | path_glob | doc_ref |\n|---|---|---|\n');
 
   writeFileSync(join(root, 'package.json'), JSON.stringify({
     name: 'fixture-loop-pkg',
@@ -191,6 +201,7 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
 
     const finishPayload = {
       result: 'fail',
+      feedback: 'Audit 1: Gaps found in version 1',
       'commit.title': 'review: fail',
       include: ['*'],
       artifacts: ['docs/audit-1.md'],
@@ -221,6 +232,7 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
     assert.equal(task.workflow_progress.history[1].step, 'review');
     assert.equal(task.workflow_progress.history[1].attempt, 1);
     assert.equal(task.workflow_progress.history[1].result, 'fail');
+    assert.equal(task.workflow_progress.history[1].feedback, 'Audit 1: Gaps found in version 1');
     assert.deepEqual(task.workflow_progress.history[1].artifacts, ['docs/audit-1.md']);
     assert.equal(task.workflow_progress.history[1].transitioned_to, 'implementation');
   });
