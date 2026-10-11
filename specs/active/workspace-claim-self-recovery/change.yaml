@@ -44,5 +44,10 @@ tasks:
     file: tasks/06-stale-human-submit-operation-recovery.md
     status: draft
     depends_on: [ acquire-self-heal-on-contention ]
+  - id: blocked-action-end-to-end-verification
+    order: 7
+    file: tasks/07-blocked-action-end-to-end-verification.md
+    status: draft
+    depends_on: [ acquire-self-heal-on-contention, human-step-error-visibility, stale-human-submit-operation-recovery ]
 
 spec_id: c2f76901-a0ea-49af-9933-6e845f103534

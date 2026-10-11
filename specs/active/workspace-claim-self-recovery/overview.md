@@ -63,6 +63,10 @@ Two further defects make the failure silent and sticky:
    retry is an idempotent no-op even after the lock is gone.
 2. The dashboard shows no error: it treats HTTP 200 `status: 'pending'` as success, and
    (cause unconfirmed) did not render the blocked-by-recovery error either.
+3. Starting an agent step (for example a review) from the task dialog also gave no
+   feedback. The start error is stored in page-level state while the modal stays open on
+   top. A blocked start may also leave durable pending state that blocks later attempts
+   (to be confirmed by the verification cases).
 
 ## Constraints
 
@@ -87,7 +91,8 @@ but re-models ADR-0009 and every claim producer).
 
 ## Owner decisions
 
-D1 (recovery model), D2 (amend ADR-0009), D3 (separate change) — `owner-decisions.md`.
+D1 (recovery model), D2 (amend ADR-0009), D3 (separate change), D4 (stale human-submit
+operations), D5 (blocked-action verification cases) — `owner-decisions.md`.
 
 ## Proposed architecture
 
@@ -130,6 +135,16 @@ Not split — one cohesive concern.
 
 `node --test tools/tests/`, `node --test tools/dashboard/tests/` for the affected
 suites, `node tools/specs.mjs validate`, `node tools/docs.mjs validate`.
+
+### Verification cases
+
+Task 07 turns the owner's real failures into a standing regression suite: a blocked
+human approve (VC1), a blocked single review start (VC2), a blocked batch review start
+(VC3), a settled stale claim that must not block anything (VC4), and an in-progress
+operation that must not report success (VC5). Each must be red on the pre-fix code.
+The review-start failure of 2026-10-11 showed no feedback at all; the suspected cause
+(error rendered at page level behind the task dialog) is unconfirmed and is reproduced
+first.
 
 ## ADR impact
 

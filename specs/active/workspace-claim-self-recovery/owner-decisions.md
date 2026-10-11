@@ -33,6 +33,18 @@
 - **Date:** 2026-10-11
 - **Affected artifacts:** tasks 04, 05, 06, overview.md
 
+## D5: Add blocked-action verification cases (agent starts included)
+
+- **Question:** Should the "review gave no feedback" failure be covered by this change?
+- **Options considered:** Cover it here | Separate change
+- **Decision:** Cover it here, as a separate verification case (owner instruction,
+  2026-10-11: add it "jako osobny case do weryfikacji").
+- **Consequences:** New task 07 with verification cases VC1–VC5, reproduced before any
+  fix. Session reuse and batch-review session choice are explicitly **not** part of this
+  change; they go to the separate specification `session-continuity-choice`.
+- **Date:** 2026-10-11
+- **Affected artifacts:** task 07, overview.md
+
 ## D3: Separate change, not part of ai-spec-history
 
 - **Question:** Where does this work live?
