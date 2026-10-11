@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-11T08:07:41.580Z",
+  "generated": "2026-10-11T08:07:52.440Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -37,7 +37,7 @@
           "id": "activity-query-and-export",
           "order": 4,
           "file": "tasks/04-activity-query-and-export.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "activity-core-model-and-contracts",
             "activity-local-store"
