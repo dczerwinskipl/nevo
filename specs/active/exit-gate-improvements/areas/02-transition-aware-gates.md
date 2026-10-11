@@ -19,8 +19,11 @@ verification commands are selected".
    `result`; the `result` source is the persisted, conflict-checked `resolvedInputs`.
 3. `standard.yaml` (and `standard-v1.yaml`, templates): `review` command gate
    `when: [pass]`; `review` `fail` requires non-empty `feedback`.
-4. A red required gate leaves a replayable record; `result`/`feedback` may be revised
-   until `update-task` has started; settlement reports `resumable`.
+4. A red required gate leaves a replayable record: `isFinishOperationReplayable` returns `true`
+   for `record.status === 'running'` when `verify-gates.status === 'failed'` and all subsequent
+   stages are `pending`. `result`, `feedback`, `commit.title`, `commit.message`, and `artifacts`
+   may be revised until `update-task` starts, invalidating prior gate results on replay. Settlement
+   reports `resumable`. Once `update-task` starts, all resolved inputs are strictly pinned.
 5. Gate verification outcomes: `passed`, `failed` (executed, red), `blocked` (could not
    evaluate). Runner exceptions are `blocked`, never `failed`.
 6. `update-task`, `commit`, scope enforcement and writer claims are untouched for `fail`.

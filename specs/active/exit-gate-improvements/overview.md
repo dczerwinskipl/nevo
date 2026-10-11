@@ -87,8 +87,11 @@ cleanliness is a hard precondition (D13).
 the generators that actually ran in this operation** — no globs, no directory grants, no
 change to `allowed_paths` semantics. The commit action's scope check accepts
 `allowed_paths ∪ workflowOwnedPaths ∪ derivedOwnedPaths`; anything else remains
-`OUT_OF_SCOPE_WORKTREE_CHANGES`. Settlement diagnostics treat all registered generator
-outputs as owned so a half-finished sync is not misreported as foreign drift.
+`OUT_OF_SCOPE_WORKTREE_CHANGES`. For `batch finish` stage 5, staging ownership is explicitly
+constrained to `(∪ allowed_paths) ∪ workflowOwnedPaths ∪ derivedOwnedPaths`, replacing the
+unconstrained default `include: ['*']` so that unrelated dirty files are never staged.
+Settlement diagnostics treat all registered generator outputs as owned so a half-finished
+sync is not misreported as foreign drift.
 
 **Unrelated dirty files.** Before generating, the sync asserts that every dirty path
 matching a triggered generator's `inputs` belongs to this operation's commit set
@@ -97,13 +100,30 @@ matching a triggered generator's `inputs` belongs to this operation's commit set
 embedding another change's uncommitted state, and prevents staging foreign files
 (staging stays by explicit path set, as today).
 
-**Integrity validation (logical step 4).** After generating, run the triggered
+**Integrity validation and D5 re-evaluation.** After generating, run the triggered
 generators' own `check()` in-process. A mismatch is `DERIVED_INTEGRITY_FAILED`. Per D5 the
 same step then also runs repo-wide `validate` for specs and docs in-process (existing
 `validateSpecs`/`validateDocs`); a failure is `REPO_INTEGRITY_FAILED`, a distinct
-infrastructure code. Accepted consequence: an unrelated validation error elsewhere in the
-repository blocks every finish until fixed — intended, since the commit would otherwise
-record a repository that fails CI.
+infrastructure code.
+
+*Trade-off analysis of D5:*
+- **The Conflict with `review fail`:** `ensureCommit` executes for both `review pass` and `review fail`.
+  Under D5, if any unrelated specification or document in the repository contains a validation
+  flaw, `REPO_INTEGRITY_FAILED` throws and blocks the commit for `review fail`. This directly
+  recreates the original problem that motivated Area B: a reviewer attempting to record negative
+  findings and return a task for rework is blocked by a failure outside their control.
+- **Option 1 (Current D5 Owner Decision — Strictest):** Repo-wide `validate` runs unconditionally
+  on every commit.
+  - *Unlocks:* Strict repository health invariant; no commit created by the engine ever leaves
+    the repository failing CI validation.
+  - *Forecloses:* Change isolation and reviewer autonomy; broken unrelated specs block `review fail`.
+- **Option 2 (Scoped validation on rework):** Generator-specific `check()` runs unconditionally;
+  repo-wide validation runs only on forward-progress/terminal transitions (`pass`), while rework
+  transitions (`fail`) bypass repo-wide validation to ensure negative findings are never blocked.
+- **Option 3 (Change-scoped validation):** Validate only the active change (`validateChange(changeSlug)`)
+  and touched docs during finish; defer repo-wide validation to PR finalization and CI.
+- *Preservation:* Per repository policy, Owner Decision D5 remains authoritative as currently decided
+  unless explicitly reconsidered by the owner.
 
 **Determinism.** Make `writeDocsIndexes` preserve the prior `generated` timestamp when
 content is unchanged (as `writeSpecsIndexes` already does) so sync is a no-op on a clean
@@ -133,11 +153,17 @@ Changes:
    filter `step.exitGates` by the resolved result. `finishStep` is already the single path
    for CLI, human step and batch member finish, so CLI/dashboard parity is structural.
 3. **Gate failure is a clean, replayable pre-mutation state.** A red gate (for a result
-   that requires it) leaves `record.status` replayable (`running`, `verify-gates:
-   failed`), and `mergeResolvedInputs` permits changing `result`/`feedback` while
-   `update-task` is still `pending` (nothing durable has happened). Settlement reports
-   `resumable`, not `recovery-required`. Security/ownership unchanged: once `update-task`
-   starts, inputs are pinned exactly as today.
+   that requires it) leaves `record.status` replayable (`running`, `verify-gates: failed`).
+   The exact contract:
+   - **Predicate:** `isFinishOperationReplayable(record)` returns `true` for `record.status === 'running'`
+     when `verify-gates.status === 'failed'` strictly provided all subsequent stages (`update-task`,
+     `commit`, `push`, `transition`) remain `pending`, and no stage is `unknown` or `blocked`.
+   - **Input revision:** `mergeResolvedInputs` permits revising `result`, `feedback`, `commit.title`,
+     `commit.message`, and `artifacts` on replay before `update-task` begins (nothing durable has happened).
+   - **Gate invalidation:** On replay with retargeted inputs, prior gate failure results are invalidated
+     and re-evaluated against the newly applicable gates for the revised `result`.
+   - **Safeguards:** Once `update-task` starts (leaving `pending`), all resolved inputs are permanently
+     pinned; any conflict throws `RESOLVED_INPUT_CONFLICT`. Settlement reports `resumable`.
 4. **Failure taxonomy.** Gate verification distinguishes `failed` (check ran and was red —
    negative evidence) from `blocked`/`error` (could not evaluate: runner exception, spawn
    failure, missing store). Only `failed` can ever be treated as evidence for a `fail`
@@ -293,7 +319,6 @@ All automated under `node --test tools/tests/` unless noted. Fixture repos via
   call (cleanup once 02 lands).
 - Recording failed-check output as non-blocking evidence on `fail` reviews.
 - A `docs.mjs validate` rule rejecting duplicate ADR numbers (already a recorded follow-up).
-- Scope enforcement for the batch shared commit (observed unconstrained; separate finding).
 - Any change to `ai-spec-history`'s execution state.
 
 ## ADR impact

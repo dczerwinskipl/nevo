@@ -428,9 +428,9 @@ describe('Transition-aware exit gates execution via finishStep', () => {
 
       // 1. review command gate has when: [pass]
       const reviewStep = def.steps.review;
-      const cmdGate = reviewStep.exitGates.find(g => g.type === 'command' && g.action === 'test');
-      assert.ok(cmdGate, `${name}: review step must have test command gate`);
-      assert.deepEqual(cmdGate.when, ['pass'], `${name}: test command gate must declare when: [pass]`);
+      const cmdGate = reviewStep.exitGates.find(g => g.type === 'command' && (g.action === 'test' || g.action === 'task-verification'));
+      assert.ok(cmdGate, `${name}: review step must have test or task-verification command gate`);
+      assert.deepEqual(cmdGate.when, ['pass'], `${name}: command gate must declare when: [pass]`);
 
       // 2. review fail transition has action.feedback.required: true
       const failTrans = reviewStep.transitions.find(t => t.value === 'fail');

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 
 import { readActivities, activityFilePath } from '../specs/activity/store.mjs';
 import { SYSTEM_ACTOR, resolveAgentSessionActor, resolveUserActor } from '../specs/activity/actor-resolver.mjs';
@@ -18,6 +18,8 @@ import {
   stepCompletedActivityId,
   validateStepStartedData,
   validateStepCompletedData,
+  recordWorkflowStepStarted,
+  recordWorkflowStepCompletedFromRecord,
 } from '../specs/activity/producers/workflow.mjs';
 import { autoBindAgentSession } from '../specs.mjs';
 import { handleWorkflowStepStart, handleWorkflowStepFinish } from '../specs/workflow/cli.mjs';
@@ -27,6 +29,11 @@ import { saveOperationRecord, loadOperationRecord } from '../specs/workflow/oper
 import { requireChange, requireTask, setTaskWorkflowState } from '../specs/store.mjs';
 import { normalizeWorkflowDefinition } from '../specs/workflow/index.mjs';
 import { createDefaultGateRegistry, MemoryCommandVerificationStore, MemoryHumanVerificationReader } from '../specs/workflow/index.mjs';
+import { createGroupReservation } from '../specs/workflow/queue/index.mjs';
+import { executeBatchStart } from '../specs/workflow/batch-start/operation.mjs';
+import { executeBatchFinish } from '../specs/workflow/batch-finish/operation.mjs';
+import { acquireWorkspaceWriter } from '../specs/workflow/workspace-writer.mjs';
+import { getCanonicalBatchReportRelativePath } from '../specs/reviews/batch-report.mjs';
 
 function git(root, args) {
   return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' });
@@ -217,6 +224,40 @@ describe('Workflow step activity producer contract', () => {
 
     const invalidFeedback = validateStepCompletedData({ attempt: 1, feedback: 123 });
     assert.equal(invalidFeedback.valid, false);
+
+    const invalidResult = validateStepCompletedData({ attempt: 1, result: '   ' });
+    assert.equal(invalidResult.valid, false);
+  });
+
+  test('producer functions enforce validators before calling recordActivity', () => {
+    // recordWorkflowStepStarted rejects invalid attempt / missing step
+    const startedRes1 = recordWorkflowStepStarted({ specId: 'spec-1', taskId: 't1', step: '', attempt: 1 });
+    assert.equal(startedRes1, null);
+
+    const startedRes2 = recordWorkflowStepStarted({ specId: 'spec-1', taskId: 't1', step: 'impl', attempt: 0 });
+    assert.equal(startedRes2, null);
+
+    // recordWorkflowStepCompletedFromRecord rejects invalid attempt / invalid artifacts
+    const completedRes1 = recordWorkflowStepCompletedFromRecord({
+      specId: 'spec-1',
+      taskId: 't1',
+      record: {
+        step: 'impl',
+        attempt: -1,
+      },
+    });
+    assert.equal(completedRes1, null);
+
+    const completedRes2 = recordWorkflowStepCompletedFromRecord({
+      specId: 'spec-1',
+      taskId: 't1',
+      record: {
+        step: 'impl',
+        attempt: 1,
+        resolvedInputs: { artifacts: 'not-an-array' },
+      },
+    });
+    assert.equal(completedRes2, null);
   });
 });
 
@@ -668,5 +709,225 @@ describe('Workflow step activity emission end-to-end', () => {
     });
 
     assert.equal(res.status, 'completed', 'finishStep must complete successfully despite recordActivity failure');
+  });
+});
+
+describe('Batch execution integration gap regression coverage', () => {
+  let fx;
+
+  afterEach(() => {
+    if (fx) cleanupFixture(fx);
+  });
+
+  test('regression: batch-start omits workflow.step.started, and batch-finish defaults to SYSTEM_ACTOR', async () => {
+    const slug = 'batch-reg-change';
+    const batchExecutionId = 'batch-exec-gap-1';
+    const sessionId = 'session-batch-gap-1';
+
+    const remote = mkdtempSync(join(tmpdir(), 'nevo-batch-gap-remote-'));
+    git(remote, ['init', '-q', '--bare', '--initial-branch=main']);
+
+    const repo = mkdtempSync(join(tmpdir(), 'nevo-batch-gap-repo-'));
+    git(repo, ['init', '-q', '--initial-branch=main']);
+    git(repo, ['config', 'user.email', 'test-actor@example.com']);
+    git(repo, ['config', 'user.name', 'Test Actor']);
+    git(repo, ['remote', 'add', 'origin', remote]);
+
+    fx = { repo, remote };
+
+    const activeDir = join(repo, 'specs', 'active');
+    const changeDir = join(activeDir, slug);
+    const taskDir = join(changeDir, 'tasks');
+    const workflowDir = join(repo, '.nevo-ai', 'workflows');
+    const sessionsDir = join(repo, '.nevo-ai-local', 'sessions');
+    mkdirSync(taskDir, { recursive: true });
+    mkdirSync(workflowDir, { recursive: true });
+    mkdirSync(sessionsDir, { recursive: true });
+
+    const batchWfYaml = [
+      'id: standard.yaml',
+      'title: "Standard Workflow"',
+      'type: standard',
+      'version: 1',
+      'entryStep: implementation',
+      'sourceControl:',
+      '  enabled: true',
+      '  push: false',
+      'steps:',
+      '  implementation:',
+      '    status:',
+      '      active: implementing',
+      '      completed: implemented',
+      '    purpose: "Implement code"',
+      '    expectedWork:',
+      '      summary: "Implement"',
+      '    entryGates: []',
+      '    exitGates: []',
+      '    finalize: []',
+      '    transitions:',
+      '      - to: review',
+      '  review:',
+      '    status:',
+      '      active: reviewing',
+      '      completed: reviewed',
+      '    purpose: "Review code"',
+      '    expectedWork:',
+      '      summary: "Review"',
+      '    entryGates: []',
+      '    exitGates: []',
+      '    finalize: []',
+      '    transitions:',
+      '      - value: pass',
+      '        to: verified',
+      '        outcome: success',
+      '      - value: fail',
+      '        to: implementation',
+      '',
+    ].join('\n');
+    writeFileSync(join(workflowDir, 'standard.yaml'), batchWfYaml, 'utf8');
+
+    const changeYaml = [
+      `id: ${slug}`,
+      `spec_id: "${SPEC_ID}"`,
+      'title: "Batch Gap Test Change"',
+      'type: standard',
+      'status: draft',
+      'workflow:',
+      '  mode: deterministic',
+      '  definition: standard.yaml',
+      'tasks:',
+      '  - id: t1',
+      '    order: 1',
+      '    file: tasks/t1.md',
+      '    status: in-implementation',
+      '    allowed_paths:',
+      '      - src/t1.txt',
+      '    workflow_progress:',
+      '      current_step: implementation',
+      '      current_attempt: 1',
+      '      state: completed',
+      '      history:',
+      '        - step: implementation',
+      '          attempt: 1',
+      '          status: completed',
+      '          transitioned_to: review',
+      '  - id: t2',
+      '    order: 2',
+      '    file: tasks/t2.md',
+      '    status: in-implementation',
+      '    allowed_paths:',
+      '      - src/t2.txt',
+      '    workflow_progress:',
+      '      current_step: implementation',
+      '      current_attempt: 1',
+      '      state: completed',
+      '      history:',
+      '        - step: implementation',
+      '          attempt: 1',
+      '          status: completed',
+      '          transitioned_to: review',
+      '',
+    ].join('\n');
+    writeFileSync(join(changeDir, 'change.yaml'), changeYaml, 'utf8');
+
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    writeFileSync(join(repo, 'src', 't1.txt'), 't1\n', 'utf8');
+    writeFileSync(join(repo, 'src', 't2.txt'), 't2\n', 'utf8');
+    writeFileSync(join(taskDir, 't1.md'), '# Task t1\n', 'utf8');
+    writeFileSync(join(taskDir, 't2.md'), '# Task t2\n', 'utf8');
+    writeFileSync(join(repo, '.gitignore'), '.nevo-ai-local/\n', 'utf8');
+
+    git(repo, ['commit', '-q', '--allow-empty', '-m', 'root commit']);
+    git(repo, ['add', '-A']);
+    git(repo, ['commit', '-q', '-m', 'initial']);
+    git(repo, ['push', '-q', '-u', 'origin', 'main']);
+
+    // Set up session file and writer claim
+    writeFileSync(
+      join(sessionsDir, `${SPEC_ID}.json`),
+      JSON.stringify({
+        sessions: [{
+          sessionId,
+          batchExecutionId,
+          executionScope: { kind: 'task-batch', changeSlug: slug, taskIds: ['t1', 't2'] },
+        }],
+        bindings: [],
+      }, null, 2),
+      'utf8'
+    );
+
+    await acquireWorkspaceWriter({
+      repoRoot: repo,
+      kind: 'agent',
+      specId: SPEC_ID,
+      sessionId,
+      turnId: `turn-${sessionId}-1`,
+      scope: { kind: 'task-batch', taskIds: ['t1', 't2'] },
+      batchExecutionId,
+    });
+
+    await createGroupReservation({
+      repoRoot: repo,
+      changeSlug: slug,
+      taskIds: ['t1', 't2'],
+      batchExecutionId,
+      executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+    });
+
+    // 1. Execute batch start
+    await executeBatchStart({
+      repoRoot: repo,
+      activeDir,
+      changeSlug: slug,
+      batchExecutionId,
+      sessionId,
+    });
+
+    // Gap 1 regression coverage:
+    // batch-start/operation.mjs activates task members directly through ensureStepActivated(),
+    // bypassing workflow.step.started emission.
+    const activitiesAfterStart = readActivities(SPEC_ID, { repoRoot: repo });
+    const started = activitiesAfterStart.filter(a => a.type === WORKFLOW_STEP_STARTED);
+    assert.equal(
+      started.length,
+      0,
+      'Gap 1 regression: executeBatchStart currently bypasses workflow.step.started emission'
+    );
+
+    // 2. Write canonical batch review report
+    const reportRel = getCanonicalBatchReportRelativePath(slug, batchExecutionId);
+    const fullReportPath = join(repo, reportRel);
+    mkdirSync(dirname(fullReportPath), { recursive: true });
+    writeFileSync(fullReportPath, '# Batch Review Report\n\nAll tasks passed.\n', 'utf8');
+
+    // 3. Execute batch finish
+    await executeBatchFinish({
+      repoRoot: repo,
+      activeDir,
+      changeSlug: slug,
+      batchExecutionId,
+      sessionId,
+      inputs: {
+        tasks: {
+          t1: { result: 'pass', feedback: 't1 looks great' },
+          t2: { result: 'pass', feedback: 't2 looks great' },
+        },
+        'commit.title': 'docs(review): batch review report',
+      },
+    });
+
+    // Gap 2 regression coverage:
+    // batch-finish/operation.mjs calls finishStep() without passing actor,
+    // so batch completion activities default to SYSTEM_ACTOR even though the batch has an effectiveSessionId.
+    const activitiesAfterFinish = readActivities(SPEC_ID, { repoRoot: repo });
+    const completed = activitiesAfterFinish.filter(a => a.type === WORKFLOW_STEP_COMPLETED);
+    assert.equal(completed.length, 2, 'Batch finish recorded 2 completed activities');
+    for (const act of completed) {
+      assert.deepEqual(
+        act.actor,
+        SYSTEM_ACTOR,
+        'Gap 2 regression: batch completion activities default to SYSTEM_ACTOR instead of effectiveSessionId actor'
+      );
+    }
   });
 });
