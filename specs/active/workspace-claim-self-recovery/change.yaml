@@ -1,0 +1,43 @@
+# Specification manifest for workspace-claim-self-recovery
+id: workspace-claim-self-recovery
+title: "Workspace claim self-recovery"
+type: architectural
+status: draft
+priority: 10
+created: 2026-10-11
+workflow:
+  mode: deterministic
+  version: 1
+  definition: standard-v1
+
+branch:
+  mode: per-change
+  prefix: feature
+  name: feature/workspace-claim-self-recovery
+
+tasks:
+  - id: workspace-claim-recovery-core
+    order: 1
+    file: tasks/01-workspace-claim-recovery-core.md
+    status: draft
+  - id: acquire-self-heal-on-contention
+    order: 2
+    file: tasks/02-acquire-self-heal-on-contention.md
+    status: draft
+    depends_on: [ workspace-claim-recovery-core ]
+  - id: workspace-recover-command
+    order: 3
+    file: tasks/03-workspace-recover-command.md
+    status: draft
+    depends_on: [ workspace-claim-recovery-core ]
+  - id: human-step-error-visibility
+    order: 4
+    file: tasks/04-human-step-error-visibility.md
+    status: draft
+  - id: recovery-documentation-and-adr-amendment
+    order: 5
+    file: tasks/05-recovery-documentation-and-adr-amendment.md
+    status: draft
+    depends_on: [ acquire-self-heal-on-contention, workspace-recover-command ]
+
+spec_id: c2f76901-a0ea-49af-9933-6e845f103534
