@@ -84,6 +84,10 @@ export function validateStepCompletedData(data) {
     errors.push({ field: 'data.step', message: 'Field step, when present, must be a non-empty string' });
   }
 
+  if (data.result !== undefined && (typeof data.result !== 'string' || !data.result.trim())) {
+    errors.push({ field: 'data.result', message: 'Field result, when present, must be a non-empty string' });
+  }
+
   if (data.transitioned_to !== undefined && (typeof data.transitioned_to !== 'string' || !data.transitioned_to.trim())) {
     errors.push({ field: 'data.transitioned_to', message: 'Field transitioned_to, when present, must be a non-empty string' });
   }
@@ -120,8 +124,13 @@ export function validateStepCompletedData(data) {
  */
 export function recordWorkflowStepStarted({ specId, taskId, step, attempt, actor, initiatedBy, triggeredBy }, options = {}) {
   try {
-    const canonicalSpecId = resolveSpecId(specId, options);
     const data = { step, attempt };
+    const validation = validateStepStartedData(data);
+    if (!validation.valid) {
+      return null;
+    }
+
+    const canonicalSpecId = resolveSpecId(specId, options);
     const id = stepStartedActivityId(canonicalSpecId, taskId, step, attempt);
 
     return recordActivity({
@@ -177,6 +186,11 @@ export function recordWorkflowStepCompletedFromRecord({ specId, taskId, record }
       ...(resolvedInputs.feedback !== undefined ? { feedback: resolvedInputs.feedback } : {}),
       ...(resolvedInputs.findings !== undefined ? { findings: resolvedInputs.findings } : {}),
     };
+
+    const validation = validateStepCompletedData(data);
+    if (!validation.valid) {
+      return null;
+    }
 
     const id = stepCompletedActivityId(canonicalSpecId, effectiveTaskId, step, attempt);
 

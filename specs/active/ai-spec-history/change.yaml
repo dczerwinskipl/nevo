@@ -187,8 +187,8 @@ tasks:
     status: approved
     depends_on: [ activity-local-store, actor-resolver ]
     workflow_progress:
-      current_step: human-verification
-      current_attempt: 1
+      current_step: implementation
+      current_attempt: 2
       state: completed
       history:
         - step: implementation
@@ -262,6 +262,11 @@ tasks:
 
             Also enforce the producer-owned payload validators before
             persistence.
+        - step: implementation
+          attempt: 2
+          completed_at: 2026-10-11T08:32:23.873Z
+          transitioned_to: review
+          sessionId: 523d125b-c6c0-4b08-9e29-6f5782714cc0
   - id: human-verification-activity-producer
     order: 7
     file: tasks/07-human-verification-activity-producer.md
