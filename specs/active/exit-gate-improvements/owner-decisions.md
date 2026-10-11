@@ -44,6 +44,7 @@
 - **Decision:** Own outputs plus repo-wide specs and docs validation (owner chose the stricter option over the recommendation).
 - **Rationale:** Do not commit a repository state that fails CI.
 - **Consequences:** An unrelated validation error elsewhere blocks every finish until fixed; reported as the distinct `REPO_INTEGRITY_FAILED` code, never as a review outcome.
+- **Re-evaluation note (2026-10-11):** Under D5, an unrelated validation error anywhere in the repository blocks all finish operations, including `review fail` (which commits under `ensureCommit`). This recreates the blocking problem that motivated Area B by preventing reviewers from recording negative evidence. Options considered: (1) maintain D5 as unconditional repo-wide validation (preserves strict CI guarantee at the expense of task autonomy); (2) scoped validation bypassing repo-wide checks on rework (`fail`) transitions; (3) change-scoped validation. Per decision policy, D5 remains accepted as decided unless explicitly modified by the owner.
 - **Date:** 2026-10-10
 - **Affected artifacts:** `tasks/02-finish-derived-sync.md`
 
