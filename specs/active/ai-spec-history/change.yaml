@@ -187,7 +187,7 @@ tasks:
     status: approved
     depends_on: [ activity-local-store, actor-resolver ]
     workflow_progress:
-      current_step: review
+      current_step: human-verification
       current_attempt: 1
       state: completed
       history:
@@ -221,6 +221,47 @@ tasks:
             finish-operation tests, and 40 workflow-cli tests pass; node
             tools/specs.mjs validate passes with 31 changes and no errors. No
             gaps found; no corrective changes required."
+        - step: human-verification
+          attempt: 1
+          completed_at: 2026-10-11T08:08:49.900Z
+          transitioned_to: implementation
+          result: fail
+          feedback: >-
+            Human review: changes required.
+
+
+            The implementation correctly handles the declared CLI and human-step
+            paths, including durable actor capture and idempotent finish
+            retries. However, the current batch execution path exposes an
+            integration gap:
+
+
+            1. batch-start/operation.mjs activates task members directly through
+            ensureStepActivated(), bypassing workflow.step.started emission.
+
+            2. batch-finish/operation.mjs calls finishStep() without an actor,
+            so batch completion activities default to SYSTEM_ACTOR even though
+            the batch has an effectiveSessionId.
+
+            3. The producer data validators are defined but never applied before
+            recordActivity().
+
+
+            Please investigate how to provide consistent Activity recording
+            across both single-task and batch execution paths, preserving
+            deterministic IDs, original actor attribution, replay safety and
+            non-blocking recording semantics.
+
+
+            Batch modules are outside this task's allowed_paths. Do not modify
+            them without an approved scope amendment or a separately owned
+            corrective task. Propose the required scope adjustment and add
+            regression coverage for the missing start event and incorrect batch
+            actor attribution.
+
+
+            Also enforce the producer-owned payload validators before
+            persistence.
   - id: human-verification-activity-producer
     order: 7
     file: tasks/07-human-verification-activity-producer.md
