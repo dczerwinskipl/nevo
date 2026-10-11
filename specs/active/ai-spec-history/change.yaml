@@ -106,10 +106,10 @@ tasks:
   - id: actor-resolver
     order: 3
     file: tasks/03-actor-resolver.md
-    status: approved
+    status: verified
     depends_on: [ activity-core-model-and-contracts ]
     workflow_progress:
-      current_step: review
+      current_step: human-verification
       current_attempt: 1
       state: completed
       history:
@@ -123,6 +123,11 @@ tasks:
           completed_at: 2026-09-30T06:45:16.494Z
           transitioned_to: human-verification
           sessionId: c1b76f10-cdca-49d2-bccc-781deb3d889d
+          result: pass
+        - step: human-verification
+          attempt: 1
+          completed_at: 2026-10-11T08:07:41.362Z
+          transitioned_to: verified
           result: pass
   - id: activity-query-and-export
     order: 4
