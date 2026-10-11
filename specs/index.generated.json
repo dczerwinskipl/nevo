@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-11T08:30:21.645Z",
+  "generated": "2026-10-11T09:18:57.895Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -231,7 +231,7 @@
           "workflow_progress": {
             "current_step": "implementation",
             "current_attempt": 2,
-            "state": "active",
+            "state": "completed",
             "history": [
               {
                 "step": "implementation",
@@ -256,6 +256,13 @@
                 "transitioned_to": "implementation",
                 "result": "fail",
                 "feedback": "Human review: changes required.\n\nThe implementation correctly handles the declared CLI and human-step paths, including durable actor capture and idempotent finish retries. However, the current batch execution path exposes an integration gap:\n\n1. batch-start/operation.mjs activates task members directly through ensureStepActivated(), bypassing workflow.step.started emission.\n2. batch-finish/operation.mjs calls finishStep() without an actor, so batch completion activities default to SYSTEM_ACTOR even though the batch has an effectiveSessionId.\n3. The producer data validators are defined but never applied before recordActivity().\n\nPlease investigate how to provide consistent Activity recording across both single-task and batch execution paths, preserving deterministic IDs, original actor attribution, replay safety and non-blocking recording semantics.\n\nBatch modules are outside this task's allowed_paths. Do not modify them without an approved scope amendment or a separately owned corrective task. Propose the required scope adjustment and add regression coverage for the missing start event and incorrect batch actor attribution.\n\nAlso enforce the producer-owned payload validators before persistence."
+              },
+              {
+                "step": "implementation",
+                "attempt": 2,
+                "completed_at": "2026-10-11T08:32:23.873Z",
+                "transitioned_to": "review",
+                "sessionId": "523d125b-c6c0-4b08-9e29-6f5782714cc0"
               }
             ]
           }

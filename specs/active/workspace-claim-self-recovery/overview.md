@@ -91,8 +91,7 @@ but re-models ADR-0009 and every claim producer).
 
 ## Owner decisions
 
-D1 (recovery model), D2 (amend ADR-0009), D3 (separate change), D4 (stale human-submit
-operations), D5 (blocked-action verification cases) — `owner-decisions.md`.
+D1 (recovery model), D2 (amend ADR-0009), D3 (separate change) — `owner-decisions.md`.
 
 ## Proposed architecture
 
@@ -138,7 +137,7 @@ suites, `node tools/specs.mjs validate`, `node tools/docs.mjs validate`.
 
 ### Verification cases
 
-Task 07 turns the owner's real failures into a standing regression suite: a blocked
+Task 07 turns the owner's two real failures into a standing regression suite: a blocked
 human approve (VC1), a blocked single review start (VC2), a blocked batch review start
 (VC3), a settled stale claim that must not block anything (VC4), and an in-progress
 operation that must not report success (VC5). Each must be red on the pre-fix code.

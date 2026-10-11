@@ -41,7 +41,7 @@
   2026-10-11: add it "jako osobny case do weryfikacji").
 - **Consequences:** New task 07 with verification cases VC1–VC5, reproduced before any
   fix. Session reuse and batch-review session choice are explicitly **not** part of this
-  change; they go to the separate specification `session-continuity-choice`.
+  change; they go to a separate specification.
 - **Date:** 2026-10-11
 - **Affected artifacts:** task 07, overview.md
 
