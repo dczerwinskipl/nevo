@@ -158,10 +158,10 @@ tasks:
   - id: activity-dashboard-api
     order: 5
     file: tasks/05-activity-dashboard-api.md
-    status: approved
+    status: verified
     depends_on: [ activity-query-and-export ]
     workflow_progress:
-      current_step: review
+      current_step: human-verification
       current_attempt: 1
       state: completed
       history:
@@ -175,6 +175,11 @@ tasks:
           completed_at: 2026-10-10T10:57:07.651Z
           transitioned_to: human-verification
           sessionId: 11c5a47e-f229-4462-aa22-e14023030d11
+          result: pass
+        - step: human-verification
+          attempt: 1
+          completed_at: 2026-10-11T08:08:28.408Z
+          transitioned_to: verified
           result: pass
   - id: workflow-step-activity-producer
     order: 6

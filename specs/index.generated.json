@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-11T08:07:52.440Z",
+  "generated": "2026-10-11T08:08:28.726Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -47,7 +47,7 @@
           "id": "activity-dashboard-api",
           "order": 5,
           "file": "tasks/05-activity-dashboard-api.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "activity-query-and-export"
           ]
