@@ -236,7 +236,7 @@ tasks:
       - workflow-step-activity-producer
       - human-verification-activity-producer
     workflow_progress:
-      current_step: implementation
+      current_step: review
       current_attempt: 1
       state: completed
       history:
@@ -245,6 +245,20 @@ tasks:
           completed_at: 2026-10-10T12:37:56.048Z
           transitioned_to: review
           sessionId: f3930156-ab0c-4d1e-8daa-c9a3a5d1841e
+        - step: review
+          attempt: 1
+          completed_at: 2026-10-11T06:53:04.977Z
+          transitioned_to: human-verification
+          sessionId: 4dd7a6a1-d410-47fc-ad0e-c5ee8c944625
+          result: pass
+          feedback: "All verification passes: docs.mjs validate, specs.mjs validate,
+            specs.mjs check (indexes current after the exit-gate-improvements
+            fix landed). Found and fixed during review: ADR number collision
+            (renumbered 0009->0010 via owner-authorized scope amendment, commits
+            3ebb5174/d2132892). Root-cause note for the prior stale-index CI
+            failure recorded in reviews/activity-query-and-export.md,
+            attributing it to the activity-query-and-export implementation
+            commit, not this task."
 
 spec_id: fe63d2b5-a66a-4c88-b3cc-6d38b193b725
 pull_requests:
