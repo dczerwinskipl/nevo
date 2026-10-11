@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-11T07:45:14.730Z",
+  "generated": "2026-10-11T07:51:58.930Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -424,7 +424,17 @@
           "status": "draft",
           "depends_on": [
             "acquire-self-heal-on-contention",
-            "workspace-recover-command"
+            "workspace-recover-command",
+            "stale-human-submit-operation-recovery"
+          ]
+        },
+        {
+          "id": "stale-human-submit-operation-recovery",
+          "order": 6,
+          "file": "tasks/06-stale-human-submit-operation-recovery.md",
+          "status": "draft",
+          "depends_on": [
+            "acquire-self-heal-on-contention"
           ]
         }
       ]

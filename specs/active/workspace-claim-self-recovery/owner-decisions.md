@@ -19,6 +19,20 @@
 - **Date:** 2026-10-11
 - **Affected artifacts:** task 05, `docs/decisions/ADR-0009-agent-admission-and-execution-ownership-model.md`
 
+## D4: Scope extended to stale human-submit operations and `pending` handling
+
+- **Question:** Should the stale-`pending` human-submit operation defect (retry is a silent
+  no-op) be added to this change?
+- **Options considered:** Add to this change | Separate change
+- **Decision:** Add to this change (owner instruction, 2026-10-11: "dopisz te problemy do
+  specki").
+- **Consequences:** New task 06 (server-side resume/supersede and explicit response
+  states); task 04 extended so the UI does not treat `pending` as success; task 05 also
+  documents the new behavior. The exact resume-vs-supersede mechanics are specified as
+  behavior in task 06; mechanics are an implementation detail.
+- **Date:** 2026-10-11
+- **Affected artifacts:** tasks 04, 05, 06, overview.md
+
 ## D3: Separate change, not part of ai-spec-history
 
 - **Question:** Where does this work live?

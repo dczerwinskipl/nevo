@@ -41,12 +41,22 @@ visibly report its error in the dashboard. On 2026-10-11 the owner saw no messag
   useful) must be visible in the dialog until the next attempt or dismissal, and a failed
   submit must not close the dialog or refresh as if it had succeeded.
 - Handle the same path in `agent-sessions/human-step-mutations.ts` if it shares the defect.
+- A second silent-failure path (observed 2026-10-11): the server can answer HTTP 200 with
+  `{ ok: true, status: 'pending', idempotent: true }` for a human decision that was
+  recorded but not executed (see task 06). The UI currently treats any 200 as success,
+  refreshes, and closes the dialog. After task 06 the response states completed,
+  in-progress, or failed explicitly; the UI must show an in-progress message and keep the
+  dialog open for in-progress, show the error for failed, and close only on completed.
+  Until task 06 lands, treat `status: 'pending'` as not-completed.
 
 ## Acceptance criteria
 
 - A rejected submit renders the server error text in an element with `role="alert"` and
   leaves the dialog open. `automated: node --test tools/dashboard/tests/human-step-error-visibility.test.tsx`
 - A rejected submit produces no unhandled promise rejection.
+  `automated: node --test tools/dashboard/tests/human-step-error-visibility.test.tsx`
+- A 200 response with `status: 'pending'` shows an in-progress message, keeps the dialog
+  open, and does not refresh as if completed.
   `automated: node --test tools/dashboard/tests/human-step-error-visibility.test.tsx`
 - A successful submit behaves as before (refresh, close).
   `automated: node --test tools/dashboard/tests/human-step-error-visibility.test.tsx`
@@ -62,4 +72,5 @@ node tools/specs.mjs validate
 
 ## Out of scope
 
-Server-side error content (task 02), and redesigning the human-step surface.
+Server-side error content (task 02), the server-side operation recovery and explicit
+response states (task 06), and redesigning the human-step surface.

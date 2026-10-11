@@ -2,7 +2,7 @@
 id: recovery-documentation-and-adr-amendment
 status: draft
 change: workspace-claim-self-recovery
-depends_on: [ acquire-self-heal-on-contention, workspace-recover-command ]
+depends_on: [ acquire-self-heal-on-contention, workspace-recover-command, stale-human-submit-operation-recovery ]
 context:
   required:
     - specs/active/workspace-claim-self-recovery/overview.md
@@ -17,14 +17,15 @@ forbidden_paths:
   - tools/**
 semantic_references:
   decisions: [D1, D2]
-  dependency_contracts: [acquire-self-heal-on-contention, workspace-recover-command]
+  dependency_contracts: [acquire-self-heal-on-contention, workspace-recover-command, stale-human-submit-operation-recovery]
 ---
 
 # Task: Documentation and ADR-0009 amendment
 
 ## Dependencies
 
-`acquire-self-heal-on-contention`, `workspace-recover-command`.
+`acquire-self-heal-on-contention`, `workspace-recover-command`,
+`stale-human-submit-operation-recovery`.
 
 ## Goal
 
@@ -41,6 +42,9 @@ Record the new behavior where the existing documents describe the old behavior (
 - Update `docs/development/agent-workflow-protocol.md` where it describes the
   workspace-writer block, with the new error contents and the recovery command, verified
   against the implemented command spelling and error text.
+- Document in the same protocol doc how a stale `pending` human-submit operation is
+  resumed or superseded, and the in-progress vs. completed vs. failed response states,
+  verified against task 06's implementation.
 
 ## Acceptance criteria
 

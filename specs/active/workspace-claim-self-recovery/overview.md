@@ -36,6 +36,15 @@ Evidence from the repository:
 - `human-submit` surfaces the block as `WORKSPACE_WRITER_BLOCKED_BY_RECOVERY` with a
   message that does not name the holding task or session
   (`tools/specs/workflow/human-step/operations.mjs`).
+- `activateAndSubmitHumanStep` creates a durable `human-submit` operation record
+  (`status: 'pending'`) and a paired workspace request before it acquires the writer.
+  When acquisition is blocked, the request moves to `blocked-by-recovery` but the
+  operation record stays `pending`. A later identical decision hits `evaluateExistingOp`,
+  which returns `{ ok: true, status: 'pending', idempotent: true }` without executing
+  anything; the HTTP layer answers 200 and the UI treats that as success. Boot
+  reconciliation only handles requests in `queued`, `waiting-for-workspace`, or
+  `running`, so a `blocked-by-recovery` request is never revisited. This is what made the
+  owner's approves silently do nothing even after the lock was released.
 - No supported operator repair path exists; `forceReleaseWorkspaceWriterUnsafe` is
   internal/test-only.
 - `assessExecutionSettlement` is already the shared classifier for settlement and
@@ -46,8 +55,14 @@ Evidence from the repository:
 A settled agent claim can stay `recovery-required` indefinitely and blocks every human
 action and every new admission until an unrelated dashboard restart. Nothing re-checks
 it on demand, nothing tells the operator what holds the lock, and no supported repair
-command exists. Separately, the owner saw no error in the dashboard UI when the approve
-was blocked.
+command exists.
+
+Two further defects make the failure silent and sticky:
+
+1. A human decision that failed to run leaves a `pending` operation record, so every
+   retry is an idempotent no-op even after the lock is gone.
+2. The dashboard shows no error: it treats HTTP 200 `status: 'pending'` as success, and
+   (cause unconfirmed) did not render the blocked-by-recovery error either.
 
 ## Constraints
 
@@ -58,7 +73,8 @@ was blocked.
 
 ## Affected modules
 
-`tools/specs/workflow/` (workspace-writer, recovery module, CLI), `tools/specs.mjs`,
+`tools/specs/workflow/` (workspace-writer, recovery module, human-step operations, CLI),
+`tools/dashboard/server/specs/human-step-transport.mjs`, `tools/specs.mjs`,
 `tools/dashboard/ui/shared/` and `tools/dashboard/ui/features/specifications/` (error
 visibility only), `docs/decisions/ADR-0009-...`, `docs/development/agent-workflow-protocol.md`.
 
@@ -87,8 +103,13 @@ D1 (recovery model), D2 (amend ADR-0009), D3 (separate change) — `owner-decisi
 3. `node tools/specs.mjs workflow workspace recover` (name final in task 03) runs the
    same recovery module on demand and prints the outcome; it never force-releases an
    unresolved claim without an explicit flag.
-4. The dashboard shows a failed human-step submit as a visible error.
+4. The dashboard shows a failed human-step submit as a visible error, and does not treat
+   `pending` as success.
 5. ADR-0009 is amended and the protocol doc updated.
+6. A stale `pending` human-submit operation is resumed (same decision) or superseded
+   (different decision) instead of being returned as an idempotent no-op, and a blocked
+   submit no longer leaves a `pending` record behind. The HTTP response states
+   completed, in-progress, or failed explicitly (D4).
 
 ## Areas
 
@@ -100,6 +121,8 @@ Not split — one cohesive concern.
   never blocks `acquireWorkspaceWriter`; the claim is released and acquisition succeeds.
 - A `recovery-required` claim whose settlement is genuinely ambiguous still blocks, and
   the error names the holding task and session.
+- After a human decision is blocked and the cause is cleared, clicking the same decision
+  again executes it. No retry returns success without executing.
 - The existing workspace-writer, admission, reconciliation, and human-step test suites
   pass unchanged except for tests that assert the old unconditional block.
 
