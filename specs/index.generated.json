@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-12T18:38:10.532Z",
+  "generated": "2026-10-12T18:38:14.260Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -139,7 +139,7 @@
           "id": "batch-review-session-choice-ui",
           "order": 6,
           "file": "tasks/06-batch-review-session-choice-ui.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "step-start-session-choice-ui",
             "batch-sequential-session-continuation"

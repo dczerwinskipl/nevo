@@ -41,7 +41,7 @@ tasks:
   - id: batch-review-session-choice-ui
     order: 6
     file: tasks/06-batch-review-session-choice-ui.md
-    status: draft
+    status: approved
     depends_on: [ step-start-session-choice-ui, batch-sequential-session-continuation ]
   - id: session-choice-documentation-and-adr
     order: 7
