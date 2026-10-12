@@ -17,7 +17,9 @@ tasks:
   - id: definition-session-choice-schema
     order: 1
     file: tasks/01-definition-session-choice-schema.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: 2bcf2c5d9384e7c98debaaa4543f0d412afcee1a
   - id: server-session-choice-resolution
     order: 2
     file: tasks/02-server-session-choice-resolution.md

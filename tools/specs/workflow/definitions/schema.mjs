@@ -308,6 +308,42 @@ export function validateTransitionDefinition(transition, label, errors, { stepNa
           if (typeof transition.execution.role !== 'string' || !transition.execution.role.trim()) {
             errors.push(`${label}.execution.role: must be a non-empty string`);
           }
+          if (transition.execution.allow !== undefined) {
+            if (!Array.isArray(transition.execution.allow) || transition.execution.allow.length === 0) {
+              errors.push(`${label}.execution.allow: must be a non-empty array`);
+            } else {
+              let includesDeclared = false;
+              transition.execution.allow.forEach((item, idx) => {
+                if (!KNOWN_EXECUTION_SESSIONS.has(item)) {
+                  errors.push(
+                    `${label}.execution.allow[${idx}]: must be one of: ${[...KNOWN_EXECUTION_SESSIONS].join(', ')}, got '${item}'`
+                  );
+                }
+                if (item === transition.execution.session) {
+                  includesDeclared = true;
+                }
+              });
+              if (KNOWN_EXECUTION_SESSIONS.has(transition.execution.session) && !includesDeclared) {
+                errors.push(
+                  `${label}.execution.allow: must include declared session '${transition.execution.session}'`
+                );
+              }
+            }
+          }
+          if (transition.execution.reuseFrom !== undefined) {
+            if (typeof transition.execution.reuseFrom !== 'string' || !transition.execution.reuseFrom.trim()) {
+              errors.push(`${label}.execution.reuseFrom: must be a non-empty string`);
+            } else if (stepNames && !stepNames.has(transition.execution.reuseFrom)) {
+              errors.push(
+                `${label}.execution.reuseFrom: step '${transition.execution.reuseFrom}' does not exist in workflow definition`
+              );
+            }
+            const allowsReuse = transition.execution.session === 'reuse' ||
+              (Array.isArray(transition.execution.allow) && transition.execution.allow.includes('reuse'));
+            if (!allowsReuse) {
+              errors.push(`${label}.execution.reuseFrom: only valid when 'reuse' is declared or allowed`);
+            }
+          }
         }
       }
     }
@@ -757,6 +793,8 @@ export function normalizeWorkflowDefinition(definition) {
             norm.execution = {
               session: t.execution.session,
               role: t.execution.role,
+              ...(t.execution.allow !== undefined ? { allow: [...t.execution.allow] } : {}),
+              ...(t.execution.reuseFrom !== undefined ? { reuseFrom: t.execution.reuseFrom } : {}),
             };
           }
         }

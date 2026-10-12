@@ -33,6 +33,8 @@ steps:
         execution:
           session: fresh
           role: reviewer
+          allow: [fresh, reuse]
+          reuseFrom: implementation
 
   review:
     status:
@@ -100,5 +102,7 @@ steps:
         continuation: auto
         invalidatesDependencyRelease: true
         execution:
-          session: fresh
+          session: reuse
           role: refiner
+          allow: [reuse, fresh]
+          reuseFrom: implementation

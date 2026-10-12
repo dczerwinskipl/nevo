@@ -21,6 +21,8 @@ export function resolveIncomingExecution(task, definition, targetStepName) {
       transition: null,
       role: null,
       session: null,
+      allow: null,
+      reuseFrom: null,
       ambiguous: false,
       error: 'INVALID_ARGUMENTS',
       reason: 'Task record is required.',
@@ -32,6 +34,8 @@ export function resolveIncomingExecution(task, definition, targetStepName) {
       transition: null,
       role: null,
       session: null,
+      allow: null,
+      reuseFrom: null,
       ambiguous: false,
       error: 'INVALID_ARGUMENTS',
       reason: 'Workflow definition is required.',
@@ -43,6 +47,8 @@ export function resolveIncomingExecution(task, definition, targetStepName) {
       transition: null,
       role: null,
       session: null,
+      allow: null,
+      reuseFrom: null,
       ambiguous: false,
       error: 'INVALID_ARGUMENTS',
       reason: 'Target step name is required.',
@@ -54,6 +60,8 @@ export function resolveIncomingExecution(task, definition, targetStepName) {
       transition: null,
       role: null,
       session: null,
+      allow: null,
+      reuseFrom: null,
       ambiguous: false,
       error: 'TARGET_STEP_NOT_FOUND',
       reason: `Target step '${targetStepName}' does not exist in workflow definition.`,
@@ -66,6 +74,8 @@ export function resolveIncomingExecution(task, definition, targetStepName) {
       transition: null,
       role: null,
       session: null,
+      allow: null,
+      reuseFrom: null,
       ambiguous: false,
       error: 'NO_INCOMING_TRANSITION',
       reason: `Task '${task.id || 'unknown'}' has no workflow history (entry step).`,
@@ -78,6 +88,8 @@ export function resolveIncomingExecution(task, definition, targetStepName) {
       transition: null,
       role: null,
       session: null,
+      allow: null,
+      reuseFrom: null,
       ambiguous: false,
       error: 'NO_INCOMING_TRANSITION',
       reason: `Last history step '${lastHistory.step}' transitioned to '${lastHistory.transitioned_to}', not '${targetStepName}'.`,
@@ -90,6 +102,8 @@ export function resolveIncomingExecution(task, definition, targetStepName) {
       transition: null,
       role: null,
       session: null,
+      allow: null,
+      reuseFrom: null,
       ambiguous: false,
       error: 'PRIOR_STEP_NOT_FOUND',
       reason: `Prior step '${lastHistory.step}' from history does not exist in workflow definition.`,
@@ -105,6 +119,8 @@ export function resolveIncomingExecution(task, definition, targetStepName) {
       transition: null,
       role: null,
       session: null,
+      allow: null,
+      reuseFrom: null,
       ambiguous: false,
       error: 'NO_INCOMING_TRANSITION',
       reason: `Prior step '${lastHistory.step}' has no transitions leading to '${targetStepName}'.`,
@@ -120,33 +136,39 @@ export function resolveIncomingExecution(task, definition, targetStepName) {
     return true;
   });
 
-  if (matching.length === 1) {
-    const transition = matching[0];
+  const buildResult = (transition) => {
+    const session = transition.execution?.session ?? transition.session ?? 'fresh';
+    const role = transition.execution?.role ?? transition.role ?? null;
+    const allow = Array.isArray(transition.execution?.allow)
+      ? [...transition.execution.allow]
+      : [session];
+    const reuseFrom = transition.execution?.reuseFrom ?? null;
     return {
       transition,
-      role: transition.execution?.role ?? transition.role ?? null,
-      session: transition.execution?.session ?? transition.session ?? 'fresh',
+      role,
+      session,
+      allow,
+      reuseFrom,
       ambiguous: false,
       error: null,
     };
+  };
+
+  if (matching.length === 1) {
+    return buildResult(matching[0]);
   }
 
   if (matching.length > 1) {
     const exactMatches = matching.filter((t) => t.value !== undefined && t.value === historyResult);
     if (exactMatches.length === 1) {
-      const transition = exactMatches[0];
-      return {
-        transition,
-        role: transition.execution?.role ?? transition.role ?? null,
-        session: transition.execution?.session ?? transition.session ?? 'fresh',
-        ambiguous: false,
-        error: null,
-      };
+      return buildResult(exactMatches[0]);
     }
     return {
       transition: null,
       role: null,
       session: null,
+      allow: null,
+      reuseFrom: null,
       ambiguous: true,
       error: 'AMBIGUOUS_TRANSITION_MATCH',
       candidates: matching,
@@ -158,6 +180,8 @@ export function resolveIncomingExecution(task, definition, targetStepName) {
     transition: null,
     role: null,
     session: null,
+    allow: null,
+    reuseFrom: null,
     ambiguous: false,
     error: 'NO_INCOMING_TRANSITION',
     reason: `No matching transition from '${lastHistory.step}' with result '${historyResult}' to '${targetStepName}'.`,
@@ -187,5 +211,7 @@ export function matchIncomingTransition(task, definition, targetStepName) {
     ambiguous: false,
     role: res.role,
     session: res.session,
+    allow: res.allow,
+    reuseFrom: res.reuseFrom,
   };
 }
