@@ -736,5 +736,160 @@ allowed_paths: []
     const dirtyPaths = git.getDirtyPaths(fx.repo);
     assert.ok(dirtyPaths.includes('unrelated-dirty.txt'), 'unrelated-dirty.txt must remain dirty');
   });
+
+  test('Batch finish does not commit previously staged files outside authorizedScope and leaves them staged', async () => {
+    const slug = 'batch-staged-scope';
+    const changeDir = join(fx.repo, 'specs', 'active', slug);
+    const taskDir = join(changeDir, 'tasks');
+    mkdirSync(taskDir, { recursive: true });
+
+    writeFileSync(
+      join(changeDir, 'change.yaml'),
+      `id: ${slug}
+spec_id: "33333333-4444-5555-6666-777777777777"
+title: "Spec ${slug}"
+type: standard
+status: approved
+created: 2026-10-10
+workflow:
+  mode: deterministic
+  definition: standard.yaml
+tasks:
+  - id: t1
+    order: 1
+    title: Task t1
+    status: draft
+    file: tasks/01-t1.md
+    allowed_paths:
+      - src/t1.js
+  - id: t2
+    order: 2
+    title: Task t2
+    status: draft
+    file: tasks/02-t2.md
+    allowed_paths:
+      - src/t2.js
+`
+    );
+
+    writeFileSync(
+      join(taskDir, '01-t1.md'),
+      `---
+id: t1
+status: draft
+allowed_paths:
+  - src/t1.js
+---
+# Task t1
+`
+    );
+
+    writeFileSync(
+      join(taskDir, '02-t2.md'),
+      `---
+id: t2
+status: draft
+allowed_paths:
+  - src/t2.js
+---
+# Task t2
+`
+    );
+
+    gitCmd(fx.repo, ['add', '-A']);
+    gitCmd(fx.repo, ['commit', '-m', `Add batch spec ${slug}`]);
+
+    // Modify a batch file
+    mkdirSync(join(fx.repo, 'src'), { recursive: true });
+    writeFileSync(join(fx.repo, 'src', 't1.js'), 'export const t1 = "done";\n');
+
+    // Pre-stage an out-of-scope foreign file
+    writeFileSync(join(fx.repo, 'secrets.txt'), 'top-secret\n');
+    gitCmd(fx.repo, ['add', 'secrets.txt']);
+
+    const stagedBefore = git.getStagedPaths(fx.repo);
+    assert.ok(stagedBefore.includes('secrets.txt'), 'secrets.txt must be staged before batch finish');
+
+    const batchExecutionId = 'batch-exec-staged-scope';
+    const sessionId = 'session-staged-scope';
+    const taskIds = ['t1', 't2'];
+
+    const change = loadChange(slug, fx.activeDir);
+    for (const id of taskIds) {
+      setTaskWorkflowState(change, id, {
+        status: 'in-review',
+        workflowProgress: {
+          current_step: 'review',
+          current_attempt: 1,
+          state: 'active',
+          history: [],
+        },
+      });
+    }
+
+    await createGroupReservation({
+      repoRoot: fx.repo,
+      changeSlug: slug,
+      taskIds,
+      batchExecutionId,
+      executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+    });
+
+    const specId = '33333333-4444-5555-6666-777777777777';
+    const sessionFile = join(fx.repo, '.nevo-ai-local', 'sessions', `${specId}.json`);
+    mkdirSync(join(fx.repo, '.nevo-ai-local', 'sessions'), { recursive: true });
+    writeFileSync(
+      sessionFile,
+      JSON.stringify({
+        sessions: [{
+          sessionId,
+          specId,
+          batchExecutionId,
+          executionScope: { kind: 'task-batch', changeSlug: slug, taskIds },
+        }],
+        bindings: [],
+      }, null, 2)
+    );
+
+    await acquireWorkspaceWriter({
+      repoRoot: fx.repo,
+      kind: 'agent',
+      specId,
+      sessionId,
+      turnId: 'turn-1',
+      scope: { kind: 'task-batch', taskIds },
+      batchExecutionId,
+    });
+
+    const finishResult = await executeBatchFinish({
+      repoRoot: fx.repo,
+      activeDir: fx.activeDir,
+      changeSlug: slug,
+      batchExecutionId,
+      skipProvenanceCheck: true,
+      inputs: {
+        'commit.title': 'chore(workflow): batch finish with pre-staged foreign file',
+        include: ['*'],
+        tasks: {
+          t1: { result: 'pass' },
+          t2: { result: 'pass' },
+        },
+      },
+      sessionId,
+    });
+
+    assert.equal(finishResult.status, 'completed');
+    assert.equal(finishResult.record.stages.sharedCommit.status, 'completed');
+
+    // Verify commit contains only change.yaml, t1.js, and derived outputs, NOT secrets.txt
+    const committedFiles = git.getChangedFiles(fx.repo, 'HEAD~1', 'HEAD');
+    assert.ok(committedFiles.some(f => f.includes('change.yaml')), 'change.yaml must be committed');
+    assert.ok(committedFiles.includes('src/t1.js'), 'src/t1.js must be committed');
+    assert.equal(committedFiles.includes('secrets.txt'), false, 'secrets.txt must NOT be committed');
+
+    // Verify secrets.txt remains staged in the index
+    const stagedAfter = git.getStagedPaths(fx.repo);
+    assert.ok(stagedAfter.includes('secrets.txt'), 'secrets.txt must remain staged in the index');
+  });
 });
 

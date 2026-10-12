@@ -624,4 +624,35 @@ describe('Task 31: Advanced arbitration, durability, CAS, and reconciliation', (
     assert.equal(completedCommitStage.status, 'completed');
     assert.equal(completedCommitStage.result.sha, headAfterCrash);
   });
+
+  test('publishTask does not commit previously staged files outside publish scope and leaves them staged', async () => {
+    const slug = 'pub-staged-scope';
+    createDeterministicSpec(env.activeDir, slug);
+    execFileSync('git', ['add', '.'], { cwd: env.baseDir });
+    execFileSync('git', ['commit', '-m', `chore: add ${slug}`], { cwd: env.baseDir });
+
+    // Stage an out-of-scope foreign file
+    writeFileSync(join(env.baseDir, 'secrets.txt'), 'secret\n');
+    execFileSync('git', ['add', 'secrets.txt'], { cwd: env.baseDir });
+
+    const stagedBefore = git.getStagedPaths(env.baseDir);
+    assert.ok(stagedBefore.includes('secrets.txt'), 'secrets.txt must be staged before publish');
+
+    const res = await publishTask(slug, 't1', {
+      activeDir: env.activeDir,
+      repoRoot: env.baseDir,
+    });
+
+    assert.equal(res.ok, true);
+    assert.equal(res.status, 'approved');
+
+    // Verify commit at HEAD does NOT contain secrets.txt
+    const committedFiles = git.getChangedFiles(env.baseDir, 'HEAD~1', 'HEAD');
+    assert.ok(committedFiles.some(f => f.includes('change.yaml')), 'change.yaml must be committed');
+    assert.equal(committedFiles.includes('secrets.txt'), false, 'secrets.txt must NOT be committed');
+
+    // Verify secrets.txt remains staged in the index
+    const stagedAfter = git.getStagedPaths(env.baseDir);
+    assert.ok(stagedAfter.includes('secrets.txt'), 'secrets.txt must remain staged in the index');
+  });
 });
