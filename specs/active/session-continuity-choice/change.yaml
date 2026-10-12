@@ -30,7 +30,7 @@ tasks:
   - id: actions-session-choice-projection
     order: 3
     file: tasks/03-actions-session-choice-projection.md
-    status: implemented
+    status: verified
     depends_on: [ server-session-choice-resolution ]
     implementation:
       baseline_revision: aa3580fe6b06c627aa57fdaa065ad7b89300f7fc

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-12T18:56:35.706Z",
+  "generated": "2026-10-12T19:03:56.994Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -118,10 +118,13 @@
           "id": "actions-session-choice-projection",
           "order": 3,
           "file": "tasks/03-actions-session-choice-projection.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "server-session-choice-resolution"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "aa3580fe6b06c627aa57fdaa065ad7b89300f7fc"
+          }
         },
         {
           "id": "step-start-session-choice-ui",
