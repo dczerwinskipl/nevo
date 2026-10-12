@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-12T18:41:00.326Z",
+  "generated": "2026-10-12T18:42:10.648Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -97,7 +97,7 @@
           "id": "definition-session-choice-schema",
           "order": 1,
           "file": "tasks/01-definition-session-choice-schema.md",
-          "status": "in-implementation",
+          "status": "verified",
           "implementation": {
             "baseline_revision": "2bcf2c5d9384e7c98debaaa4543f0d412afcee1a"
           }
