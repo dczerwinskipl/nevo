@@ -8,6 +8,8 @@ import { AI_MODES } from './mode-meta';
 import { AI_PROVIDERS_ENABLE_MESSAGE } from './provider-config';
 import type { AgentSession, AgentExecutionMode, AgentSessionTaskRef, AgentProviderDescriptor } from './types';
 import type { ExecutionPolicy, RoleExecutionOverride, TaskExecutionOverride } from './execution-policy';
+import type { WorkflowSessionChoice } from '@/features/specifications/types';
+import { SessionChoiceSelector } from '../specifications/tasks/session-choice';
 import { cn } from '@/shared/lib/utils';
 
 export interface CreateAgentSessionTarget {
@@ -434,6 +436,8 @@ export interface ExecutionPolicySelectionDialogProps {
   initialPolicy?: ExecutionPolicy | null;
   initialConfig?: { provider: string; mode?: AgentExecutionMode; model?: string | null } | null;
   isOneOff?: boolean;
+  sessionChoice?: WorkflowSessionChoice | null;
+  isReviewStep?: boolean;
 }
 
 export function ExecutionPolicySelectionDialog({
@@ -444,9 +448,15 @@ export function ExecutionPolicySelectionDialog({
   initialPolicy = null,
   initialConfig = null,
   isOneOff = false,
+  sessionChoice = null,
+  isReviewStep = false,
 }: ExecutionPolicySelectionDialogProps) {
   const providers = useAgentProviders();
   const rawProviders = providers.data?.providers ?? [];
+  const [sessionPolicy, setSessionPolicy] = useState<'reuse' | 'fresh'>(() => {
+    if (sessionChoice?.unavailableReason && sessionChoice?.default === 'reuse') return 'fresh';
+    return (sessionChoice?.default as 'reuse' | 'fresh') || 'fresh';
+  });
   const [provider, setProvider] = useState(
     initialConfig?.provider || initialPolicy?.default?.provider || initialPolicy?.provider || ''
   );
@@ -593,12 +603,17 @@ export function ExecutionPolicySelectionDialog({
       delete baseRoles.refiner;
     }
 
+    const chosenSessionPolicy = sessionChoice && sessionChoice.allowed.length > 1 ? sessionPolicy : undefined;
+    const chosenSessionId = chosenSessionPolicy === 'reuse' ? sessionChoice?.candidate?.sessionId : undefined;
+
     if (isOneOff) {
       onConfirm({
         provider,
         mode,
         model: model ? model : null,
         oneOff: true,
+        sessionPolicy: chosenSessionPolicy,
+        sessionId: chosenSessionId,
       });
       return;
     }
@@ -628,7 +643,11 @@ export function ExecutionPolicySelectionDialog({
       delete payload.model;
     }
 
-    onConfirm(payload);
+    onConfirm({
+      ...payload,
+      sessionPolicy: chosenSessionPolicy,
+      sessionId: chosenSessionId,
+    });
   };
 
   const eligibleRoleProviders = rawProviders.filter((p) => {
@@ -810,6 +829,18 @@ export function ExecutionPolicySelectionDialog({
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {sessionChoice && sessionChoice.allowed && sessionChoice.allowed.length > 1 && (
+          <div className="mt-5 border-t border-border pt-4">
+            <SessionChoiceSelector
+              sessionChoice={sessionChoice}
+              isReviewStep={isReviewStep}
+              value={sessionPolicy}
+              onChange={setSessionPolicy}
+              disabled={confirming}
+            />
           </div>
         )}
 

@@ -37,8 +37,10 @@ tasks:
   - id: step-start-session-choice-ui
     order: 4
     file: tasks/04-step-start-session-choice-ui.md
-    status: approved
+    status: implemented
     depends_on: [ actions-session-choice-projection ]
+    implementation:
+      baseline_revision: 586d2109860cf2a30b2f163d877457baa3cd2fd0
   - id: batch-sequential-session-continuation
     order: 5
     file: tasks/05-batch-sequential-session-continuation.md

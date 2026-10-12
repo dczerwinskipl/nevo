@@ -3,7 +3,7 @@ import { CalendarClock, FileCode2, LayoutDashboard, BookOpenText, GitPullRequest
 import { useNavigate, Link } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 
-import type { SpecificationSummary, SpecificationTask, WorkflowStepDescriptor } from '@/features/specifications/types';
+import type { SpecificationSummary, SpecificationTask, WorkflowStepDescriptor, WorkflowSessionChoice } from '@/features/specifications/types';
 import { computeVisibleTabs, type SpecTabId } from '@/features/specifications/detail/documentation-projection';
 import { formatDate, cn } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
@@ -14,6 +14,7 @@ import { statusTextTone } from '@/shared/status-tone';
 import { StageProgress } from '@/features/specifications/stage-progress';
 import { SpecificationOverview } from './specification-overview';
 import { TaskDialog } from '@/features/specifications/tasks/task-dialog';
+import { SessionChoiceDialog } from '@/features/specifications/tasks/session-choice';
 import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
 import { DocumentationPanel } from '@/features/specifications/detail/documentation-panel';
 import { RepositoryActionsCard, FinalizeDialog } from '@/features/specifications/actions/spec-actions';
@@ -134,6 +135,16 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
     isOneOff?: boolean;
     reviewTogether?: boolean;
     initialConfig?: { provider: string; mode?: AgentExecutionMode; model?: string | null } | null;
+    sessionChoice?: WorkflowSessionChoice | null;
+    isReviewStep?: boolean;
+  } | null>(null);
+
+  const [pendingSessionChoice, setPendingSessionChoice] = useState<{
+    task: SpecificationTask;
+    stepDescriptor: WorkflowStepDescriptor;
+    taskIds?: string[];
+    sessionChoice: WorkflowSessionChoice;
+    isReviewStep: boolean;
   } | null>(null);
 
   /**
@@ -145,7 +156,11 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       targetTaskId: string,
       policy: { provider?: string; mode?: AgentExecutionMode; model?: string | null; oneOff?: boolean } = {},
       taskIds?: string[],
-      executionOptions?: { reviewTogether?: boolean },
+      executionOptions?: {
+        reviewTogether?: boolean;
+        sessionPolicy?: 'reuse' | 'fresh';
+        sessionId?: string;
+      },
     ) => {
       const userMessage = buildAgentStepTriggerMessage(targetTaskId);
       const res = await fetch('/api/agent-sessions/turns', {
@@ -160,6 +175,8 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           ...(policy.oneOff && policy.mode ? { mode: policy.mode } : {}),
           ...(policy.model !== undefined ? { model: policy.model } : {}),
           ...(executionOptions?.reviewTogether ? { reviewTogether: true } : {}),
+          ...(executionOptions?.sessionPolicy ? { sessionPolicy: executionOptions.sessionPolicy } : {}),
+          ...(executionOptions?.sessionId ? { sessionId: executionOptions.sessionId } : {}),
           specId: specification.specId,
           slug: specification.slug,
           changeSlug: specification.slug,
@@ -222,8 +239,11 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
             hasConflict = policies.some((p) => p?.provider !== first?.provider || p?.mode !== first?.mode || p?.model !== first?.model);
           }
 
+          const actionGate = actionsQuery.data?.tasks?.[targetTaskId];
+          const sessionChoice = actionGate?.sessionChoice;
+          const isReviewStep = stepDescriptor.id === 'review' || actionGate?.execution?.role === 'reviewer';
+
           if (options?.oneOff || !currentPolicy || hasConflict || isBatchReview) {
-            const actionGate = actionsQuery.data?.tasks?.[targetTaskId];
             const effectiveRole = actionGate?.execution?.role || undefined;
             const effective = resolvePolicyForTask(currentPolicy, targetTaskId, { role: effectiveRole });
             setPendingStart({
@@ -233,10 +253,28 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
               isOneOff: Boolean(options?.oneOff) || hasConflict || isBatchReview,
               reviewTogether: Boolean(options?.reviewTogether),
               initialConfig: effective && !hasConflict ? { provider: effective.provider, mode: effective.mode, model: effective.model } : null,
+              sessionChoice,
+              isReviewStep,
             });
             return;
           }
-          await proceedWithAgentExecution(targetTaskId, undefined, taskIds, options);
+
+          if (sessionChoice && sessionChoice.allowed && sessionChoice.allowed.length > 1) {
+            setPendingSessionChoice({
+              task,
+              stepDescriptor,
+              taskIds,
+              sessionChoice,
+              isReviewStep,
+            });
+            return;
+          }
+
+          await proceedWithAgentExecution(targetTaskId, undefined, taskIds, {
+            ...options,
+            sessionPolicy: sessionChoice?.default || (sessionChoice?.allowed?.[0] as any),
+            sessionId: sessionChoice?.default === 'reuse' ? sessionChoice?.candidate?.sessionId : undefined,
+          });
         } catch (err: any) {
           const message = err instanceof Error ? err.message : String(err);
           setWorkflowError(message);
@@ -587,6 +625,8 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           initialPolicy={executionPolicyQuery.policy}
           initialConfig={pendingStart.initialConfig}
           isOneOff={pendingStart.isOneOff}
+          sessionChoice={pendingStart.sessionChoice}
+          isReviewStep={pendingStart.isReviewStep}
           onConfirm={async (chosen) => {
             try {
               const target = pendingStart;
@@ -597,7 +637,11 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                     target.task.id,
                     { provider: chosen.provider, mode: chosen.mode, model: chosen.model, oneOff: true },
                     target.taskIds,
-                    { reviewTogether: target.reviewTogether },
+                    {
+                      reviewTogether: target.reviewTogether,
+                      sessionPolicy: (chosen as any).sessionPolicy,
+                      sessionId: (chosen as any).sessionId,
+                    },
                   );
                 }
               } else {
@@ -624,6 +668,30 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
               const message = err instanceof Error ? err.message : String(err);
               setWorkflowError(message);
             }
+          }}
+        />
+      )}
+
+      {pendingSessionChoice && (
+        <SessionChoiceDialog
+          open={Boolean(pendingSessionChoice)}
+          specificationTitle={specification.title}
+          stepDescriptor={pendingSessionChoice.stepDescriptor}
+          sessionChoice={pendingSessionChoice.sessionChoice}
+          isReviewStep={pendingSessionChoice.isReviewStep}
+          onClose={() => setPendingSessionChoice(null)}
+          onConfirm={async (choice) => {
+            const target = pendingSessionChoice;
+            await proceedWithAgentExecution(
+              target.task.id,
+              undefined,
+              target.taskIds,
+              {
+                sessionPolicy: choice.sessionPolicy,
+                sessionId: choice.sessionId,
+              },
+            );
+            setPendingSessionChoice(null);
           }}
         />
       )}
