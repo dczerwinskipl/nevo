@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-12T19:15:10.530Z",
+  "generated": "2026-10-12T19:33:15.976Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -142,10 +142,13 @@
           "id": "batch-sequential-session-continuation",
           "order": 5,
           "file": "tasks/05-batch-sequential-session-continuation.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "server-session-choice-resolution"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "00a43c99348bf7346c8b7c5b9fae1bf9d6132f94"
+          }
         },
         {
           "id": "batch-review-session-choice-ui",
