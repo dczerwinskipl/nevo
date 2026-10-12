@@ -417,13 +417,20 @@ test('AC 22, 23, 24: Standing invariants (release stability, pure task projectio
 test('AC 25, 26, 27: Execution settlement assessment branches (settled vs unfinalized/running op)', async () => {
   const tmpRepo = createTempRepo();
   try {
-    // 1. Clean repo is settled
+    // 1. Clean repo, but t1 has no workflow_progress at all (never activated) —
+    // correctly resumable, not settled. A never-started task is not "done" just
+    // because the worktree happens to be clean (regression test for the bug this
+    // fixed: this used to fall through to settled: true/outcome: 'completed',
+    // which let a durable queue auto-readmit a never-started task indefinitely —
+    // see tools/tests/execution-settlement.test.mjs's dedicated regression test).
     const cleanSettlement = await assessExecutionSettlement({
       repoRoot: tmpRepo,
       changeSlug: 'spec-A',
       taskId: 't1',
     });
-    assert.equal(cleanSettlement.settled, true);
+    assert.equal(cleanSettlement.settled, false);
+    assert.equal(cleanSettlement.outcome, 'resumable');
+    assert.equal(cleanSettlement.reason, 'never-activated');
 
     // 2. Dirty repo is unsettled
     fs.writeFileSync(path.join(tmpRepo, 'README.md'), '# Dirty\n', 'utf8');

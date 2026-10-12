@@ -3,7 +3,7 @@
 // Registers 'publish' and 'batch-publish' reconciler checkers at module-load time (D88, D96).
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { requireChange, requireTask, setTaskStatus, ROOT, ACTIVE_DIR } from '../../store.mjs';
 import { resolveStableSpecId } from '../../identity.mjs';
@@ -40,8 +40,18 @@ import {
   getCurrentBranchAsync,
   getCurrentRevision,
   getCommitInfo,
+  getDirtyPaths,
 } from '../../../lib/git.mjs';
 import { WorkflowError } from '../errors.mjs';
+import { planDerivedSync, resolveDerivedOwnedPaths, syncAndValidateDerivedArtifacts } from '../../derived/registry.mjs';
+import { expandDirtyPaths, matchesFileSelectionPattern } from '../actions/commit-and-push.mjs';
+import { pathMatchesRule } from '../../../docs/service.mjs';
+
+function pathMatchesPattern(filePath, pattern) {
+  if (matchesFileSelectionPattern(filePath, pattern)) return true;
+  if (pathMatchesRule(filePath, pattern)) return true;
+  return false;
+}
 
 export const PUBLISH_STAGE_IDS = ['validate', 'update-task', 'commit', 'push'];
 
@@ -360,7 +370,7 @@ export function publishTask(changeSlug, taskId, options = {}) {
     const casRes = await transitionWorkspaceRequest({
       repoRoot,
       requestId,
-      expectedStatus: ['queued', 'waiting-for-workspace'],
+      expectedStatus: isResuming ? ['queued', 'waiting-for-workspace', 'running'] : ['queued', 'waiting-for-workspace'],
       to: 'running',
       workspaceOwnerId,
     });
@@ -398,15 +408,58 @@ export function publishTask(changeSlug, taskId, options = {}) {
 
         // Stage commit
         const commitStage = record.operations.find(s => s.id === 'commit');
+        if (commitStage.status === 'running' || commitStage.status === 'unknown') {
+          const currentHead = getCurrentRevision(repoRoot);
+          const preCommitHead = commitStage.intent?.preCommitHead;
+          if (preCommitHead && currentHead !== preCommitHead) {
+            const info = getCommitInfo(repoRoot, 'HEAD');
+            const expectedMessage = commitStage.intent?.commitMessage;
+            if (info.parentSha === preCommitHead && (!expectedMessage || info.subject === expectedMessage)) {
+              commitStage.status = 'completed';
+              commitStage.result = { sha: info.sha, status: 'completed' };
+              saveOperationRecord(repoRoot, record);
+            } else {
+              commitStage.status = 'unknown';
+              record.status = 'blocked';
+              saveOperationRecord(repoRoot, record);
+              throw new WorkflowError(`Publish commit reconciliation required: HEAD moved to ${currentHead} unexpectedly`, {
+                code: 'RECONCILIATION_REQUIRED',
+                stage: 'commit',
+                details: { preCommitHead, currentHead, info },
+              });
+            }
+          }
+        }
+
         if (commitStage.status !== 'completed') {
           if (sourceControl.enabled) {
+            const relChangeFile = relative(repoRoot, change._file).replace(/\\/g, '/');
+            const rawDirtyPaths = getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+            const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
+            const shouldValidateRepo = existsSync(join(repoRoot, 'package.json')) && existsSync(join(repoRoot, 'docs'));
+            const { derivedOwnedPaths } = syncAndValidateDerivedArtifacts({
+              repoRoot,
+              dirtyPaths,
+              context: { workflowOwnedPaths: [relChangeFile] },
+              validateRepo: shouldValidateRepo,
+            });
+            const commitPaths = [relChangeFile, ...derivedOwnedPaths];
+
+            const preCommitHead = getCurrentRevision(repoRoot);
+            const commitMessage = `chore(workflow): publish ${taskId}`;
+
             commitStage.status = 'running';
+            commitStage.intent = { preCommitHead, commitMessage };
             saveOperationRecord(repoRoot, record);
 
-            const commitMessage = `chore(workflow): publish ${taskId}`;
-            await addAndCommitAsync(repoRoot, [change._file], commitMessage);
+            await addAndCommitAsync(repoRoot, commitPaths, commitMessage);
+
+            if (options._crashBeforeCommitRecord) {
+              throw new Error('[test-hook] Simulated crash before saving publish commit completion record');
+            }
 
             commitStage.status = 'completed';
+            commitStage.result = { sha: getCurrentRevision(repoRoot), status: 'completed' };
             saveOperationRecord(repoRoot, record);
           } else {
             commitStage.status = 'completed';
@@ -456,16 +509,18 @@ export function publishTask(changeSlug, taskId, options = {}) {
         workspaceOwnerId,
       };
     } catch (err) {
-      record.status = 'failed';
-      record.error = err.message;
-      saveOperationRecord(repoRoot, record);
+      if (!err.message || !err.message.startsWith('[test-hook]')) {
+        record.status = 'failed';
+        record.error = err.message;
+        saveOperationRecord(repoRoot, record);
 
-      await transitionWorkspaceRequest({
-        repoRoot,
-        requestId,
-        expectedStatus: 'running',
-        to: 'failed',
-      });
+        await transitionWorkspaceRequest({
+          repoRoot,
+          requestId,
+          expectedStatus: 'running',
+          to: 'failed',
+        });
+      }
       throw err;
     } finally {
       // Step 9: Ownership-conditional release of workspace-writer claim (D68, D70)

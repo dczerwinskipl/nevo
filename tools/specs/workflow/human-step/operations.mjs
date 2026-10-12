@@ -14,6 +14,9 @@ import { assertExecutionReadiness } from '../readiness-policy.mjs';
 import { isTaskBarriered } from '../queue/reservation.mjs';
 import { resolveStableSpecId } from '../../identity.mjs';
 import { ROOT } from '../../store.mjs';
+import { resolveUserActor } from '../../activity/actor-resolver.mjs';
+import { resolveSpecId } from '../../activity/store.mjs';
+import { recordWorkflowStepStarted } from '../../activity/producers/workflow.mjs';
 import {
   acquireWorkspaceWriter,
   releaseWorkspaceWriterIfOwned,
@@ -101,7 +104,20 @@ export function startHumanStep(change, task, definition, context = {}) {
 
   assertExecutionReadiness(task, change, 'human', { definition, repoRoot: context?.repoRoot });
 
-  return ensureStepActivated(change, task, definition, context);
+  const result = ensureStepActivated(change, task, definition, context);
+  if (result.position?.step) {
+    const repoRoot = context?.repoRoot || ROOT;
+    const userActor = resolveUserActor(repoRoot);
+    const specId = resolveSpecId(change, { repoRoot, activeDir: context?.activeDir });
+    recordWorkflowStepStarted({
+      specId,
+      taskId: task.id,
+      step: result.position.step,
+      attempt: result.position.attempt,
+      actor: userActor,
+    }, { repoRoot, activeDir: context?.activeDir });
+  }
+  return result;
 }
 
 /**
@@ -153,11 +169,14 @@ export async function submitHumanStepResult(
       if (lastStep) {
         assertStepExecutor(lastStep, 'human', { stepId: lastStepName });
       }
+      const repoRoot = context?.repoRoot || ROOT;
+      const userActor = resolveUserActor(repoRoot);
       return await finishStep({
         change,
         task,
         definition,
         context,
+        actor: userActor,
         inputs: {
           ...(result !== undefined ? { result } : {}),
           ...(feedback !== undefined ? { feedback } : {}),
@@ -230,11 +249,14 @@ export async function submitHumanStepResult(
     finishInputs['commit.title'] = `verify(${task.id}): ${actionLabel}`;
   }
 
+  const repoRoot = context?.repoRoot || ROOT;
+  const userActor = resolveUserActor(repoRoot);
   return await finishStep({
     change,
     task,
     definition,
     context,
+    actor: userActor,
     inputs: finishInputs,
     activeDir: context?.activeDir,
     gateRegistry: context?.gateRegistry,

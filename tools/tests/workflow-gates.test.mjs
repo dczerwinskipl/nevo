@@ -222,7 +222,7 @@ describe('CommandGate authoritative verification state recording and composite i
 
     const verifyRes = await gate.verify({ action: 'test' }, {});
     assert.equal(verifyRes.passed, false);
-    assert.equal(verifyRes.status, 'failed');
+    assert.equal(verifyRes.status, 'blocked');
     assert.match(verifyRes.message, /Failed to record authoritative verification state: Disk full/);
     assert.equal(verifyRes.details.reason, 'verification-record-failed');
     assert.equal(verifyRes.details.executionPassed, true);
@@ -241,7 +241,7 @@ describe('CommandGate authoritative verification state recording and composite i
 
     const verifyRes = await gate.verify({ action: 'test' }, {});
     assert.equal(verifyRes.passed, false);
-    assert.equal(verifyRes.status, 'failed');
+    assert.equal(verifyRes.status, 'blocked');
     assert.match(verifyRes.message, /Failed to record authoritative verification state: Disk full/);
     assert.equal(verifyRes.details.reason, 'verification-record-failed');
     assert.equal(verifyRes.details.executionPassed, false);

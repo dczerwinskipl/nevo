@@ -7,6 +7,8 @@
 // execution state, never part of `change.yaml` (D14 correction, C17).
 
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 
 import { requireChange, requireTask, setTaskWorkflowState } from '../store.mjs';
 import { TERMINAL_STATUSES } from '../status-vocabulary.mjs';
@@ -17,12 +19,25 @@ import { resolveActiveStepName, resolveWorkflowPosition, inspectGates, verifyGat
 import { aggregateFinalizeCheck, buildFinishContract, normalizeSourceControlFacts, resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
 import { WorkflowError, PreconditionError } from './errors.mjs';
 import * as git from '../../lib/git.mjs';
+import { planDerivedSync, resolveDerivedOwnedPaths, syncAndValidateDerivedArtifacts } from '../derived/registry.mjs';
+import { validateSpecs } from '../validation.mjs';
+import { scanDocs, validateDocs, pathMatchesRule } from '../../docs/service.mjs';
+import { expandDirtyPaths, matchesFileSelectionPattern } from './actions/commit-and-push.mjs';
+
+function pathMatchesPattern(filePath, pattern) {
+  if (matchesFileSelectionPattern(filePath, pattern)) return true;
+  if (pathMatchesRule(filePath, pattern)) return true;
+  return false;
+}
 // ── Durable operation record I/O (D23: step-aware identity) ─────────────────
 // Extracted into `operation-record.mjs` (D37 correction) so `step-context.mjs`'s
 // `step start` activation guard can read these records too, without a circular import
 // between this module and `step-context.mjs`.
 import { loadOperationRecord, saveOperationRecord, findInFlightOperationRecord } from './operation-record.mjs';
 import { withGitFinalizeLock } from './git-finalize-lock.mjs';
+import { SYSTEM_ACTOR } from '../activity/actor-resolver.mjs';
+import { resolveSpecId } from '../activity/store.mjs';
+import { recordWorkflowStepCompletedFromRecord } from '../activity/producers/workflow.mjs';
 
 export const FINISH_STAGE_IDS = ['verify-gates', 'update-task', 'commit', 'push', 'transition'];
 
@@ -30,13 +45,14 @@ export const FINISH_STAGE_IDS = ['verify-gates', 'update-task', 'commit', 'push'
 // `index.mjs` barrel) is unaffected by the extraction above.
 export { loadOperationRecord, saveOperationRecord, findInFlightOperationRecord };
 
-function createOperationRecord({ change, task, step, attempt, resolvedInputs }) {
+function createOperationRecord({ change, task, step, attempt, resolvedInputs, actor = SYSTEM_ACTOR }) {
   return {
     operationId: randomUUID(),
     change,
     task,
     step,
     attempt,
+    actor: actor || SYSTEM_ACTOR,
     status: 'running',
     resolvedInputs,
     operations: FINISH_STAGE_IDS.map(id => ({ id, status: 'pending' })),
@@ -78,18 +94,31 @@ function valuesEqual(a, b) {
  * @param {Record<string, any>} supplied
  * @returns {{ resolved: Record<string, any>, conflicts: Array<{ field: string, message: string, code: string }> }}
  */
-export function mergeResolvedInputs(persisted, supplied) {
+export function mergeResolvedInputs(persisted, supplied, options = {}) {
   const resolved = { ...(persisted || {}) };
   const conflicts = [];
+  const record = options.existingRecord || options.record;
+  const updateTaskStage = record?.operations?.find(o => o.id === 'update-task');
+  const updateTaskPending = !updateTaskStage || updateTaskStage.status === 'pending';
+  const verifyGatesStage = record?.operations?.find(o => o.id === 'verify-gates');
+  const gateFailed = verifyGatesStage?.status === 'failed';
+  const allowRevision = Boolean(options.allowResultRevision) || (gateFailed && updateTaskPending);
+
+  const REVISABLE_FIELDS = new Set(['result', 'feedback', 'commit.title', 'commit.message', 'artifacts']);
+
   for (const [key, value] of Object.entries(supplied || {})) {
     if (value === undefined) continue;
     if (persisted && Object.prototype.hasOwnProperty.call(persisted, key)) {
       if (!valuesEqual(persisted[key], value)) {
-        conflicts.push({
-          field: key,
-          message: `Input '${key}' conflicts with the value already resolved for this in-flight finish operation`,
-          code: 'RESOLVED_INPUT_CONFLICT',
-        });
+        if (allowRevision && REVISABLE_FIELDS.has(key) && updateTaskPending) {
+          resolved[key] = value;
+        } else {
+          conflicts.push({
+            field: key,
+            message: `Input '${key}' conflicts with the value already resolved for this in-flight finish operation`,
+            code: 'RESOLVED_INPUT_CONFLICT',
+          });
+        }
       }
     } else {
       resolved[key] = value;
@@ -100,8 +129,36 @@ export function mergeResolvedInputs(persisted, supplied) {
 
 function computeMissingInputs(requiredInputsMap, resolved) {
   return Object.entries(requiredInputsMap || {})
-    .filter(([name, schema]) => schema.required && (resolved[name] === undefined || resolved[name] === null))
+    .filter(([name, schema]) => {
+      if (!schema.required) return false;
+      const val = resolved[name];
+      if (val === undefined || val === null) return true;
+      if (typeof val === 'string' && val.trim().length === 0) return true;
+      return false;
+    })
     .map(([name]) => name);
+}
+
+/**
+ * Filters a step's exit gates by the resolved transition result.
+ * Gates with `when: [result...]` are only evaluated when `result` matches one of the declared values.
+ * Gates without `when` (or empty `when`) are evaluated for all transitions.
+ *
+ * @param {Array<object>} exitGates
+ * @param {string|null|undefined} result
+ * @returns {Array<object>} Filtered exit gates
+ */
+export function filterExitGatesByResult(exitGates, result) {
+  if (!Array.isArray(exitGates)) return [];
+  return exitGates.filter(gate => {
+    if (!gate || !gate.when || !Array.isArray(gate.when) || gate.when.length === 0) {
+      return true;
+    }
+    if (result === undefined || result === null) {
+      return false;
+    }
+    return gate.when.includes(result);
+  });
 }
 
 // ── Non-mutating finish planning (D11) ──────────────────────────────────────
@@ -202,16 +259,24 @@ export async function planFinish({
   const effectiveChangeSlug = changeSlug || context.changeSlug || context.changeId;
   const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || (task && change ? resolveTaskScope(change, task, context).allowedPaths : null);
   const workflowOwnedPaths = resolveWorkflowOwnedPaths({ ...context, changeSlug: effectiveChangeSlug, activeDir: context.activeDir, repoRoot: context.repoRoot });
+  let derivedOwnedPaths = [];
+  if (context.repoRoot) {
+    try {
+      const rawDirtyPaths = git.getDirtyPaths(context.repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+      const expandedDirty = expandDirtyPaths(context.repoRoot, rawDirtyPaths);
+      const previewPlan = planDerivedSync(expandedDirty);
+      derivedOwnedPaths = resolveDerivedOwnedPaths(previewPlan);
+    } catch {}
+  }
   const checkContext = {
     ...context,
     ...(taskAllowedPaths !== null ? { taskAllowedPaths, allowedPaths: taskAllowedPaths } : {}),
     workflowOwnedPaths,
+    derivedOwnedPaths,
     changeSlug: effectiveChangeSlug,
   };
   const finalizeCheck = await aggregateFinalizeCheck(step, checkContext, { engine, actionRegistry });
-  const requiredInputs = buildFinishContract(finalizeCheck, step);
-
-  const { resolved, conflicts } = mergeResolvedInputs(existingRecord?.resolvedInputs, inputs);
+  const { resolved, conflicts } = mergeResolvedInputs(existingRecord?.resolvedInputs, inputs, { existingRecord });
 
   // Transitions matching & result validation
   const transitions = step.transitions || [];
@@ -247,10 +312,13 @@ export async function planFinish({
     matched = transitions[0] || null;
   }
 
+  const requiredInputs = buildFinishContract(finalizeCheck, step, resolved.result);
+
   // D29: gate inspection needs the resolved step identity in context so a
   // HumanVerificationGate can build its query with real stepId identity.
   const gateContext = { ...context, stepId: stepName, attempt };
-  const exitGateResults = await inspectGates(step.exitGates, gateContext, { gateRegistry });
+  const applicableGates = filterExitGatesByResult(step.exitGates, resolved.result);
+  const exitGateResults = await inspectGates(applicableGates, gateContext, { gateRegistry });
   // Only a definitively 'blocked'/'failed' gate blocks planning — a command gate's
   // 'pending' inspect status (not yet verify()'d) must not, or the finalize sequence
   // that actually runs and records it could never be reached (deadlock). Gates execute
@@ -344,12 +412,14 @@ async function ensureVerifyGates(record, step, context, gateRegistry, repoRoot) 
   const stage = findStage(record, 'verify-gates');
   if (stage.status === 'completed') return;
 
+  const result = record.resolvedInputs?.result;
+  const applicableGates = filterExitGatesByResult(step.exitGates, result);
   const gateContext = { ...context, stepId: record.step, attempt: record.attempt };
-  const results = await verifyGates(step.exitGates, gateContext, { gateRegistry });
+  const results = await verifyGates(applicableGates, gateContext, { gateRegistry });
   if (!allGatesPassed(results)) {
     stage.status = 'failed';
     stage.result = { gates: results };
-    record.status = 'blocked';
+    record.status = 'running';
     saveOperationRecord(repoRoot, record);
     throw new FinishStageOutcome({
       status: 'blocked',
@@ -579,6 +649,29 @@ async function ensureCommit(record, context, repoRoot) {
     // currentHead === preCommitHead: the commit never happened — safe to (re)execute below.
   }
 
+  // ── Derived artifact synchronization (D1-D5, Area A) ────────────────────────
+  // Called before stage.intent is written so any failure leaves stage 'pending'
+  // and does not require reconciliation.
+  const rawDirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+  const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
+  const taskAllowedPaths = Array.isArray(context.taskAllowedPaths)
+    ? context.taskAllowedPaths
+    : (Array.isArray(context.allowedPaths) ? context.allowedPaths : []);
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths(context);
+
+  const shouldValidateRepo = context.validateRepo !== undefined
+    ? Boolean(context.validateRepo)
+    : (existsSync(join(repoRoot, 'package.json')) && existsSync(join(repoRoot, 'docs')));
+
+  const { derivedOwnedPaths } = syncAndValidateDerivedArtifacts({
+    repoRoot,
+    dirtyPaths,
+    context: { ...context, taskAllowedPaths, workflowOwnedPaths },
+    validateRepo: shouldValidateRepo,
+    activeDir: context.activeDir,
+    archiveDir: context.archiveDir,
+  });
+
   const preCommitHead = git.getCurrentRevision(repoRoot);
   stage.intent = { preCommitHead };
   stage.status = 'running';
@@ -592,12 +685,11 @@ async function ensureCommit(record, context, repoRoot) {
   // "push only" once the worktree is already clean (its `include` contract requires
   // matching dirty files).
   const changeSlug = context.changeSlug || context.changeId;
-  const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || null;
-  const workflowOwnedPaths = resolveWorkflowOwnedPaths(context);
   const actionContext = {
     ...context,
     ...(taskAllowedPaths !== null ? { taskAllowedPaths, allowedPaths: taskAllowedPaths } : {}),
     workflowOwnedPaths,
+    derivedOwnedPaths,
     changeSlug,
     sourceControl: { enabled: true, push: false },
   };
@@ -699,6 +791,7 @@ export async function finishStep({
   engine = defaultWorkflowEngine,
   gateRegistry = defaultGateRegistry,
   actionRegistry = defaultActionRegistry,
+  actor = SYSTEM_ACTOR,
 } = {}) {
   if (!context.repoRoot) {
     throw new WorkflowError('finishStep requires context.repoRoot');
@@ -739,9 +832,19 @@ export async function finishStep({
     // AC7 (D37 correction): distinct from a first-time `completed` result — no gate was
     // re-evaluated and no finalize action ran for this call; the previous operation's
     // own result is returned as factual context only.
+    recordWorkflowStepCompletedFromRecord({
+      specId: resolveSpecId(changeSlug, { repoRoot, activeDir: resolvedActiveDir }),
+      taskId: task.id,
+      record: plan.existingRecord,
+    }, { repoRoot, activeDir: resolvedActiveDir });
     return { status: 'already-completed', result: buildCompletionResult(plan.existingRecord, definition) };
   }
   if (plan.status === 'completed') {
+    recordWorkflowStepCompletedFromRecord({
+      specId: resolveSpecId(changeSlug, { repoRoot, activeDir: resolvedActiveDir }),
+      taskId: task.id,
+      record: plan.existingRecord,
+    }, { repoRoot, activeDir: resolvedActiveDir });
     return { status: 'completed', result: buildCompletionResult(plan.existingRecord, definition) };
   }
   if (plan.status === 'input-required') {
@@ -768,7 +871,11 @@ export async function finishStep({
       step: plan.stepName,
       attempt: plan.attempt,
       resolvedInputs: plan.resolvedInputs,
+      actor,
     });
+    saveOperationRecord(repoRoot, record);
+  } else {
+    record.resolvedInputs = plan.resolvedInputs;
     saveOperationRecord(repoRoot, record);
   }
 
@@ -779,6 +886,11 @@ export async function finishStep({
     const existingLease = context.finalizeLease || effectiveContext.finalizeLease;
     await withGitFinalizeLock(async () => {
       await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id, repoRoot, effectiveContext);
+      recordWorkflowStepCompletedFromRecord({
+        specId: resolveSpecId(changeSlug, { repoRoot, activeDir: resolvedActiveDir }),
+        taskId: task.id,
+        record,
+      }, { repoRoot, activeDir: resolvedActiveDir });
       await ensureCommit(record, effectiveContext, repoRoot);
     }, existingLease, { repoRoot });
     await ensurePush(record, effectiveContext, repoRoot);

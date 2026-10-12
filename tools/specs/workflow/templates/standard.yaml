@@ -24,7 +24,7 @@ steps:
     entryGates: []
     exitGates:
       - type: command
-        action: test
+        action: task-verification
     finalize:
       - id: commit-and-push
     transitions:
@@ -39,7 +39,6 @@ steps:
     status:
       active: reviewing
       completed: reviewed
-    schedulingPriority: 10
     purpose: "Perform an independent quality review of the implementation against task acceptance criteria, applying corrective fixes if gaps are found."
     expectedWork:
       summary: "Audit implementation and test coverage, apply corrective edits within allowed_paths, and confirm automated verification passes."
@@ -51,7 +50,8 @@ steps:
     entryGates: []
     exitGates:
       - type: command
-        action: test
+        action: task-verification
+        when: [pass]
     finalize:
       - id: commit-and-push
     transitions:
@@ -60,6 +60,9 @@ steps:
         continuation: auto
       - value: fail
         to: implementation
+        action:
+          feedback:
+            required: true
         continuation: auto
         invalidatesDependencyRelease: true
         execution:

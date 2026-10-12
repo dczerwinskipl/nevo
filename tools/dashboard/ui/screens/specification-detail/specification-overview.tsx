@@ -43,17 +43,26 @@ export function SequentialQueueTaskPicker({
   onConfigureExecutionPolicy,
   durableRemediationTaskIds,
 }: SequentialQueueTaskPickerProps) {
-  // Pre-checks currently-ready tasks (D32, AC 104)
+  // Canonical per-task dependency satisfaction: a dependency is satisfied iff it is
+  // not (no longer) listed in the depending task's own `blockedBy` — the same
+  // TaskProjection/ExecutionReadiness-derived field the server computes identically
+  // for every workflow mode (tools/dashboard/server/specs/data.mjs). Never re-derive
+  // this from task.status or a dependency's own gate — that is exactly the two
+  // independently-evolving heuristics this task replaces.
+  const isDependencySatisfied = useCallback(
+    (forTask: SpecificationTask, depId: string) => !forTask.blockedBy.includes(depId),
+    [],
+  );
+
+  // Pre-checks currently-ready tasks (D32, AC 104). `t.ready` is the same canonical
+  // readiness signal (deps-satisfied included) `isDependencySatisfied` reads from;
+  // the remaining checks cover gate-only states `t.ready` does not represent
+  // (mid-workflow continuation, publishable drafts).
   const readyTaskIds = useMemo(() => {
     const ready = new Set<string>();
     for (const t of tasks) {
       const gate = taskActions?.[t.id];
-      if (
-        gate?.availableActions?.includes('start-step') ||
-        gate?.state === 'ready' ||
-        gate?.canPublish ||
-        t.status === 'approved'
-      ) {
+      if (t.ready || gate?.availableActions?.includes('start-step') || gate?.canPublish) {
         ready.add(t.id);
       }
     }
@@ -93,13 +102,7 @@ export function SequentialQueueTaskPicker({
     for (const task of tasks) {
       if (!selectedTaskIds.has(task.id)) continue;
       for (const depId of task.dependsOn || []) {
-        const depTask = tasks.find((t) => t.id === depId);
-        const depGate = taskActions?.[depId];
-        const isSatisfied =
-          depTask?.status === 'verified' ||
-          depGate?.state === 'terminal' ||
-          depGate?.terminalOutcome === 'success';
-        if (!isSatisfied && !selectedTaskIds.has(depId)) {
+        if (!isDependencySatisfied(task, depId) && !selectedTaskIds.has(depId)) {
           warnings.push({
             taskId: task.id,
             taskTitle: task.title,
@@ -109,7 +112,7 @@ export function SequentialQueueTaskPicker({
       }
     }
     return warnings;
-  }, [selectedTaskIds, tasks, taskActions]);
+  }, [selectedTaskIds, tasks, isDependencySatisfied]);
 
   // Durable remediation group tasks (backed only by explicit durable remediation record, D31)
   const remediationTaskIds = durableRemediationTaskIds ?? [];

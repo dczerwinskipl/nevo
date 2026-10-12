@@ -31,8 +31,10 @@ import {
 import {
   loadBatchCompletionSettlement,
   assessBatchExecutionSettlement,
+  executeBatchCompletionSettlement,
 } from '../dashboard/server/ai/orchestration/batch-completion-settlement.mjs';
 import { reconcileBootState } from '../dashboard/server/ai/orchestration/reconciliation.mjs';
+import { createWorkspaceRequest, transitionWorkspaceRequest } from '../specs/workflow/workspace-request.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -173,9 +175,12 @@ test('Scenario A: Hook 3 resumes executeBatchCompletionSettlement when batch-fin
 
     // 6. Assertions on workspace claim & reservation
     const claimAfter = getWorkspaceWriterClaim(tmpRoot);
-    // The batch workspace claim was released; t1's continuation was admitted and holds a single-task claim
-    assert.notEqual(claimAfter?.scope?.kind, 'task-batch', 'Batch workspace claim must be released');
-    assert.notEqual(claimAfter?.batchExecutionId, batchExecutionId, 'Batch claim must no longer be held');
+    // The original batch workspace claim was released. t1 and t2 share an identical
+    // resulting continuation contract (both transition from implementation to the same
+    // review step with the same role), so task 05's grouped handover admits ONE new
+    // batch covering both members, not two independent single-task claims.
+    assert.equal(claimAfter?.scope?.kind, 'task-batch', 'Continuation claim should be a new task-batch claim covering both members');
+    assert.notEqual(claimAfter?.batchExecutionId, batchExecutionId, 'Must be a new batch execution, not the original one');
 
     const resAfter = getGroupReservation(tmpRoot, changeSlug, batchExecutionId);
     assert.equal(resAfter?.status, 'released', 'Group reservation must be released');
@@ -387,6 +392,186 @@ test('Scenario F: acquireWorkspaceWriter persists batchExecutionId in workspace-
     assert.equal(claim?.batchExecutionId, batchExecutionId, 'batchExecutionId must be durably written to claim');
     assert.equal(claim?.scope?.kind, 'task-batch', 'Scope kind must be task-batch');
     assert.deepEqual(claim?.scope?.taskIds?.sort(), ['t1', 't2'].sort(), 'Task IDs must match');
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scenario G (task 16, third-round review finding 1): Hook 3 sweeps and resumes a
+// durably pending grouped-handover settlement blocked by a worktree-wide transient
+// admission reason — no live claim of its own is even involved in triggering this;
+// Hook 3's own boot/first-request reconciliation is the only mechanism that can ever
+// notice this class of block clearing.
+// ─────────────────────────────────────────────────────────────────────────────
+test('Scenario G: Hook 3 boot reconciliation sweeps and resumes a durably pending grouped-handover settlement once its blocking workspace request has cleared', async () => {
+  const slug = 'hook3-scenario-g';
+  const tmpRoot = fs.mkdtempSync(path.join(tmpdir(), `nevo-hook3-${slug}-`));
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: tmpRoot });
+    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: tmpRoot });
+    execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpRoot });
+
+    const activeDir = path.join(tmpRoot, 'specs', 'active');
+    const changeDir = path.join(activeDir, slug);
+    const taskDir = path.join(changeDir, 'tasks');
+    const workflowDir = path.join(tmpRoot, '.nevo-ai', 'workflows');
+    fs.mkdirSync(taskDir, { recursive: true });
+    fs.mkdirSync(workflowDir, { recursive: true });
+
+    const handoverWorkflowYaml = `id: test-hook3-handover-wf
+title: "Test Hook3 Handover Workflow"
+type: standard
+version: 1
+entryStep: implementation
+sourceControl:
+  enabled: true
+  push: false
+steps:
+  implementation:
+    status:
+      active: implementing
+      completed: implemented
+    purpose: "Implement code"
+    expectedWork:
+      summary: "Implement"
+    transitions:
+      - to: review
+        continuation: auto
+        execution:
+          session: fresh
+          role: reviewer
+  review:
+    status:
+      active: reviewing
+      completed: reviewed
+    purpose: "Review code"
+    expectedWork:
+      summary: "Review"
+    transitions:
+      - value: pass
+        to: verified
+        outcome: success
+      - value: fail
+        to: implementation
+        continuation: auto
+        execution:
+          session: fresh
+          role: refiner
+`;
+    fs.writeFileSync(path.join(workflowDir, 'test-hook3-handover-wf.yaml'), handoverWorkflowYaml, 'utf8');
+
+    const specUuid = randomUUID();
+    const memberIds = ['tA', 'tB'];
+    const tasksYaml = memberIds.map((id, idx) => `  - id: ${id}
+    order: ${idx + 1}
+    title: Task ${id}
+    status: in-review
+    allowed_paths:
+      - src/${id}.js
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          sessionId: session-impl-${id}
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          sessionId: session-rev-batch
+          result: fail
+          transitioned_to: implementation
+`).join('');
+    fs.writeFileSync(
+      path.join(changeDir, 'change.yaml'),
+      `id: ${slug}\nspec_id: ${specUuid}\nworkflow:\n  mode: deterministic\n  version: 1\n  definition: test-hook3-handover-wf\ntasks:\n${tasksYaml}`,
+      'utf8',
+    );
+    for (const id of memberIds) {
+      fs.writeFileSync(path.join(taskDir, `${id}.md`), `# Task ${id}\n`, 'utf8');
+    }
+    execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
+    execFileSync('git', ['commit', '-m', 'Initial'], { cwd: tmpRoot });
+
+    const batchExecutionId = `batch-${randomUUID()}`;
+    const batchSessionId = `session-rev-batch-${randomUUID()}`;
+    await createGroupReservation({
+      repoRoot: tmpRoot,
+      changeSlug: slug,
+      taskIds: memberIds,
+      batchExecutionId,
+      executionConfigSnapshot: { provider: 'mock', mode: 'agent' },
+    });
+    const acq = await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId: specUuid,
+      changeSlug: slug,
+      scope: { kind: 'task-batch', taskIds: memberIds },
+      sessionId: batchSessionId,
+      batchExecutionId,
+    });
+    saveBatchFinishRecord(tmpRoot, slug, {
+      batchExecutionId,
+      changeSlug: slug,
+      sessionId: batchSessionId,
+      taskIds: memberIds,
+      status: 'completed',
+      results: Object.fromEntries(memberIds.map((id) => [id, { value: 'fail' }])),
+    });
+
+    const createdSessions = [];
+    const mockSessionService = {
+      createdSessions,
+      createSession: async (provider, opts) => {
+        const sessionId = `sess-${randomUUID()}`;
+        createdSessions.push({ sessionId, provider, ...opts });
+        return { sessionId };
+      },
+    };
+
+    const blockingRequestId = randomUUID();
+    await createWorkspaceRequest({
+      repoRoot: tmpRoot,
+      requestId: blockingRequestId,
+      kind: 'human-submit',
+      specId: 'completely-unrelated-spec',
+      taskId: 'completely-unrelated-task',
+    });
+
+    const firstOutcome = await executeBatchCompletionSettlement({
+      repoRoot: tmpRoot,
+      changeSlug: slug,
+      batchExecutionId,
+      sessionId: batchSessionId,
+      ownerId: acq.ownerId,
+      activeDir,
+      options: { sessionService: mockSessionService },
+    });
+    assert.equal(firstOutcome.settled, false);
+    assert.equal(firstOutcome.status, 'pending');
+
+    // The blocking request genuinely completes.
+    await transitionWorkspaceRequest({
+      repoRoot: tmpRoot,
+      requestId: blockingRequestId,
+      expectedStatus: 'queued',
+      to: 'cancelled',
+    });
+
+    // No live claim of any kind exists at this point — Hook 3's own claim-snapshot
+    // reconciliation (step 1) and workspace-request reconciliation (step 2) both have
+    // nothing to do. Only the new sweep step (task 16) can notice spec A's own
+    // durably pending handover and resume it.
+    assert.equal(getWorkspaceWriterClaim(tmpRoot), null);
+    await reconcileBootState({ repoRoot: tmpRoot, activeDir, sessionService: mockSessionService });
+
+    const settlement = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+    assert.equal(settlement.status, 'completed', 'Hook 3 must have discovered and resumed this handover on its own');
+    assert.equal(settlement.stages.continuationDispatch.members.tA.action, 'agent-admitted');
+    assert.equal(settlement.stages.continuationDispatch.members.tB.action, 'agent-admitted');
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }

@@ -14,7 +14,7 @@ steps:
     entryGates: []
     exitGates:
       - type: command
-        action: test
+        action: task-verification
       - type: human
         required: true
     finalize:

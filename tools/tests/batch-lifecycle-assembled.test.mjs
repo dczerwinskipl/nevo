@@ -264,6 +264,7 @@ test('1. Assembled Lifecycle: End-to-end multi-task batch review lifecycle with 
         t3: { result: 'pass', feedback: 'Task 3 verified cleanly' },
       },
       crossTaskFindings: [{ summary: 'No shared state conflicts' }],
+      'commit.title': 'docs(review): batch review report',
     });
 
     const finishRes = spawnSync(
@@ -402,6 +403,7 @@ test('2. Restart Recovery: reconcileBootState resumes settlement and dispatches 
         t2: { result: 'pass' },
         t3: { result: 'pass' },
       },
+      'commit.title': 'docs(review): batch review report',
     });
 
     const finishRes = spawnSync(
@@ -523,6 +525,7 @@ test('3. Idempotent continuation dispatch: resume after mid-dispatch interruptio
         t2: { result: 'pass' },
         t3: { result: 'pass' },
       },
+      'commit.title': 'docs(review): batch review report',
     });
 
     spawnSync(

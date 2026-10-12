@@ -47,49 +47,72 @@ export async function resolveDeterministicExecutionPlan({
     }
   }
 
-  // candidateQueue is scoped to exactly this request's own selectedTaskIds — never merged
-  // with whatever else happens to still be sitting in the durable queue file. Cross-request
-  // batch continuation is reconcileContinuation's job (Hook 1, automatic), never an HTTP
-  // handler's; merging in unrelated historical entries here let a stale, still-"eligible"
-  // (but already-used) single-task entry silently outrank a brand new, unrelated explicit
-  // task request via the FIFO tie-break (ADR-0009: an explicit execution action must target
-  // exactly the task it names).
-  const { loadTaskQueue, evaluateTaskQueue } = await import('../../../../specs/workflow/queue/index.mjs');
-  const currentQueue = loadTaskQueue(repoRoot, changeSlug);
-  const candidateQueue = {
-    changeSlug,
-    taskIds: [],
-    eligibleAt: {},
-    metadata: currentQueue?.metadata || {},
-  };
-  const now = Date.now();
-  for (const id of selectedTaskIds) {
-    if (!id || typeof id !== 'string') continue;
-    if (candidateQueue.taskIds.includes(id)) continue;
-    candidateQueue.taskIds.push(id);
-    candidateQueue.eligibleAt[id] = currentQueue?.eligibleAt?.[id] ?? now;
-  }
-
   let definition = null;
   if (deterministicTarget.resolvedWorkflow?.definition) {
     const { loadWorkflowDefinition } = await import('../../../../specs/workflow/definitions/loader.mjs');
     definition = loadWorkflowDefinition(deterministicTarget.resolvedWorkflow.definition, { repoRoot });
   }
 
-  const queueState = evaluateTaskQueue({
-    change: deterministicTarget.change,
-    queueRecord: candidateQueue,
-    definition,
-    repoRoot,
-  });
+  // Resolve the target task directly via canonical single-task readiness — never via a
+  // durable queue file (batch-execution-generalization, task 01: the plain sequential
+  // queue had no caller this actually needed, and was the mechanism responsible for the
+  // original runaway-session incident). `selectedTaskIds` is scoped to exactly this
+  // request's own candidates — never merged with unrelated historical state (ADR-0009:
+  // an explicit execution action must target exactly the task it names).
+  const { evaluateExecutionReadiness, isActivationOnlyBlocker } = await import('../../../../specs/workflow/readiness-policy.mjs');
+  const { isTaskBarriered } = await import('../../../../specs/workflow/queue/reservation.mjs');
 
-  const authoritativeTarget = queueState.nextRunnable;
+  const eligible = [];
+  const warnings = [];
+  const selectedSet = new Set(selectedTaskIds);
+
+  for (const taskId of selectedTaskIds) {
+    const task = deterministicTarget.change.tasks?.find((t) => t.id === taskId);
+    if (!task) continue;
+    if (isTaskBarriered(deterministicTarget.change, taskId, { repoRoot })) continue;
+
+    const readiness = evaluateExecutionReadiness(task, deterministicTarget.change, 'agent', {
+      definition,
+      repoRoot,
+    });
+
+    if (!readiness.ready) {
+      const isActivationOnly = isActivationOnlyBlocker(readiness, {
+        repoRoot,
+        task,
+        change: deterministicTarget.change,
+        record: readiness.priorRecord,
+      });
+      if (!isActivationOnly) {
+        if (Array.isArray(readiness.blockedBy) && readiness.blockedBy.length > 0) {
+          for (const depId of readiness.blockedBy) {
+            if (!selectedSet.has(depId)) {
+              warnings.push({ taskId, blockedByTaskId: depId });
+            }
+          }
+        }
+        continue;
+      }
+    }
+
+    const stepId = readiness.targetStep?.id || readiness.projection?.nextStep?.id || readiness.projection?.currentStep;
+    eligible.push({
+      taskId,
+      stepId,
+      order: task.order ?? 999,
+      executor: readiness.targetStep?.executor || 'agent',
+      readiness,
+    });
+  }
+
+  eligible.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+  const authoritativeTarget = eligible.length > 0 ? eligible[0] : null;
+
   if (!authoritativeTarget) {
     let singleTaskReadiness = null;
     if (selectedTaskIds.length === 1) {
       const singleTask = deterministicTarget.change.tasks?.find((t) => t.id === selectedTaskIds[0]);
       if (singleTask && definition) {
-        const { evaluateExecutionReadiness } = await import('../../../../specs/workflow/readiness-policy.mjs');
         singleTaskReadiness = evaluateExecutionReadiness(singleTask, deterministicTarget.change, 'agent', {
           definition,
           repoRoot,
@@ -102,7 +125,7 @@ export async function resolveDeterministicExecutionPlan({
         }
       }
     }
-    return { noRunnableTask: true, warnings: queueState.warnings, selectedTaskIds, singleTaskReadiness };
+    return { noRunnableTask: true, warnings, selectedTaskIds, singleTaskReadiness };
   }
 
   const targetTaskId = authoritativeTarget.taskId;

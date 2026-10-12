@@ -46,7 +46,7 @@ export function validateSafeIdentifier(value, label, errors) {
  * @param {CommandCatalog|Set<string>|Array<string>} [options.commandCatalog] - Optional command catalog for alias validation
  * @param {Set<string>|Array<string>} [options.knownCommandActions] - Optional set of allowed command aliases
  */
-export function validateGateDefinition(gate, label, errors, { knownGates, commandCatalog, knownCommandActions } = {}) {
+export function validateGateDefinition(gate, label, errors, { knownGates, commandCatalog, knownCommandActions, declaredTransitionValues } = {}) {
   if (!isPlainObject(gate)) {
     errors.push(`${label}: gate must be an object`);
     return;
@@ -69,6 +69,36 @@ export function validateGateDefinition(gate, label, errors, { knownGates, comman
   // unsafe step name.
   if (gate.id !== undefined) {
     validateSafeIdentifier(gate.id, `${label}.id`, errors);
+  }
+
+  if (gate.when !== undefined) {
+    if (!Array.isArray(gate.when)) {
+      errors.push(`${label}.when: must be an array of transition value strings`);
+    } else if (gate.when.length === 0) {
+      errors.push(`${label}.when: must contain at least one transition value string`);
+    } else {
+      const seenWhen = new Set();
+      gate.when.forEach((val, idx) => {
+        if (typeof val !== 'string' || !val.trim()) {
+          errors.push(`${label}.when[${idx}]: must be a non-empty string`);
+        } else {
+          if (seenWhen.has(val)) {
+            errors.push(`${label}.when[${idx}]: duplicate transition value '${val}'`);
+          }
+          seenWhen.add(val);
+          if (declaredTransitionValues) {
+            if (!declaredTransitionValues.has(val)) {
+              const allowedStr = declaredTransitionValues.size > 0
+                ? [...declaredTransitionValues].join(', ')
+                : 'none (step has no conditional transitions)';
+              errors.push(
+                `${label}.when: transition value '${val}' is not a declared transition on this step (expected one of: ${allowedStr})`
+              );
+            }
+          }
+        }
+      });
+    }
   }
 
   if (gate.type === 'command') {
@@ -189,8 +219,10 @@ export function validateTransitionDefinition(transition, label, errors, { stepNa
     if (!isPlainObject(transition.action)) {
       errors.push(`${label}.action: must be an object`);
     } else {
-      if (typeof transition.action.label !== 'string' || !transition.action.label.trim()) {
-        errors.push(`${label}.action.label: must be a non-empty string`);
+      if (transition.action.label !== undefined) {
+        if (typeof transition.action.label !== 'string' || !transition.action.label.trim()) {
+          errors.push(`${label}.action.label: must be a non-empty string`);
+        }
       }
       if (transition.action.feedback !== undefined) {
         if (!isPlainObject(transition.action.feedback)) {
@@ -518,6 +550,9 @@ export function validateWorkflowDefinition(definition, options = {}) {
         errors.push(`${stepLabel}.entryGates: must be an array`);
       } else {
         stepConfig.entryGates.forEach((gate, idx) => {
+          if (isPlainObject(gate) && gate.when !== undefined) {
+            errors.push(`${stepLabel}.entryGates[${idx}]: 'when' cannot be declared on entry gates`);
+          }
           validateGateDefinition(gate, `${stepLabel}.entryGates[${idx}]`, errors, options);
         });
       }
@@ -546,8 +581,16 @@ export function validateWorkflowDefinition(definition, options = {}) {
       if (!Array.isArray(stepConfig.exitGates)) {
         errors.push(`${stepLabel}.exitGates: must be an array`);
       } else {
+        const declaredTransitionValues = new Set(
+          (stepConfig.transitions || [])
+            .map(t => (isPlainObject(t) ? t.value : undefined))
+            .filter(Boolean)
+        );
         stepConfig.exitGates.forEach((gate, idx) => {
-          validateGateDefinition(gate, `${stepLabel}.exitGates[${idx}]`, errors, options);
+          validateGateDefinition(gate, `${stepLabel}.exitGates[${idx}]`, errors, {
+            ...options,
+            declaredTransitionValues,
+          });
         });
       }
     }
@@ -624,12 +667,6 @@ export function validateWorkflowDefinition(definition, options = {}) {
       });
     }
 
-    if (stepConfig.schedulingPriority !== undefined) {
-      if (typeof stepConfig.schedulingPriority !== 'number' || !Number.isInteger(stepConfig.schedulingPriority)) {
-        errors.push(`${stepLabel}.schedulingPriority: must be an integer`);
-      }
-    }
-
     if (stepConfig.consumesDependencies !== undefined) {
       if (typeof stepConfig.consumesDependencies !== 'boolean') {
         errors.push(`${stepLabel}.consumesDependencies: must be a boolean`);
@@ -678,11 +715,16 @@ export function normalizeWorkflowDefinition(definition) {
   for (const [stepName, stepConfig] of Object.entries(definition.steps || {})) {
     normalizedSteps[stepName] = {
       executor: stepConfig.executor ?? 'agent',
-      schedulingPriority: typeof stepConfig.schedulingPriority === 'number' ? stepConfig.schedulingPriority : 0,
       consumesDependencies: stepConfig.consumesDependencies === true,
       entryGates: (stepConfig.entryGates || []).map(g => (typeof g === 'string' ? { type: g } : { ...g })),
       actions: (stepConfig.actions || []).map(a => (typeof a === 'string' ? { id: a } : { ...a })),
-      exitGates: (stepConfig.exitGates || []).map(g => (typeof g === 'string' ? { type: g } : { ...g })),
+      exitGates: (stepConfig.exitGates || []).map(g => {
+        const base = typeof g === 'string' ? { type: g } : { ...g };
+        if (base.when !== undefined) {
+          base.when = Array.isArray(base.when) ? [...base.when] : base.when;
+        }
+        return base;
+      }),
       finalize: (stepConfig.finalize || []).map(a => (typeof a === 'string' ? { id: a } : { ...a })),
       transitions: (stepConfig.transitions || []).map(t => {
         if (typeof t === 'string') return { to: t, continuation: 'owner-action' };
@@ -693,7 +735,7 @@ export function normalizeWorkflowDefinition(definition) {
         norm.to = t.to;
         if (t.action !== undefined) {
           norm.action = {
-            label: t.action.label,
+            ...(t.action.label !== undefined ? { label: t.action.label } : {}),
             ...(t.action.feedback !== undefined ? { feedback: { required: t.action.feedback.required } } : {}),
           };
         }

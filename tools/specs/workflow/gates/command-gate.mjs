@@ -318,12 +318,22 @@ export class CommandGate extends GateContract {
     const runner = this._runner;
 
     let evalResult;
+    let runnerError = null;
 
     if (typeof runner === 'function') {
       try {
-        const rawResult = await runner(targetCommand, context);
+        const runnerContext = {
+          ...context,
+          action: config.action || null,
+          command: config.command || null,
+        };
+        const rawResult = await runner(targetCommand, runnerContext);
+        if (rawResult && rawResult.spawnError) {
+          runnerError = rawResult.spawnError instanceof Error ? rawResult.spawnError : new Error(String(rawResult.spawnError));
+        }
         evalResult = evaluateRunnerResult(rawResult, targetCommand);
       } catch (err) {
+        runnerError = err;
         evalResult = {
           passed: false,
           exitCode: 1,
@@ -348,14 +358,34 @@ export class CommandGate extends GateContract {
           stderr: '',
         };
       } catch (err) {
+        if (!Number.isInteger(err.status)) {
+          runnerError = err;
+        }
         evalResult = {
           passed: false,
-          exitCode: err.status ?? 1,
+          exitCode: Number.isInteger(err.status) ? err.status : 1,
           stdout: err.stdout ? String(err.stdout) : '',
           stderr: err.stderr ? String(err.stderr) : '',
           error: `Command '${targetCommand}' failed with exit code ${err.status ?? 1}`,
         };
       }
+    }
+
+    if (runnerError) {
+      const res = new GateVerificationResult({
+        gateType: this.type,
+        passed: false,
+        status: 'blocked',
+        message: evalResult.error || `Command '${targetCommand}' execution failed: ${runnerError.message}`,
+        details: {
+          targetCommand,
+          action: config.action || null,
+          error: runnerError.message,
+          reason: runnerError.message,
+        },
+      });
+      res.reason = runnerError.message;
+      return res;
     }
 
     // Require authoritative verification store to record state
@@ -396,7 +426,7 @@ export class CommandGate extends GateContract {
       return new GateVerificationResult({
         gateType: this.type,
         passed: false,
-        status: 'failed',
+        status: 'blocked',
         message: `Failed to record authoritative verification state: ${err.message} (command: '${targetCommand}')`,
         details: {
           targetCommand,

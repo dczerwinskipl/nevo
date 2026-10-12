@@ -359,7 +359,7 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
     const impl = def.steps.implementation;
     assert.deepEqual(impl.status, { active: 'implementing', completed: 'implemented' });
     assert.equal(impl.exitGates.length, 1);
-    assert.deepEqual(impl.exitGates[0], { type: 'command', action: 'test' });
+    assert.deepEqual(impl.exitGates[0], { type: 'command', action: 'task-verification' });
     assert.deepEqual(impl.finalize, [{ id: 'commit-and-push' }]);
     assert.deepEqual(impl.transitions, [
       {
@@ -377,13 +377,18 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
     const rev = def.steps.review;
     assert.deepEqual(rev.status, { active: 'reviewing', completed: 'reviewed' });
     assert.equal(rev.exitGates.length, 1);
-    assert.deepEqual(rev.exitGates[0], { type: 'command', action: 'test' });
+    assert.deepEqual(rev.exitGates[0], { type: 'command', action: 'task-verification', when: ['pass'] });
     assert.deepEqual(rev.finalize, [{ id: 'commit-and-push' }]);
     assert.deepEqual(rev.transitions, [
       { value: 'pass', to: 'human-verification', continuation: 'auto' },
       {
         value: 'fail',
         to: 'implementation',
+        action: {
+          feedback: {
+            required: true,
+          },
+        },
         continuation: 'auto',
         invalidatesDependencyRelease: true,
         execution: {
@@ -488,6 +493,14 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
         'forbidden_paths: []',
         '---',
         '# Task: standard task',
+        '',
+        '## Acceptance criteria',
+        '- criteria 1',
+        '',
+        '## Verification',
+        '```bash',
+        'npm test',
+        '```',
         '',
       ].join('\n'));
 

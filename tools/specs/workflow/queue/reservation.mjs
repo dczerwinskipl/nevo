@@ -1,11 +1,13 @@
-// Durable batch queue reservation and canonical action barrier (Task 02, D5, D6, D18, D19, D20, D31, D36, D37, D38).
+// Durable batch group reservation and canonical action barrier (Task 02, D5, D6, D18, D19, D20, D31, D36, D37, D38).
 // Pure workflow domain logic: zero dashboard imports.
+// Storage: dedicated `.nevo-ai-local/batch-reservations/<changeSlug>.json` file, owned
+// entirely by this module (no dependency on the plain-queue store, which this change
+// removes — batch-execution-generalization, task 01).
 
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
 import { WorkflowError } from '../errors.mjs';
-import { loadTaskQueue, saveTaskQueue } from './store.mjs';
 import { evaluateBaseExecutionReadiness } from '../readiness-policy.mjs';
 import { resolveIncomingExecution } from '../resolve-incoming-execution.mjs';
 import { withWorkspaceControlLock } from '../workspace-writer.mjs';
@@ -15,6 +17,80 @@ import { requireChange, requireTask } from '../../store.mjs';
 import { resolveTaskScope, resolveWorkflowOwnedPaths } from '../step-context.mjs';
 import { loadWorkflowDefinition } from '../definitions/loader.mjs';
 import * as git from '../../../lib/git.mjs';
+
+function getReservationDir(repoRoot) {
+  return path.join(repoRoot, '.nevo-ai-local', 'batch-reservations');
+}
+
+function getReservationFilePath(repoRoot, changeSlug) {
+  return path.join(getReservationDir(repoRoot), `${changeSlug}.json`);
+}
+
+function loadReservationRecord(repoRoot, changeSlug) {
+  if (!repoRoot || !changeSlug) {
+    throw new WorkflowError('loadReservationRecord requires repoRoot and changeSlug');
+  }
+  const filePath = getReservationFilePath(repoRoot, changeSlug);
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed.groupReservations)) {
+      parsed.groupReservations = [];
+    }
+    return parsed;
+  } catch (err) {
+    throw new WorkflowError(`Failed to load batch reservation record from ${filePath}: ${err.message}`, {
+      code: 'BATCH_RESERVATION_LOAD_FAILED',
+      cause: err,
+    });
+  }
+}
+
+function saveReservationRecord(repoRoot, changeSlug, record) {
+  if (!repoRoot || !changeSlug) {
+    throw new WorkflowError('saveReservationRecord requires repoRoot and changeSlug');
+  }
+
+  const dir = getReservationDir(repoRoot);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  const toPersist = {
+    changeSlug,
+    groupReservations: Array.isArray(record?.groupReservations) ? record.groupReservations : [],
+    updatedAt: new Date().toISOString(),
+  };
+
+  const targetPath = getReservationFilePath(repoRoot, changeSlug);
+  const tempPath = path.join(dir, `${changeSlug}.${randomUUID()}.tmp`);
+
+  fs.writeFileSync(tempPath, JSON.stringify(toPersist, null, 2), 'utf8');
+  try {
+    fs.renameSync(tempPath, targetPath);
+  } catch (err) {
+    // Windows atomic replacement fallback
+    if (err.code === 'EEXIST' || err.code === 'EPERM' || err.code === 'EBUSY') {
+      try {
+        if (fs.existsSync(targetPath)) {
+          fs.unlinkSync(targetPath);
+        }
+        fs.renameSync(tempPath, targetPath);
+      } catch (retryErr) {
+        try { fs.unlinkSync(tempPath); } catch {}
+        throw retryErr;
+      }
+    } else {
+      try { fs.unlinkSync(tempPath); } catch {}
+      throw err;
+    }
+  }
+
+  return toPersist;
+}
 
 function matchesFilePattern(filePath, pattern) {
   const normalized = filePath.replace(/\\/g, '/');
@@ -97,6 +173,7 @@ export function validateBatchCompatibility(params = {}) {
 
   let targetStepId = null;
   let targetRole = null;
+  let targetRoleEstablished = false;
 
   for (const taskId of taskIds) {
     const task = tasks.find((t) => t.id === taskId || t.file?.endsWith(`/${taskId}.md`) || t.file?.endsWith(`\\${taskId}.md`));
@@ -108,9 +185,19 @@ export function validateBatchCompatibility(params = {}) {
       };
     }
 
-    // 4. Individually eligible and runnable per base readiness
+    // 4. Individually eligible and runnable per base readiness — with the in-batch-
+    // dependency exception (batch-execution-generalization, task 02, Gap 1): a member
+    // blocked only by another member of this same candidate batch is a same-batch
+    // ordering constraint, not a compatibility failure. A dependency unsatisfied by a
+    // task outside the batch still fails exactly as before.
     const readiness = evaluateBaseExecutionReadiness(task, change, 'agent', { definition, repoRoot });
-    if (!readiness.ready) {
+    const blockedOnlyByBatchMembers = !readiness.ready
+      && readiness.code === 'DEPENDENCY_UNSATISFIED'
+      && Array.isArray(readiness.blockedBy)
+      && readiness.blockedBy.length > 0
+      && readiness.blockedBy.every((depId) => taskIds.includes(depId));
+
+    if (!readiness.ready && !blockedOnlyByBatchMembers) {
       return {
         compatible: false,
         reason: `Task '${taskId}' is not eligible: ${readiness.reason}`,
@@ -119,6 +206,9 @@ export function validateBatchCompatibility(params = {}) {
       };
     }
 
+    // A dependency-blocked task's canonical next step is populated identically whether
+    // or not it is currently blocked (task-projection.mjs) — use it directly when the
+    // ordinary readiness result carries no targetStep of its own.
     const stepId = readiness.targetStep?.id || readiness.projection?.nextStep?.id || readiness.projection?.currentStep;
     if (!targetStepId) {
       targetStepId = stepId;
@@ -131,7 +221,7 @@ export function validateBatchCompatibility(params = {}) {
     }
 
     // Target step must define executor: 'agent'
-    const executor = readiness.targetStep?.executor || 'agent';
+    const executor = readiness.targetStep?.executor || readiness.projection?.nextStep?.executor || 'agent';
     if (executor !== 'agent') {
       return {
         compatible: false,
@@ -142,38 +232,49 @@ export function validateBatchCompatibility(params = {}) {
 
     // 3 & 5. Incoming transition resolution via shared resolver (D20)
     if (definition) {
+      const history = task?.workflow_progress?.history || [];
       const incoming = resolveIncomingExecution(task, definition, stepId);
+      let role;
+
       if (!incoming.transition) {
-        return {
-          compatible: false,
-          reason: `No matching incoming transition found for task '${taskId}' to step '${stepId}' (${incoming.error || incoming.reason})`,
-          incompatibleTaskId: taskId,
-        };
+        // An entry-step member (no workflow history at all) has no incoming transition
+        // to resolve, by construction — a normal fresh-task case, not a failure. It
+        // starts fresh, by construction `session: fresh`, with no declared role to
+        // match against (batch-execution-generalization, task 02, Gap 1).
+        if (!(incoming.error === 'NO_INCOMING_TRANSITION' && history.length === 0)) {
+          return {
+            compatible: false,
+            reason: `No matching incoming transition found for task '${taskId}' to step '${stepId}' (${incoming.error || incoming.reason})`,
+            incompatibleTaskId: taskId,
+          };
+        }
+        role = null;
+      } else {
+        if (incoming.session !== 'fresh') {
+          return {
+            compatible: false,
+            reason: `Task '${taskId}' incoming transition requires session '${incoming.session}'; batch execution requires session: fresh`,
+            incompatibleTaskId: taskId,
+          };
+        }
+
+        role = incoming.role;
+        if (!role) {
+          return {
+            compatible: false,
+            reason: `Authoritative incoming transition for task '${taskId}' does not declare an agent role`,
+            incompatibleTaskId: taskId,
+          };
+        }
       }
 
-      if (incoming.session !== 'fresh') {
-        return {
-          compatible: false,
-          reason: `Task '${taskId}' incoming transition requires session '${incoming.session}'; batch execution requires session: fresh`,
-          incompatibleTaskId: taskId,
-        };
-      }
-
-      const role = incoming.role;
-      if (!role) {
-        return {
-          compatible: false,
-          reason: `Authoritative incoming transition for task '${taskId}' does not declare an agent role`,
-          incompatibleTaskId: taskId,
-        };
-      }
-
-      if (!targetRole) {
+      if (!targetRoleEstablished) {
         targetRole = role;
+        targetRoleEstablished = true;
       } else if (targetRole !== role) {
         return {
           compatible: false,
-          reason: `Incoming role mismatch: task '${taskId}' requires role '${role}', but previous tasks require '${targetRole}'`,
+          reason: `Incoming role mismatch: task '${taskId}' requires role '${role ?? 'null'}', but previous tasks require '${targetRole ?? 'null'}'`,
           incompatibleTaskId: taskId,
         };
       }
@@ -218,17 +319,15 @@ export async function createGroupReservation(params = {}) {
   }
 
   const mutate = async () => {
-    const queueRecord = loadTaskQueue(repoRoot, changeSlug) || {
+    const record = loadReservationRecord(repoRoot, changeSlug) || {
       changeSlug,
-      taskIds: [],
-      eligibleAt: {},
       groupReservations: [],
     };
 
-    queueRecord.groupReservations = queueRecord.groupReservations || [];
+    record.groupReservations = record.groupReservations || [];
 
     // Check contention: no member task may already be reserved
-    for (const r of queueRecord.groupReservations) {
+    for (const r of record.groupReservations) {
       if (r.status === 'reserved') {
         for (const t of taskIds) {
           if (r.taskIds.includes(t)) {
@@ -256,8 +355,8 @@ export async function createGroupReservation(params = {}) {
       },
     };
 
-    queueRecord.groupReservations.push(reservation);
-    saveTaskQueue(repoRoot, changeSlug, queueRecord);
+    record.groupReservations.push(reservation);
+    saveReservationRecord(repoRoot, changeSlug, record);
     return reservation;
   };
 
@@ -286,12 +385,12 @@ export async function releaseGroupReservation(params = {}) {
   }
 
   const mutate = async () => {
-    const queueRecord = loadTaskQueue(repoRoot, changeSlug);
-    if (!queueRecord || !Array.isArray(queueRecord.groupReservations)) {
+    const record = loadReservationRecord(repoRoot, changeSlug);
+    if (!record || !Array.isArray(record.groupReservations)) {
       return { released: false, batchExecutionId, reason: 'RESERVATION_NOT_FOUND' };
     }
 
-    const reservation = queueRecord.groupReservations.find(
+    const reservation = record.groupReservations.find(
       (r) => r.batchExecutionId === batchExecutionId && r.status === 'reserved'
     );
 
@@ -305,7 +404,7 @@ export async function releaseGroupReservation(params = {}) {
       reservation.releaseReason = reason;
     }
 
-    saveTaskQueue(repoRoot, changeSlug, queueRecord);
+    saveReservationRecord(repoRoot, changeSlug, record);
     return { released: true, batchExecutionId };
   };
 
@@ -340,13 +439,13 @@ export async function rollbackReservationSynchronously(params = {}) {
  */
 export function listGroupReservations(repoRoot, changeSlug, options = {}) {
   if (!repoRoot || !changeSlug) return [];
-  const queueRecord = loadTaskQueue(repoRoot, changeSlug);
-  if (!queueRecord || !Array.isArray(queueRecord.groupReservations)) return [];
+  const record = loadReservationRecord(repoRoot, changeSlug);
+  if (!record || !Array.isArray(record.groupReservations)) return [];
   const statusFilter = options.status || 'reserved';
   if (statusFilter === 'all') {
-    return [...queueRecord.groupReservations];
+    return [...record.groupReservations];
   }
-  return queueRecord.groupReservations.filter((r) => r.status === statusFilter);
+  return record.groupReservations.filter((r) => r.status === statusFilter);
 }
 
 /**
@@ -359,9 +458,9 @@ export function listGroupReservations(repoRoot, changeSlug, options = {}) {
  */
 export function getGroupReservation(repoRoot, changeSlug, batchExecutionId) {
   if (!repoRoot || !changeSlug || !batchExecutionId) return null;
-  const queueRecord = loadTaskQueue(repoRoot, changeSlug);
-  if (!queueRecord || !Array.isArray(queueRecord.groupReservations)) return null;
-  return queueRecord.groupReservations.find((r) => r.batchExecutionId === batchExecutionId) || null;
+  const record = loadReservationRecord(repoRoot, changeSlug);
+  if (!record || !Array.isArray(record.groupReservations)) return null;
+  return record.groupReservations.find((r) => r.batchExecutionId === batchExecutionId) || null;
 }
 
 /**
@@ -371,7 +470,7 @@ export function getGroupReservation(repoRoot, changeSlug, batchExecutionId) {
  * @param {string} taskId
  * @param {object} [options]
  * @param {string} [options.repoRoot]
- * @param {object} [options.queueRecord]
+ * @param {object} [options.queueRecord] - Optional pre-loaded reservation record (back-compat field name retained for callers)
  * @returns {boolean}
  */
 export function isTaskBarriered(changeOrSlug, taskId, options = {}) {

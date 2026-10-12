@@ -47,7 +47,12 @@ export function buildSpecsIndexes({ activeDir = ACTIVE_DIR, archiveDir = ARCHIVE
 
   const changes = [...active, ...archive].map(c => ({
     id: c.id, specId: c.spec_id ?? null, title: c.title, status: c.status, priority: c.priority,
-    created: c.created, tasks: c.tasks,
+    created: c.created,
+    tasks: (c.tasks || []).map(t => {
+      if (!t) return t;
+      const { workflow_progress, ...rest } = t;
+      return rest;
+    }),
   }));
 
   return { activeMd, archiveMd, changes, activeCount: active.length, archiveCount: archive.length };

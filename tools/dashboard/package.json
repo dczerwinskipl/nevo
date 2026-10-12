@@ -17,6 +17,7 @@
     "build-storybook": "storybook build -o .storybook/dist",
     "test:storybook": "vitest run",
     "test:ui-stable": "vitest run tests/agent-session-screen-navigation.test.tsx",
+    "test:ui-provider-selector": "vitest run tests/execution-policy-selection-dialog.test.tsx",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

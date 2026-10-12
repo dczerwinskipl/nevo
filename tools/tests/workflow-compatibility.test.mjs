@@ -274,7 +274,7 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
     assert.deepEqual(impl.status, { active: 'implementing', completed: 'implemented' });
     assert.deepEqual(impl.actions, []);
     assert.equal(impl.exitGates.length, 1);
-    assert.deepEqual(impl.exitGates[0], { type: 'command', action: 'test' });
+    assert.deepEqual(impl.exitGates[0], { type: 'command', action: 'task-verification' });
     assert.deepEqual(impl.transitions, [
       {
         to: 'review',
@@ -289,13 +289,14 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
     const rev = standardDef.steps.review;
     assert.deepEqual(rev.status, { active: 'reviewing', completed: 'reviewed' });
     assert.equal(rev.exitGates.length, 1);
-    assert.deepEqual(rev.exitGates[0], { type: 'command', action: 'test' });
+    assert.deepEqual(rev.exitGates[0], { type: 'command', action: 'task-verification', when: ['pass'] });
     assert.deepEqual(rev.finalize, [{ id: 'commit-and-push' }]);
     assert.deepEqual(rev.transitions, [
       { value: 'pass', to: 'human-verification', continuation: 'auto' },
       {
         value: 'fail',
         to: 'implementation',
+        action: { feedback: { required: true } },
         continuation: 'auto',
         invalidatesDependencyRelease: true,
         execution: { session: 'fresh', role: 'refiner' },

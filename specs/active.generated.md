@@ -5,3 +5,5 @@
 | ID | Title | Status | Priority | Created |
 |---|---|---|---|---|
 | `ai-spec-history` | AI Spec History | draft | 10 | 2026-09-16 |
+| `session-continuity-choice` | Session continuity choice | draft | 10 | 2026-10-11 |
+| `workspace-claim-self-recovery` | Workspace claim self-recovery | draft | 10 | 2026-10-11 |

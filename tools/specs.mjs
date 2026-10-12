@@ -69,7 +69,8 @@ export function autoBindAgentSession(change, taskId, purpose, options = {}) {
   if (typeof change === 'string') {
     changeSlug = change;
     try {
-      const c = requireChange(change);
+      const activeDir = options.activeDir || (options.repoRoot ? resolve(options.repoRoot, 'specs', 'active') : undefined);
+      const c = requireChange(change, activeDir);
       specId = c?.spec_id || c?.id;
     } catch {}
   } else if (typeof change === 'object' && change !== null) {
@@ -87,7 +88,7 @@ export function autoBindAgentSession(change, taskId, purpose, options = {}) {
     try {
       if (!specId || !isValidSpecId(specId)) {
         console.error(`[nevo-ai] Warning: Cannot auto-bind session: change '${changeSlug || 'unknown'}' has no valid spec_id.`);
-        return;
+        return null;
       }
       const bindingService = createAgentSessionBindingService({
         storageDir: resolve(repoRoot, '.nevo-ai-local/sessions'),
@@ -113,7 +114,7 @@ export function autoBindAgentSession(change, taskId, purpose, options = {}) {
           : (taskId || process.env.NEVO_TASK_ID?.trim() || null);
       }
 
-      bindingService.bindSessionSync({
+      return bindingService.bindSessionSync({
         sessionId: context.sessionId || undefined,
         provider: context.provider,
         providerSessionId: context.providerSessionId,
@@ -126,8 +127,10 @@ export function autoBindAgentSession(change, taskId, purpose, options = {}) {
       });
     } catch (err) {
       console.error(`[nevo-ai] Warning: Failed to auto-bind agent session (${context.provider}/${context.providerSessionId || context.sessionId}): ${err.message}`);
+      return null;
     }
   }
+  return null;
 }
 
 export function buildProgram() {

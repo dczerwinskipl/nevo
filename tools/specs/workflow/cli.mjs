@@ -34,6 +34,10 @@ import { resolveHumanScopeTarget } from './gates/human-gate.mjs';
 // producing an empty finish contract for every real invocation.
 import './actions/index.mjs';
 import { autoBindAgentSession } from '../../specs.mjs';
+import { SYSTEM_ACTOR, resolveAgentSessionActor, resolveUserActor } from '../activity/actor-resolver.mjs';
+import { resolveSpecId } from '../activity/store.mjs';
+import { recordWorkflowStepStarted } from '../activity/producers/workflow.mjs';
+import { recordHumanVerificationConfirmed } from '../activity/producers/human-verification.mjs';
 import { assertStepExecutor } from './executor-guard.mjs';
 import { startHumanStep, submitHumanStepResult, activateAndSubmitHumanStep } from './human-step/operations.mjs';
 import { assertExecutionReadiness } from './readiness-policy.mjs';
@@ -121,6 +125,7 @@ async function executeSingleCommandWithLiveOutput(command, cwd, silent) {
       resolve({
         passed: false,
         exitCode: 1,
+        spawnError: err,
         stdout,
         stderr: stderr + '\n' + err.message,
       });
@@ -132,44 +137,63 @@ async function runCliCommandWithLiveOutput(command, context = {}) {
   const cwd = context.repoRoot || process.cwd();
   const activeDir = context.activeDir || join(cwd, 'specs', 'active');
   const changeSlug = context.changeSlug || context.changeId || context.change?._slug || context.change?.id;
-  const task = context.task;
+  let task = context.task;
+  if (!task && changeSlug && (context.taskId || context.task?.id)) {
+    try {
+      const change = requireChange(changeSlug, activeDir);
+      task = requireTask(change, context.taskId || context.task?.id);
+    } catch {}
+  }
 
-  if (command === 'npm test' && task && changeSlug) {
-    const taskFile = task.file || (task.id ? `tasks/${task.id}.md` : null);
-    if (taskFile) {
-      const taskPath = join(activeDir, changeSlug, taskFile);
-      if (existsSync(taskPath)) {
-        try {
-          const body = readFileSync(taskPath, 'utf8');
-          const taskCommands = parseVerificationCommands(body);
-          if (taskCommands.length > 0) {
-            let combinedStdout = '';
-            let combinedStderr = '';
-            for (const subCmd of taskCommands) {
-              const res = await executeSingleCommandWithLiveOutput(subCmd, cwd, context.silent);
-              combinedStdout += res.stdout + '\n';
-              combinedStderr += res.stderr + '\n';
-              if (!res.passed) {
-                return {
-                  passed: false,
-                  exitCode: res.exitCode,
-                  stdout: combinedStdout,
-                  stderr: combinedStderr,
-                };
+  if (context.action === 'task-verification') {
+    if (task && changeSlug) {
+      const taskFile = task.file || (task.id ? `tasks/${task.id}.md` : null);
+      if (taskFile) {
+        const taskPath = join(activeDir, changeSlug, taskFile);
+        if (existsSync(taskPath)) {
+          try {
+            const body = readFileSync(taskPath, 'utf8');
+            const taskCommands = parseVerificationCommands(body);
+            if (taskCommands.length > 0) {
+              let combinedStdout = '';
+              let combinedStderr = '';
+              for (const subCmd of taskCommands) {
+                const res = await executeSingleCommandWithLiveOutput(subCmd, cwd, context.silent);
+                combinedStdout += res.stdout + '\n';
+                combinedStderr += res.stderr + '\n';
+                if (!res.passed) {
+                  return {
+                    passed: false,
+                    exitCode: res.exitCode,
+                    stdout: combinedStdout,
+                    stderr: combinedStderr,
+                  };
+                }
               }
+              return {
+                passed: true,
+                exitCode: 0,
+                stdout: combinedStdout,
+                stderr: combinedStderr,
+              };
             }
+          } catch (err) {
             return {
-              passed: true,
-              exitCode: 0,
-              stdout: combinedStdout,
-              stderr: combinedStderr,
+              passed: false,
+              exitCode: 1,
+              stdout: '',
+              stderr: `Failed to execute task verification: ${err.message}`,
             };
           }
-        } catch {
-          // fallback to generic command
         }
       }
     }
+    return {
+      passed: false,
+      exitCode: 1,
+      stdout: '',
+      stderr: `No verification commands found for task '${task?.id || 'unknown'}' in '${changeSlug || 'unknown'}'`,
+    };
   }
 
   return executeSingleCommandWithLiveOutput(command, cwd, context.silent);
@@ -182,7 +206,7 @@ async function runCliCommandWithLiveOutput(command, context = {}) {
 export function buildWorkflowGateRegistry(repoRoot, changeSlug, taskId, attempt) {
   const effectiveAttempt = typeof attempt === 'object' ? attempt?.workflow_progress?.current_attempt : attempt;
   return createDefaultGateRegistry({
-    commandRunner: runCliCommandWithLiveOutput,
+    commandRunner: (command, ctx = {}) => runCliCommandWithLiveOutput(command, { repoRoot, changeSlug, taskId, ...ctx }),
     commandVerificationStore: new MemoryCommandVerificationStore(),
     humanVerificationReader: new FileHumanVerificationStore({
       repoRoot,
@@ -457,7 +481,18 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
 
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, slug, task.id, currentAttempt);
   const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });
-  autoBindAgentSession(change, task.id, 'execution', { step: stepContext.currentStep, attempt: stepContext.attempt, repoRoot: context.repoRoot });
+  const binding = autoBindAgentSession(change, task.id, 'execution', { step: stepContext.currentStep, attempt: stepContext.attempt, repoRoot: context.repoRoot });
+  if (stepContext.currentStep) {
+    const actor = binding?.sessionId ? resolveAgentSessionActor(binding.sessionId) : SYSTEM_ACTOR;
+    const specId = resolveSpecId(change, { repoRoot: context.repoRoot, activeDir: context.activeDir });
+    recordWorkflowStepStarted({
+      specId,
+      taskId: task.id,
+      step: stepContext.currentStep,
+      attempt: stepContext.attempt,
+      actor,
+    }, { repoRoot: context.repoRoot, activeDir: context.activeDir });
+  }
   return emit(stepContext, opts);
 }
 
@@ -501,8 +536,8 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   const activeStep = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
   if (activeStep) {
     const finalizeCheck = await aggregateFinalizeCheck(activeStep, context);
-    const parameters = buildFinishContract(finalizeCheck, activeStep);
     const effectiveInputs = inFlight?.resolvedInputs ? { ...inFlight.resolvedInputs, ...inputs } : inputs;
+    const parameters = buildFinishContract(finalizeCheck, activeStep, effectiveInputs.result);
     validateFinishInputs(effectiveInputs, parameters, { allowMissing: Boolean(opts.check) });
   }
 
@@ -511,16 +546,15 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
     return emit(plan, opts);
   }
 
+  const binding = autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt, repoRoot: context.repoRoot, clearActiveTask: true });
+  const actor = binding?.sessionId ? resolveAgentSessionActor(binding.sessionId) : SYSTEM_ACTOR;
+
   let result;
   let finishError = null;
   try {
-    result = await finishStep({ change, task, definition, context, inputs, activeDir: context.activeDir, gateRegistry });
+    result = await finishStep({ change, task, definition, context, inputs, activeDir: context.activeDir, gateRegistry, actor });
   } catch (err) {
     finishError = err;
-  }
-
-  if (!finishError) {
-    autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt, repoRoot: context.repoRoot, clearActiveTask: true });
   }
 
   // D69: Settlement-gated release of cli-manual claim
@@ -663,6 +697,25 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
   const role = gateConfig.role || 'owner';
   const store = new FileHumanVerificationStore({ repoRoot: context.repoRoot, change: change._slug, task: task.id, attempt });
   const record = store.confirm({ scope, targetId, role, stepId: stepName, attempt, gateId: gateConfig.id || null });
+
+  try {
+    const actor = resolveUserActor(context.repoRoot);
+    const specId = change.spec_id || resolveSpecId(change, { repoRoot: context.repoRoot, activeDir: context.activeDir });
+    recordHumanVerificationConfirmed({
+      specId,
+      taskId: task.id,
+      stepId: stepName,
+      attempt,
+      gateId: gateConfig.id || null,
+      scope,
+      targetId,
+      role,
+      actor,
+    }, { repoRoot: context.repoRoot, activeDir: context.activeDir });
+  } catch {
+    // Observational only: failures to record activity never fail or roll back confirmation
+  }
+
   return emit({ change: changeSlug, task: taskId, confirmed: true, record }, opts);
 }
 
