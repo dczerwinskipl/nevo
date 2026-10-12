@@ -172,6 +172,101 @@ export function computeDeterministicTaskActionProjection(task, change, options =
     humanInteraction,
     availableActions,
     lastReview,
+    ...(options.sessionChoice ? { sessionChoice: options.sessionChoice } : {}),
+  };
+}
+
+/**
+ * Resolves session choice for a task whose next agent step has a matched incoming
+ * transition with more than one allowed policy (task 03 of session-continuity-choice).
+ */
+export async function resolveTaskSessionChoice(task, change, options = {}) {
+  const repoRoot = options.root || options.repoRoot || REPOSITORY_ROOT;
+  let definition = options.definition;
+  if (!definition) {
+    const resolvedMode = resolveWorkflowMode(change, options);
+    if (resolvedMode.definition) {
+      definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
+    }
+  }
+  if (!definition) return null;
+
+  const projection = projectTask(task, change, { ...options, repoRoot, definition });
+  const isCurrentlyActive = projection.state === 'active' || projection.state === 'human-interaction';
+  if (isCurrentlyActive) return null;
+
+  const targetDescriptor = projection.nextStep || null;
+  const targetExecutor = targetDescriptor?.executor || 'agent';
+  if (targetExecutor !== 'agent') return null;
+
+  const targetStepId = targetDescriptor?.id || projection.currentStep;
+  if (!targetStepId) return null;
+
+  const matchResult = matchIncomingTransition(task, definition, targetStepId);
+  if (matchResult.ambiguous || !matchResult.transition) return null;
+
+  const declaredSession = matchResult.session || matchResult.transition.execution?.session || 'fresh';
+  const allowed = Array.isArray(matchResult.allow)
+    ? [...matchResult.allow]
+    : (Array.isArray(matchResult.transition.execution?.allow)
+        ? [...matchResult.transition.execution.allow]
+        : [declaredSession]);
+
+  if (allowed.length <= 1) return null;
+
+  let candidate = null;
+  let unavailableReason = null;
+
+  if (allowed.includes('reuse')) {
+    const { deriveReuseCandidate } = await import('../ai/orchestration/deterministic-execution-plan.mjs');
+    const canonicalSpecId = change?.spec_id || change?.id;
+    const changeSlug = change?._slug || change?.id || options.slug;
+
+    const derivedCandidate = await deriveReuseCandidate({
+      task,
+      definition,
+      matchedTransition: matchResult.transition,
+      canonicalSpecId,
+      targetTaskId: task.id,
+      repoRoot,
+      bindingService: options.bindingService,
+    });
+
+    if (!derivedCandidate) {
+      const reuseFrom = matchResult.reuseFrom || matchResult.transition.execution?.reuseFrom;
+      const searched = reuseFrom ? `step '${reuseFrom}'` : 'workflow history';
+      unavailableReason = {
+        code: 'REUSE_CANDIDATE_NOT_FOUND',
+        message: `No candidate session could be resolved from ${searched}.`,
+      };
+    } else {
+      let targetProvider = null;
+      try {
+        const { executionPolicyService } = await import('../ai/sessions/execution-policy-service.mjs');
+        const targetRole = matchResult.role || matchResult.transition.execution?.role || null;
+        const policy = executionPolicyService.resolveExecutionPolicy(changeSlug, task.id, {
+          role: targetRole,
+          repoRoot,
+        });
+        targetProvider = policy?.provider || null;
+      } catch {}
+
+      if (derivedCandidate.provider && targetProvider && derivedCandidate.provider !== targetProvider) {
+        unavailableReason = {
+          code: 'PROVIDER_MISMATCH',
+          message: `Candidate session uses provider '${derivedCandidate.provider}', which differs from target role provider '${targetProvider}'. Provider switching on session reuse is not permitted.`,
+        };
+      } else {
+        candidate = derivedCandidate;
+      }
+    }
+  }
+
+  return {
+    default: declaredSession,
+    allowed,
+    candidate,
+    unavailableReason,
   };
 }
 
@@ -271,9 +366,15 @@ export async function loadSpecificationActions({
         root,
         definition: workflowDef,
       });
+      const sessionChoice = await resolveTaskSessionChoice(task, change, {
+        root,
+        definition: workflowDef,
+        slug,
+      });
       tasks[task.id] = {
         ...(gate || {}),
         ...projectionDto,
+        ...(sessionChoice ? { sessionChoice } : {}),
       };
     } else {
       const availableActions = computeLegacyTaskAvailableActions(task, change);

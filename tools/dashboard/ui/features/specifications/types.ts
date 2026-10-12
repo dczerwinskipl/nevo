@@ -172,6 +172,26 @@ export interface WorkflowExecutionProjection {
   session?: 'fresh' | 'reuse' | string | null;
 }
 
+export interface WorkflowSessionChoiceCandidate {
+  sessionId: string;
+  step: string;
+  attempt: number;
+  provider: string | null;
+  label: string;
+}
+
+export interface WorkflowSessionChoiceUnavailableReason {
+  code: string;
+  message: string;
+}
+
+export interface WorkflowSessionChoice {
+  default: 'fresh' | 'reuse' | string;
+  allowed: Array<'fresh' | 'reuse' | string>;
+  candidate: WorkflowSessionChoiceCandidate | null;
+  unavailableReason?: WorkflowSessionChoiceUnavailableReason | null;
+}
+
 export interface WorkflowHumanInteractionAction {
   result?: string;
   label?: string;
@@ -202,6 +222,7 @@ export interface SpecificationTaskActionGate {
   currentStepDescriptor?: WorkflowStepDescriptor | null;
   nextStepDescriptor?: WorkflowStepDescriptor | null;
   execution?: WorkflowExecutionProjection | null;
+  sessionChoice?: WorkflowSessionChoice | null;
   humanInteraction?: WorkflowHumanInteractionDescriptor | null;
 
   /**
