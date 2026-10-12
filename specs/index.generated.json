@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-12T18:38:06.783Z",
+  "generated": "2026-10-12T18:38:10.532Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -130,7 +130,7 @@
           "id": "batch-sequential-session-continuation",
           "order": 5,
           "file": "tasks/05-batch-sequential-session-continuation.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "server-session-choice-resolution"
           ]
