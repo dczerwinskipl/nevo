@@ -350,8 +350,9 @@ export async function commitAllAsync(root, message, options = {}) {
 export async function addAndCommitAsync(root, paths, message, options = {}) {
   if (Array.isArray(paths) && paths.length > 0) {
     const cleanPaths = [...new Set(paths.map(p => toRepoRelative(root, p)))];
-    await runGitAsync(root, ['add', '--', ...cleanPaths], options);
-    await runGitAsync(root, ['commit', '-m', message, '--', ...cleanPaths], options);
+    const pathspecs = cleanPaths.map(p => (p.startsWith(':(literal)') ? p : `:(literal)${p}`));
+    await runGitAsync(root, ['add', '--', ...pathspecs], options);
+    await runGitAsync(root, ['commit', '-m', message, '--', ...pathspecs], options);
   } else {
     await runGitAsync(root, ['add', '-A'], options);
     await runGitAsync(root, ['commit', '-m', message], options);
