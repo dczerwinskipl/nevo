@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-12T18:38:14.260Z",
+  "generated": "2026-10-12T18:38:18.162Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -149,7 +149,7 @@
           "id": "session-choice-documentation-and-adr",
           "order": 7,
           "file": "tasks/07-session-choice-documentation-and-adr.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "step-start-session-choice-ui",
             "batch-review-session-choice-ui"
