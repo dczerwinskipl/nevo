@@ -44,8 +44,10 @@ tasks:
   - id: batch-sequential-session-continuation
     order: 5
     file: tasks/05-batch-sequential-session-continuation.md
-    status: approved
+    status: implemented
     depends_on: [ server-session-choice-resolution ]
+    implementation:
+      baseline_revision: 00a43c99348bf7346c8b7c5b9fae1bf9d6132f94
   - id: batch-review-session-choice-ui
     order: 6
     file: tasks/06-batch-review-session-choice-ui.md

@@ -31,6 +31,7 @@ import { resolveWorkflowMode } from '../../../../specs/workflow/compatibility.mj
 import { requireChange, requireTask, ACTIVE_DIR } from '../../../../specs/store.mjs';
 import { arraysEqual } from '../../../../specs/workflow/execution-identity.mjs';
 import { resolveStableSpecId } from '../../../../specs/identity.mjs';
+import { assessExecutionSettlement } from '../../../../specs/workflow/execution-settlement.mjs';
 
 /**
  * Resolves a just-finished member's own actual resulting destination (batch-execution-
@@ -164,8 +165,174 @@ function isTransientAdmissionReason(reason) {
  *   next natural trigger (another settlement's own Stage 2, a singleton settling, or
  *   Hook 3).
  */
+import {
+  getActiveSequentialContinuationChain,
+  saveSequentialContinuationChain,
+  loadSequentialContinuationChain,
+} from '../../../../specs/workflow/queue/sequential-continuation.mjs';
+
+/**
+ * Resumes active sequential continuation chain for a specification (Task 05, D3).
+ * Sequential single-task turns in their candidate sessions:
+ * - If current task is active, noop.
+ * - If current task settled cleanly ('completed'), advances to next task and admits it.
+ * - If current task did not settle cleanly ('resumable' or 'recovery-required'), stops the chain
+ *   and leaves later tasks recorded as 'not-started'.
+ *
+ * @param {object} params
+ * @returns {Promise<void>}
+ */
+export async function resumeSequentialContinuationForSpec({ repoRoot, changeSlug, activeDir, options = {} }) {
+  if (!repoRoot || !changeSlug) return;
+  try {
+    const chain = getActiveSequentialContinuationChain(repoRoot, changeSlug);
+    if (!chain || chain.status !== 'running') return;
+
+    const currentIndex = chain.currentTaskIndex ?? 0;
+    const currentTaskRecord = chain.tasks[currentIndex];
+    if (!currentTaskRecord) return;
+
+    const specId = chain.specId || changeSlug;
+
+    // Check if an execution is active in memory for this spec
+    const active = getActiveAgentExecution(specId) || getActiveAgentExecution(changeSlug);
+    if (active) {
+      return;
+    }
+
+    // Current execution is not active; assess its settlement
+    const settlement = await assessExecutionSettlement({
+      repoRoot,
+      changeSlug,
+      taskId: currentTaskRecord.taskId,
+      activeDir,
+      baselineProgress: currentTaskRecord.baselineProgress,
+    });
+
+    if (settlement.outcome === 'completed') {
+      currentTaskRecord.status = 'completed';
+      const nextIndex = currentIndex + 1;
+      if (nextIndex < chain.tasks.length) {
+        const nextTaskRecord = chain.tasks[nextIndex];
+
+        // Ensure slot is still free before admitting
+        const activeNow = getActiveAgentExecution(specId) || getActiveAgentExecution(changeSlug);
+        if (activeNow) {
+          saveSequentialContinuationChain(repoRoot, changeSlug, chain);
+          return;
+        }
+
+        const activeDirToUse = activeDir || path.join(repoRoot, 'specs', 'active');
+        const currentChange = requireChange(changeSlug, activeDirToUse);
+        const resolvedWorkflow = resolveWorkflowMode(currentChange, { repoRoot, activeDir: activeDirToUse });
+        const deterministicTarget = {
+          isDeterministic: resolvedWorkflow?.mode === 'deterministic',
+          change: currentChange,
+          changeSlug,
+          specId,
+          resolvedWorkflow,
+        };
+
+        const { resolveDeterministicExecutionPlan } = await import('./deterministic-execution-plan.mjs');
+        let nextPlan;
+        try {
+          nextPlan = await resolveDeterministicExecutionPlan({
+            deterministicTarget,
+            selectedTaskIds: [nextTaskRecord.taskId],
+            body: {
+              taskId: nextTaskRecord.taskId,
+              taskIds: [nextTaskRecord.taskId],
+              sessionPolicy: 'reuse',
+            },
+            repoRoot,
+          });
+        } catch (planErr) {
+          chain.status = 'stopped';
+          nextTaskRecord.status = 'failed';
+          nextTaskRecord.error = planErr.message;
+          for (let k = nextIndex + 1; k < chain.tasks.length; k++) {
+            chain.tasks[k].status = 'not-started';
+          }
+          saveSequentialContinuationChain(repoRoot, changeSlug, chain);
+          return;
+        }
+
+        const nextCandidate = {
+          taskId: nextPlan.targetTaskId,
+          stepId: nextPlan.targetStepName,
+          provider: nextPlan.effectiveProvider,
+          changeSlug,
+          specId,
+          sessionPolicy: 'reuse',
+          role: nextPlan.authoritativeRole,
+          parentSessionId: nextPlan.parentSessionId,
+          sessionId: nextPlan.parentSessionId,
+          message: nextPlan.effectiveUserMessage,
+          userMessage: nextPlan.effectiveUserMessage,
+          mode: nextPlan.effectiveMode,
+          model: nextPlan.effectiveModel || undefined,
+          readiness: nextPlan.authoritativeTarget.readiness,
+          sequentialChain: {
+            chainId: chain.chainId,
+            taskIndex: nextIndex,
+          },
+        };
+
+        const sessionService = options.sessionService;
+        const turnRuntime = options.turnRuntime || sessionService?.turnRuntime;
+        let admission;
+        try {
+          admission = await admitAgentExecution(specId, nextCandidate, {
+            repoRoot,
+            sessionService,
+            turnRuntime,
+            activeDir,
+          });
+        } catch (admitErr) {
+          admission = { admitted: false, reason: admitErr.message };
+        }
+
+        if (admission.admitted) {
+          chain.currentTaskIndex = nextIndex;
+          nextTaskRecord.status = 'running';
+          nextTaskRecord.sessionId = admission.sessionId;
+          nextTaskRecord.turnId = admission.turnId;
+          nextTaskRecord.ownerId = admission.ownerId;
+          const nextTaskObj = currentChange?.tasks?.find?.((t) => t.id === nextTaskRecord.taskId);
+          const nextWp = nextTaskObj?.workflow_progress;
+          nextTaskRecord.baselineProgress = nextWp ? {
+            current_step: nextWp.current_step,
+            current_attempt: nextWp.current_attempt,
+            state: nextWp.state,
+            historyLength: nextWp.history?.length || 0,
+          } : null;
+          saveSequentialContinuationChain(repoRoot, changeSlug, chain);
+        } else {
+          saveSequentialContinuationChain(repoRoot, changeSlug, chain);
+        }
+      } else {
+        chain.status = 'completed';
+        saveSequentialContinuationChain(repoRoot, changeSlug, chain);
+      }
+    } else {
+      // Turn did not settle cleanly (outcome: 'resumable' or 'recovery-required')
+      chain.status = 'stopped';
+      currentTaskRecord.status = settlement.outcome;
+      currentTaskRecord.error = settlement.reason || `Turn did not settle cleanly (${settlement.outcome})`;
+      for (let k = currentIndex + 1; k < chain.tasks.length; k++) {
+        chain.tasks[k].status = 'not-started';
+      }
+      saveSequentialContinuationChain(repoRoot, changeSlug, chain);
+    }
+  } catch (err) {
+    console.error('[batch-completion-settlement] Sequential continuation resume error:', err);
+  }
+}
+
 export async function resumePendingHandoverForSpec({ repoRoot, changeSlug, excludeBatchExecutionId, activeDir, options }) {
   try {
+    await resumeSequentialContinuationForSpec({ repoRoot, changeSlug, activeDir, options });
+
     const dir = getBatchCompletionSettlementDir(repoRoot, changeSlug);
     if (!fs.existsSync(dir)) return;
 
@@ -224,14 +391,25 @@ export async function sweepAllPendingHandovers({ repoRoot, activeDir, options })
   try {
     if (!repoRoot) return;
     const baseDir = path.join(repoRoot, '.nevo-ai-local', 'batch-completion');
-    if (!fs.existsSync(baseDir)) return;
+    if (fs.existsSync(baseDir)) {
+      const changeSlugs = fs.readdirSync(baseDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
 
-    const changeSlugs = fs.readdirSync(baseDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
+      for (const changeSlug of changeSlugs) {
+        await resumePendingHandoverForSpec({ repoRoot, changeSlug, excludeBatchExecutionId: null, activeDir, options });
+      }
+    }
 
-    for (const changeSlug of changeSlugs) {
-      await resumePendingHandoverForSpec({ repoRoot, changeSlug, excludeBatchExecutionId: null, activeDir, options });
+    const seqBaseDir = path.join(repoRoot, '.nevo-ai-local', 'sequential-continuation');
+    if (fs.existsSync(seqBaseDir)) {
+      const seqSlugs = fs.readdirSync(seqBaseDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
+
+      for (const changeSlug of seqSlugs) {
+        await resumeSequentialContinuationForSpec({ repoRoot, changeSlug, activeDir, options });
+      }
     }
   } catch {
     // Best-effort: never let a sweep attempt fail the caller that triggered it.

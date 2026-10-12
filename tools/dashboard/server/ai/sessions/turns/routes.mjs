@@ -59,6 +59,8 @@ export function resolveDeterministicExecutionTarget({ specId, slug, changeSlug, 
 }
 
 export default async function turnRoutes(fastify, { service, accessPolicy, repoRoot }) {
+  const effectiveRepoRoot = repoRoot || service?.repoRoot || process.cwd();
+
   // Atomic first-turn + session creation.
   fastify.post('/api/agent-sessions/turns', { bodyLimit: TURN_BODY_LIMIT }, async (request, reply) => {
     authorize(accessPolicy, 'control', request);
@@ -84,8 +86,6 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
     if (effort !== undefined && (typeof effort !== 'string' || !effort.trim())) {
       throw new AiValidationError('Effort must be a non-empty string when provided.');
     }
-
-    const effectiveRepoRoot = repoRoot || service.repoRoot || process.cwd();
 
     if (body.purpose === 'execution') {
       const selectedTaskIds = Array.isArray(body.taskIds) && body.taskIds.length > 0
@@ -117,6 +117,171 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         if (!exists) {
           throw new AiValidationError(`Task '${tid}' not found in specification '${changeSlug}'.`);
         }
+      }
+
+      // Multi-task sequential session continuation (Task 05, D3):
+      // "Continue each task in its own session" — validates reuse candidate and provider
+      // for every selected task; on acceptance starts the first turn and records the chain
+      // durably, chaining subsequent turns sequentially through pending-handover sweeps.
+      if (body.batchContinuation === true || body.continueEach === true) {
+        if (selectedTaskIds.length === 0) {
+          throw new AiValidationError('Task ID is required for batch continuation.');
+        }
+
+        const { resolveDeterministicExecutionPlan } = await import('../../orchestration/deterministic-execution-plan.mjs');
+
+        // Validate every selected task: target step allows reuse, candidate exists, provider compatible.
+        // If any task fails, the whole request is rejected naming that task and reason; nothing is started.
+        const validatedPlans = [];
+        for (const tid of selectedTaskIds) {
+          try {
+            const plan = await resolveDeterministicExecutionPlan({
+              deterministicTarget,
+              selectedTaskIds: [tid],
+              body: {
+                ...body,
+                taskId: tid,
+                taskIds: [tid],
+                sessionPolicy: 'reuse',
+              },
+              effort,
+              repoRoot: effectiveRepoRoot,
+            });
+
+            if (plan.noRunnableTask) {
+              reply.code(400).send({
+                error: {
+                  code: 'NO_RUNNABLE_TASK',
+                  message: `Task '${tid}' has no runnable step.`,
+                  taskId: tid,
+                },
+              });
+              return;
+            }
+
+            if (plan.sessionPolicy !== 'reuse') {
+              reply.code(400).send({
+                error: {
+                  code: 'SESSION_POLICY_NOT_ALLOWED',
+                  message: `Task '${tid}' target step transition does not allow session reuse.`,
+                  taskId: tid,
+                },
+              });
+              return;
+            }
+
+            validatedPlans.push(plan);
+          } catch (err) {
+            reply.code(400).send({
+              error: {
+                code: err.code || 'BATCH_CONTINUATION_VALIDATION_FAILED',
+                message: `Task '${tid}' failed batch continuation validation: ${err.message}`,
+                taskId: tid,
+                details: err,
+              },
+            });
+            return;
+          }
+        }
+
+        const { randomUUID } = await import('node:crypto');
+        const { saveSequentialContinuationChain } = await import('../../../../../specs/workflow/queue/sequential-continuation.mjs');
+
+        const chainId = randomUUID();
+        const chain = {
+          chainId,
+          changeSlug,
+          specId: canonicalSpecId,
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          currentTaskIndex: 0,
+          tasks: validatedPlans.map((p, idx) => {
+            const taskObj = deterministicTarget.change?.tasks?.find?.((t) => t.id === p.targetTaskId);
+            const wp = taskObj?.workflow_progress;
+            const baselineProgress = wp ? {
+              current_step: wp.current_step,
+              current_attempt: wp.current_attempt,
+              state: wp.state,
+              historyLength: wp.history?.length || 0,
+            } : null;
+            return {
+              taskId: p.targetTaskId,
+              stepId: p.targetStepName,
+              provider: p.effectiveProvider,
+              mode: p.effectiveMode,
+              model: p.effectiveModel,
+              candidateSessionId: p.parentSessionId,
+              sessionId: null,
+              status: idx === 0 ? 'running' : 'not-started',
+              turnId: null,
+              ownerId: null,
+              baselineProgress,
+            };
+          }),
+        };
+
+        saveSequentialContinuationChain(effectiveRepoRoot, changeSlug, chain);
+
+        const firstPlan = validatedPlans[0];
+        const candidate = {
+          taskId: firstPlan.targetTaskId,
+          stepId: firstPlan.targetStepName,
+          provider: firstPlan.effectiveProvider,
+          changeSlug,
+          specId: canonicalSpecId,
+          sessionPolicy: 'reuse',
+          role: firstPlan.authoritativeRole,
+          parentSessionId: firstPlan.parentSessionId,
+          sessionId: firstPlan.parentSessionId,
+          message: firstPlan.effectiveUserMessage,
+          userMessage: firstPlan.effectiveUserMessage,
+          mode: firstPlan.effectiveMode,
+          model: firstPlan.effectiveModel || undefined,
+          effort: effort ? effort.trim() : undefined,
+          idempotencyKey: body.idempotencyKey,
+          readiness: firstPlan.authoritativeTarget.readiness,
+          sequentialChain: {
+            chainId,
+            taskIndex: 0,
+          },
+        };
+
+        const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
+        const admission = await admitAgentExecution(canonicalSpecId, candidate, {
+          repoRoot: effectiveRepoRoot,
+          sessionService: service,
+          turnRuntime: service.turnRuntime,
+        });
+
+        if (!admission.admitted) {
+          chain.status = 'failed';
+          chain.tasks[0].status = 'failed';
+          saveSequentialContinuationChain(effectiveRepoRoot, changeSlug, chain);
+          reply.code(409).send({
+            error: {
+              code: admission.reason || 'ADMISSION_BLOCKED',
+              message: `Sequential agent execution admission failed: ${admission.reason}`,
+              details: admission,
+            },
+          });
+          return;
+        }
+
+        chain.tasks[0].sessionId = admission.sessionId;
+        chain.tasks[0].turnId = admission.turnId;
+        chain.tasks[0].ownerId = admission.ownerId;
+        saveSequentialContinuationChain(effectiveRepoRoot, changeSlug, chain);
+
+        reply.code(201).send({
+          sessionId: admission.sessionId,
+          turnId: admission.turnId,
+          ownerId: admission.ownerId,
+          provider: firstPlan.effectiveProvider,
+          chainId,
+          chain,
+        });
+        return;
       }
 
       // Explicit multi-task batch execution ("Review together", Task 08, D6, D12, D13,
@@ -778,6 +943,28 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       console.log(`[ai] [turn:recover] provider=${provider} session=${providerSessionId} turnId=${turnId}`);
       const turn = await service.recoverTurn(turnId, { provider, providerSessionId });
       reply.send({ turn });
+    },
+  );
+
+  // Status query for sequential continuation chains (Task 05)
+  fastify.get(
+    '/api/agent-sessions/chains/:chainId',
+    async (request, reply) => {
+      authorize(accessPolicy, 'read', request);
+      const chainId = request.params.chainId;
+      const changeSlug = request.query?.changeSlug || request.query?.slug;
+      const { loadSequentialContinuationChain } = await import('../../../../../specs/workflow/queue/sequential-continuation.mjs');
+      const chain = loadSequentialContinuationChain(effectiveRepoRoot, changeSlug, chainId);
+      if (!chain) {
+        reply.code(404).send({
+          error: {
+            code: 'CHAIN_NOT_FOUND',
+            message: `Chain '${chainId}' not found.`,
+          },
+        });
+        return;
+      }
+      reply.send({ chain });
     },
   );
 }

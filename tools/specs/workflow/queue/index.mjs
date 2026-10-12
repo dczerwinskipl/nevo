@@ -15,3 +15,12 @@ export {
   assessBatchReservationSettlement,
   reconcileCrashedReservation,
 } from './reservation.mjs';
+
+export {
+  getSequentialContinuationBaseDir,
+  getSequentialContinuationDir,
+  saveSequentialContinuationChain,
+  loadSequentialContinuationChain,
+  listSequentialContinuationChains,
+  getActiveSequentialContinuationChain,
+} from './sequential-continuation.mjs';
