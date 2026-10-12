@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-12T18:38:02.895Z",
+  "generated": "2026-10-12T18:38:06.783Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -121,7 +121,7 @@
           "id": "step-start-session-choice-ui",
           "order": 4,
           "file": "tasks/04-step-start-session-choice-ui.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "actions-session-choice-projection"
           ]

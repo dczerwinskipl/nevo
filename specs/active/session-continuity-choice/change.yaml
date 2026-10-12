@@ -31,7 +31,7 @@ tasks:
   - id: step-start-session-choice-ui
     order: 4
     file: tasks/04-step-start-session-choice-ui.md
-    status: draft
+    status: approved
     depends_on: [ actions-session-choice-projection ]
   - id: batch-sequential-session-continuation
     order: 5
