@@ -16,6 +16,7 @@ import { Card } from '@/shared/ui/card';
 import { Badge } from '@/shared/ui/badge';
 import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
 import { StatusBoard } from '@/features/specifications/detail/status-board';
+import { BatchReviewSessionChoiceDialog } from '@/features/specifications/tasks/session-choice';
 
 export interface SequentialQueueTaskPickerProps {
   specification?: SpecificationSummary;
@@ -25,7 +26,7 @@ export interface SequentialQueueTaskPickerProps {
     task: SpecificationTask,
     stepDescriptor: WorkflowStepDescriptor,
     taskIds?: string[],
-    options?: { oneOff?: boolean; reviewTogether?: boolean },
+    options?: { oneOff?: boolean; reviewTogether?: boolean; batchContinuation?: boolean },
   ) => void | Promise<void>;
   onTriggerRemediationReview?: (remediationTaskIds: string[]) => void | Promise<void>;
   executionPolicy?: ExecutionPolicy | null;
@@ -129,9 +130,12 @@ export function SequentialQueueTaskPicker({
   const reviewerProvider = executionPolicy?.roles?.reviewer?.provider || defaultProvider;
   const refinerProvider = executionPolicy?.roles?.refiner?.provider || defaultProvider;
 
+  const [batchReviewDialogOpen, setBatchReviewDialogOpen] = useState(false);
+  const [batchReviewError, setBatchReviewError] = useState<string | null>(null);
+
   // Submits the selection via server-side orchestration layer
   // Starts exactly ONE session (for the queue's first nextRunnable item), never more than one (D33, AC 2, AC 8)
-  const handleStartBatch = useCallback((options?: { oneOff?: boolean; reviewTogether?: boolean }) => {
+  const handleStartBatch = useCallback((options?: { oneOff?: boolean; reviewTogether?: boolean; batchContinuation?: boolean }) => {
     if (selectedTaskIds.size === 0) return;
     const selectedTasks = tasks
       .filter((t) => selectedTaskIds.has(t.id))
@@ -151,25 +155,45 @@ export function SequentialQueueTaskPicker({
           executor: gate?.executor || 'agent',
         };
       // Exactly ONE session start is initiated
-      onStartStep?.(nextRunnable, descriptor, Array.from(selectedTaskIds), options);
+      return onStartStep?.(nextRunnable, descriptor, Array.from(selectedTaskIds), options);
     }
   }, [onStartStep, selectedTaskIds, tasks, taskActions]);
 
   // Check if selected tasks are eligible for batch review together (D12, D13)
-  const isBatchReviewEligible = useMemo(() => {
-    if (selectedTaskIds.size < 2) return false;
+  const batchReviewEligibility = useMemo(() => {
+    if (selectedTaskIds.size < 2) {
+      return { eligible: false, reason: null, ineligibleTaskId: null };
+    }
     for (const id of selectedTaskIds) {
       const gate = taskActions?.[id];
       const targetStep = gate?.stepDescriptor?.id || gate?.nextStepDescriptor?.id || gate?.currentStepDescriptor?.id;
       const role = gate?.execution?.role;
       const isReviewer = targetStep === 'review' || role === 'reviewer';
       const isRunnable = gate?.availableActions?.includes('start-step');
-      if (!isReviewer || !isRunnable) {
-        return false;
+
+      if (!isReviewer) {
+        const task = tasks.find((t) => t.id === id);
+        const name = task?.title || id;
+        return {
+          eligible: false,
+          ineligibleTaskId: id,
+          reason: `Zadanie '${name}' (${id}) nie jest w kroku review (obecny krok: ${targetStep || 'brak'}).`,
+        };
+      }
+      if (!isRunnable) {
+        const task = tasks.find((t) => t.id === id);
+        const name = task?.title || id;
+        return {
+          eligible: false,
+          ineligibleTaskId: id,
+          reason: `Zadanie '${name}' (${id}) nie może zostać uruchomione.`,
+        };
       }
     }
-    return true;
-  }, [selectedTaskIds, taskActions]);
+    return { eligible: true, reason: null, ineligibleTaskId: null };
+  }, [selectedTaskIds, taskActions, tasks]);
+
+  const isBatchReviewEligible = batchReviewEligibility.eligible;
 
   // Check if any task in change has an associated batch review report (Task 08, D7, D13)
   const sharedBatchReportPath = useMemo(() => {
@@ -230,16 +254,36 @@ export function SequentialQueueTaskPicker({
           >
             Uruchom z...
           </Button>
-          {isBatchReviewEligible && (
-            <Button
-              size="sm"
-              onClick={() => handleStartBatch({ reviewTogether: true })}
-              className="h-7 cursor-pointer bg-accent text-accent-contrast text-xs font-semibold hover:bg-accent/90"
-              aria-label="Review together"
-              title="Review selected tasks together in one batch session"
-            >
-              <Layers3 className="mr-1 size-3" /> Review together ({selectedTaskIds.size})
-            </Button>
+          {selectedTaskIds.size >= 2 && (
+            <div className="flex flex-col items-start gap-1">
+              <Button
+                size="sm"
+                onClick={() => {
+                  setBatchReviewError(null);
+                  setBatchReviewDialogOpen(true);
+                }}
+                disabled={!isBatchReviewEligible}
+                className={cn(
+                  'h-7 text-xs font-semibold',
+                  isBatchReviewEligible
+                    ? 'cursor-pointer bg-accent text-accent-contrast hover:bg-accent/90'
+                    : 'cursor-not-allowed opacity-60',
+                )}
+                aria-label="Review together"
+                title={
+                  isBatchReviewEligible
+                    ? 'Review selected tasks together in one batch session'
+                    : batchReviewEligibility.reason || 'Batch review is not available'
+                }
+              >
+                <Layers3 className="mr-1 size-3" /> Review together ({selectedTaskIds.size})
+              </Button>
+              {!isBatchReviewEligible && batchReviewEligibility.reason && (
+                <span className="text-[11px] text-status-warning" role="status">
+                  {batchReviewEligibility.reason}
+                </span>
+              )}
+            </div>
           )}
           <Button
             size="sm"
@@ -377,6 +421,31 @@ export function SequentialQueueTaskPicker({
           );
         })}
       </div>
+
+      {batchReviewDialogOpen && (
+        <BatchReviewSessionChoiceDialog
+          open={batchReviewDialogOpen}
+          specificationTitle={specification?.title || 'Specification'}
+          tasks={tasks.filter((t) => selectedTaskIds.has(t.id)).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
+          taskActions={taskActions}
+          onClose={() => setBatchReviewDialogOpen(false)}
+          error={batchReviewError}
+          onConfirm={async (choice) => {
+            try {
+              if (choice.reviewTogether) {
+                await handleStartBatch({ reviewTogether: true });
+              } else if (choice.batchContinuation) {
+                await handleStartBatch({ batchContinuation: true });
+              }
+              setBatchReviewDialogOpen(false);
+            } catch (err: any) {
+              const msg = err instanceof Error ? err.message : String(err);
+              setBatchReviewError(msg);
+              throw err;
+            }
+          }}
+        />
+      )}
     </Card>
   );
 }

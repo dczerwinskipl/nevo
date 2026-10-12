@@ -51,8 +51,10 @@ tasks:
   - id: batch-review-session-choice-ui
     order: 6
     file: tasks/06-batch-review-session-choice-ui.md
-    status: approved
+    status: implemented
     depends_on: [ step-start-session-choice-ui, batch-sequential-session-continuation ]
+    implementation:
+      baseline_revision: 606a6ad07acdd50c38b17601661402b1ed24180a
   - id: session-choice-documentation-and-adr
     order: 7
     file: tasks/07-session-choice-documentation-and-adr.md

@@ -158,6 +158,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       taskIds?: string[],
       executionOptions?: {
         reviewTogether?: boolean;
+        batchContinuation?: boolean;
         sessionPolicy?: 'reuse' | 'fresh';
         sessionId?: string;
       },
@@ -175,6 +176,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           ...(policy.oneOff && policy.mode ? { mode: policy.mode } : {}),
           ...(policy.model !== undefined ? { model: policy.model } : {}),
           ...(executionOptions?.reviewTogether ? { reviewTogether: true } : {}),
+          ...(executionOptions?.batchContinuation ? { batchContinuation: true } : {}),
           ...(executionOptions?.sessionPolicy ? { sessionPolicy: executionOptions.sessionPolicy } : {}),
           ...(executionOptions?.sessionId ? { sessionId: executionOptions.sessionId } : {}),
           specId: specification.specId,
@@ -243,6 +245,14 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           const sessionChoice = actionGate?.sessionChoice;
           const isReviewStep = stepDescriptor.id === 'review' || actionGate?.execution?.role === 'reviewer';
 
+          if (options?.batchContinuation) {
+            await proceedWithAgentExecution(targetTaskId, undefined, taskIds, {
+              ...options,
+              batchContinuation: true,
+            });
+            return;
+          }
+
           if (options?.oneOff || !currentPolicy || hasConflict || isBatchReview) {
             const effectiveRole = actionGate?.execution?.role || undefined;
             const effective = resolvePolicyForTask(currentPolicy, targetTaskId, { role: effectiveRole });
@@ -278,6 +288,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
         } catch (err: any) {
           const message = err instanceof Error ? err.message : String(err);
           setWorkflowError(message);
+          throw err;
         }
       } else if (stepDescriptor.executor === 'human') {
         // D47/D49: Human-owned destination renders mutation-free interaction preview directly from DTO.
