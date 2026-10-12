@@ -208,7 +208,7 @@ implementation -> review -> human-verification -> [terminal: verified]
 - **Hints**: `docs/development/workflow-engine.md`, `docs/ai/task-execution-policy.md`.
 - **Exit gates**: `task-verification` (`CommandGate` executing task `## Verification` commands).
 - **Finalize**: `commit-and-push`.
-- **Transition**: `to: review`.
+- **Transition**: `to: review` (continuation: auto, execution: `session: fresh`, `role: reviewer`, `allow: [fresh, reuse]`, `reuseFrom: implementation`).
 
 ### 2. `review`
 - **Semantic status pair**: `active: reviewing`, `completed: reviewed`.
@@ -219,16 +219,19 @@ implementation -> review -> human-verification -> [terminal: verified]
 - **Finalize**: `commit-and-push`.
 - **Transitions**:
   - `value: pass` -> `to: human-verification`
-  - `value: fail` -> `to: implementation` (iterative rework loop; requires explanatory feedback via `action.feedback.required: true`)
+  - `value: fail` -> `to: implementation` (iterative rework loop; requires explanatory feedback via `action.feedback.required: true`, execution: `session: fresh`, `role: refiner`)
 
 ### 3. `human-verification`
+- **Executor**: `human`.
 - **Semantic status pair**: `active: awaiting-human-verification`, `completed: completed`.
 - **Purpose**: Explicit owner/user acceptance sign-off after automated implementation and independent review have completed.
 - **Expected work**: Confirm readiness with the repository owner and record explicit human verification sign-off.
 - **Hints**: `docs/ai/specification-workflow.md`, `docs/development/workflow-engine.md`.
 - **Exit gates**: `human` (`HumanVerificationGate`, `required: true`, `id: owner-acceptance`).
 - **Finalize**: `commit-and-push` (persisting terminal completed workflow state and canonical `task.status: verified`).
-- **Transition**: `to: verified` (canonical terminal status).
+- **Transitions**:
+  - `value: pass` -> `to: verified` (canonical terminal status, action: Approve, outcome: success)
+  - `value: fail` -> `to: implementation` (request changes; iterative rework loop; requires explanatory feedback, execution: `session: reuse`, `role: refiner`, `allow: [reuse, fresh]`, `reuseFrom: implementation`)
 
 ### Visible lifecycle progression
 ```text
@@ -326,6 +329,48 @@ internal step targets from terminal statuses:
 ```
 
 For terminal transitions, `transition.to` resolves to `{ "kind": "terminal", "status": "verified" }`.
+
+## Execution contracts and session continuity choice (ADR-0012)
+
+Deterministic workflow steps declare incoming transition execution contracts under `execution`:
+
+```yaml
+execution:
+  session: fresh                 # Default policy: 'fresh' | 'reuse'
+  role: reviewer                 # Agent role hint
+  allow: [fresh, reuse]          # Permissible policies (subset of ['fresh', 'reuse'])
+  reuseFrom: implementation      # Predecessor step name to reuse session from
+```
+
+### Declarative schema and validation
+
+- **`execution.session`**: The default session policy (`'fresh'` or `'reuse'`). When omitted, defaults to `'fresh'`.
+- **`execution.allow`**: An array of permissible policies (`Array<'fresh' | 'reuse'>`). When omitted, defaults to `[session || 'fresh']`.
+- **`execution.reuseFrom`**: Step name whose prior session is the candidate for reuse.
+- **Fail-closed schema rule**: If `allow` includes `'reuse'`, `reuseFrom` is strictly required. Omitting `reuseFrom` when `reuse` is permitted fails closed at workflow definition load time (`MISSING_REUSE_FROM` / definition validation error).
+
+### Server candidate derivation and admission validation
+
+When admitting an agent execution turn (`/api/agent-sessions/turns` or during sequential batch continuation), the server evaluates the requested `session` policy:
+
+1. **Permissibility check (`DISALLOWED_SESSION_POLICY`, 400)**: The requested policy must be present in the transition's `execution.allow` list.
+2. **Reuse candidate derivation (`NO_REUSE_CANDIDATE`, 400)**: If `session === 'reuse'`, the server looks up the candidate session from the task's execution history for step `execution.reuseFrom`. If no session exists for that step, admission fails with `NO_REUSE_CANDIDATE`.
+3. **Provider compatibility (`PROVIDER_MISMATCH`, 400)**: The candidate session's provider (e.g. `claude`, `codex`, `antigravity`) must match the execution turn's provider. Cross-provider session reuse is not supported.
+4. **Contract integrity (`MISSING_REUSE_FROM`, 500)**: If `session === 'reuse'` but the workflow definition lacks `reuseFrom`, the server aborts with an internal definition error.
+
+### Client projection (`sessionChoice` DTO)
+
+The server projects candidate session information to API clients in `actions.tasks[taskId].sessionChoice`:
+- `default`: The transition's configured default policy (`'fresh'` or `'reuse'`).
+- `allowed`: The permitted policy list (`['fresh', 'reuse']`).
+- `candidate`: Metadata of the candidate session (`sessionId`, `step`, `attempt`, `provider`, `label`), or `null` if none exists.
+- `unavailableReason`: When reuse cannot be chosen (e.g. no candidate found, or provider mismatch), an error payload `{ code, message }` explaining why.
+
+### Default policies for standard workflow (D4) and review independence
+
+In `standard-v1.yaml`:
+- **Request changes rework (`human-verification -> implementation`)**: Defaults to `session: reuse`, `allow: ['reuse', 'fresh']`, `reuseFrom: implementation`. An agent returning from human verification retains earlier conversation history, scratch pad state, and file context by default, while operators retain the option to start fresh.
+- **Implementation to review (`implementation -> review`)**: Defaults to `session: fresh`, `allow: ['fresh', 'reuse']`, `reuseFrom: implementation`. Fresh sessions safeguard review independence and objectivity. The UI permits selecting reuse, but presents an explicit warning that continuing the implementation session reduces review independence.
 
 ## Finish planning and durable finish execution
 
@@ -518,6 +563,21 @@ The workflow engine includes a deterministic sequential queue (`tools/specs/work
 - **Action Barrier**: While reserved, all member tasks are barriered (`isTaskBarriered(change, taskId)`). Barriered tasks are excluded from `evaluateTaskQueue`'s `eligible` and `nextRunnable`, and rejected by ordinary `assertExecutionReadiness`, raw `workflow step start`, and human-step operations (`startHumanStep`, `submitHumanStepResult`, `activateAndSubmitHumanStep`).
 - **Base Readiness vs. Ordinary Readiness**: `readiness-policy.mjs` splits readiness evaluation into `evaluateBaseExecutionReadiness` (underlying workflow, dependency, suspension, and worktree eligibility) and `evaluateExecutionReadiness` (composes base with the action barrier). An authenticated batch execution consumes base readiness for its owned members while ordinary callers are blocked.
 - **Scope-Aware Settlement and Rollback**: Crashed reservations are reconciled via scope-aware settlement checks across all member tasks, and failed admissions trigger synchronous reservation rollback.
+
+### Sequential continuation for multi-task batches (D3)
+
+When operators select multiple tasks for step execution (e.g. continuing multiple tasks across a batch review or rework phase) with `batchContinuation: true`, the workflow engine coordinates execution sequentially rather than in a single shared session:
+
+- **Sequential invariant**: Strictly respects ADR-0009's invariant of exactly one active execution per specification at any time. Tasks run sequentially in user-selected order, never concurrently.
+- **Durable chain store**: Persisted at `.nevo-ai-local/sequential-continuation/<changeSlug>/<chainId>.json`, tracking `chainId`, `changeSlug`, `taskIds`, `currentTaskIndex`, `status` (`running`, `completed`, `failed`), and per-task records (`taskIndex`, `taskId`, `status`, `sessionId`, `turnId`, `error`).
+- **Chain execution lifecycle**:
+  1. The first task in the chain is admitted immediately.
+  2. As turns settle, the settlement hook (`assessExecutionSettlement` within `handleTurnSettled` / `resumeSequentialContinuationForSpec`) evaluates the turn outcome.
+  3. **Completion**: If `outcome === 'completed'`, the chain records task completion, increments `currentTaskIndex`, and admits the next task.
+  4. **Halt on failure**: If the turn does not settle cleanly (`resumable` or `recovery-required`), the chain halts immediately: the current task is marked failed, all remaining tasks are marked `not-started`, and no subsequent turns are admitted.
+  5. **Terminal completion**: Once the final task completes successfully, the chain transitions to `status: 'completed'`.
+- **Crash recovery**: Daemon startup sweeps (`sweepAllPendingHandovers` calling `resumeSequentialContinuationForSpec`) scan for active chains and resume sequential continuation after unexpected process crashes or restarts.
+- **Chain query API**: Clients inspect chain progress via `GET /api/agent-sessions/chains/:chainId`.
 
 ## Derived-artifact ownership and synchronization
 

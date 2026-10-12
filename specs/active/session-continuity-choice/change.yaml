@@ -58,7 +58,9 @@ tasks:
   - id: session-choice-documentation-and-adr
     order: 7
     file: tasks/07-session-choice-documentation-and-adr.md
-    status: approved
+    status: implemented
     depends_on: [ step-start-session-choice-ui, batch-review-session-choice-ui ]
+    implementation:
+      baseline_revision: 34521c9647b14cbe08bbd05b5a2ce2a18461fe8d
 
 spec_id: 91dbd0e6-a840-4feb-8ee0-8560f6bd82fd

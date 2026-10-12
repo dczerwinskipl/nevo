@@ -72,6 +72,13 @@ After successful workflow step finish, stop.
 
 *Note:* Session ID is never an agent-authored input or command parameter; it is exclusively resolved from trusted ambient runtime context.
 
+### Session Continuity & Request-Changes Rework Defaults (ADR-0012)
+When returning to `implementation` following a human verification request-changes (`human-verification -> implementation`), the standard workflow (`standard-v1`) defaults to continuing in the existing implementation session (`session: reuse`, `reuseFrom: implementation`) rather than launching a fresh session:
+- **Context Retention:** The re-admitted implementation agent continues in its prior session by default, retaining conversation history, earlier attempt context, tool invocations, and file edits.
+- **Previous Transition in StepContext:** `StepContext.previousTransition` conveys the human reviewer's requested changes, feedback, and artifacts across attempts.
+- **Operator Override:** Operators retain bounded choice in the Dashboard to select a fresh session (`allow: ['reuse', 'fresh']`) when an unpolluted context is preferred.
+- **Review Independence:** Conversely, transitions from `implementation -> review` default to fresh sessions (`session: fresh`) to preserve review objectivity, with session reuse available only as an explicit override accompanied by a review independence warning.
+
 ### Stage 2: Step Activation & Auto-Binding
 The agent initiates work by invoking:
 ```bash
