@@ -528,7 +528,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         // existing one; a transition declaring session: reuse must reuse the exact
         // server-resolved predecessor, never whichever sessionId happens to appear in
         // this URL.
-        const { resolveDeterministicExecutionPlan } = await import('../../orchestration/deterministic-execution-plan.mjs');
+        const { resolveDeterministicExecutionPlan, SessionChoiceValidationError } = await import('../../orchestration/deterministic-execution-plan.mjs');
         const plan = await resolveDeterministicExecutionPlan({
           deterministicTarget,
           selectedTaskIds: [taskId],
@@ -568,7 +568,8 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         // never an arbitrary same-task session merely because its id appears in this
         // URL.
         if (sessionPolicy === 'reuse' && sessionId !== parentSessionId) {
-          throw new AiValidationError(
+          throw new SessionChoiceValidationError(
+            'SESSION_ID_MISMATCH',
             `This session ('${sessionId}') does not match the server-derived session to reuse ('${parentSessionId}') for this workflow transition.`
           );
         }

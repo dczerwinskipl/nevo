@@ -18,6 +18,151 @@
 import { join } from 'node:path';
 import { AiValidationError } from '../contracts.mjs';
 
+export class SessionChoiceValidationError extends AiValidationError {
+  constructor(code, message, details) {
+    super(message, details);
+    this.code = code;
+    this.name = 'SessionChoiceValidationError';
+  }
+}
+
+/**
+ * Derives the reuse candidate session for a workflow transition.
+ */
+export async function deriveReuseCandidate({
+  task,
+  definition,
+  matchedTransition,
+  canonicalSpecId,
+  targetTaskId,
+  repoRoot,
+  bindingService: providedBindingService,
+}) {
+  const history = task?.workflow_progress?.history || [];
+  const reuseFromStep = matchedTransition?.execution?.reuseFrom || null;
+
+  if (!repoRoot && !providedBindingService) return null;
+
+  let bindingService = providedBindingService;
+  if (!bindingService && repoRoot) {
+    try {
+      const { createAgentSessionBindingService } = await import('../sessions/binding-service.mjs');
+      bindingService = createAgentSessionBindingService({
+        storageDir: join(repoRoot, '.nevo-ai-local', 'sessions'),
+      });
+    } catch {
+      bindingService = null;
+    }
+  }
+
+  let candidateSessionId = null;
+  let candidateStep = null;
+  let candidateAttempt = 1;
+
+  if (reuseFromStep) {
+    let foundInHistory = false;
+    for (let i = history.length - 1; i >= 0; i--) {
+      const h = history[i];
+      if (h.step === reuseFromStep) {
+        foundInHistory = true;
+        candidateStep = h.step;
+        candidateAttempt = h.attempt ?? 1;
+        if (h.sessionId) {
+          candidateSessionId = h.sessionId;
+          break;
+        }
+        if (bindingService) {
+          try {
+            const stepBindings = await bindingService.listBindings({
+              specId: canonicalSpecId,
+              taskId: targetTaskId,
+              step: h.step,
+              ...(h.attempt !== undefined ? { attempt: h.attempt } : {}),
+            });
+            if (stepBindings.length === 1) {
+              candidateSessionId = stepBindings[0].sessionId;
+            }
+          } catch {}
+        }
+        break;
+      }
+    }
+
+    if (!candidateSessionId && !foundInHistory && bindingService) {
+      try {
+        const stepBindings = await bindingService.listBindings({
+          specId: canonicalSpecId,
+          taskId: targetTaskId,
+          step: reuseFromStep,
+        });
+        if (stepBindings.length === 1) {
+          candidateSessionId = stepBindings[0].sessionId;
+          candidateStep = reuseFromStep;
+          candidateAttempt = stepBindings[0].attempt ?? 1;
+        }
+      } catch {}
+    }
+  } else if (history.length > 0) {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const h = history[i];
+      const priorStepDef = definition?.steps?.[h.step];
+      const priorExecutor = priorStepDef?.executor || 'agent';
+      if (priorExecutor === 'human') {
+        continue;
+      }
+      candidateStep = h.step;
+      candidateAttempt = h.attempt ?? 1;
+      if (h.sessionId) {
+        candidateSessionId = h.sessionId;
+        break;
+      }
+      if (bindingService) {
+        try {
+          const stepBindings = await bindingService.listBindings({
+            specId: canonicalSpecId,
+            taskId: targetTaskId,
+            step: h.step,
+            ...(h.attempt !== undefined ? { attempt: h.attempt } : {}),
+          });
+          if (stepBindings.length === 1) {
+            candidateSessionId = stepBindings[0].sessionId;
+            break;
+          } else if (stepBindings.length > 1) {
+            candidateSessionId = null;
+            break;
+          }
+        } catch {}
+      }
+    }
+  }
+
+  if (!candidateSessionId) return null;
+
+  let provider = null;
+  if (bindingService) {
+    try {
+      const sess = await bindingService.getSession(candidateSessionId);
+      if (sess?.provider) {
+        provider = sess.provider;
+      }
+    } catch {}
+  }
+
+  const stepName = candidateStep || 'Step';
+  const stepLabel = stepName.charAt(0).toUpperCase() + stepName.slice(1);
+  const label = provider
+    ? `${stepLabel}, attempt ${candidateAttempt}, ${provider}`
+    : `${stepLabel}, attempt ${candidateAttempt}`;
+
+  return {
+    sessionId: candidateSessionId,
+    step: candidateStep,
+    attempt: candidateAttempt,
+    provider,
+    label,
+  };
+}
+
 /**
  * @param {object} params
  * @param {object} params.deterministicTarget - Result of resolveDeterministicExecutionTarget
@@ -224,48 +369,40 @@ export async function resolveDeterministicExecutionPlan({
   }
 
   const declaredSessionPolicy = matchedTransition?.execution?.session || null;
-  const sessionPolicy = declaredSessionPolicy || 'fresh';
+  const declaredAllow = matchedTransition?.execution?.allow || null;
+  const reuseFromStep = matchedTransition?.execution?.reuseFrom || null;
 
-  if (body.sessionPolicy && declaredSessionPolicy && body.sessionPolicy !== declaredSessionPolicy) {
-    throw new AiValidationError(
-      `Requested sessionPolicy '${body.sessionPolicy}' conflicts with server-resolved workflow session policy '${declaredSessionPolicy}'.`
-    );
-  }
+  const candidate = await deriveReuseCandidate({
+    task,
+    definition,
+    matchedTransition,
+    canonicalSpecId,
+    targetTaskId,
+    repoRoot,
+  });
+  const parentSessionId = candidate?.sessionId || null;
 
-  let parentSessionId = null;
-  const history = task?.workflow_progress?.history || [];
-  if (repoRoot && history.length > 0) {
-    for (let i = history.length - 1; i >= 0; i--) {
-      const h = history[i];
-      if (h.sessionId) {
-        parentSessionId = h.sessionId;
-        break;
+  let sessionPolicy = declaredSessionPolicy || 'fresh';
+
+  if (body.sessionPolicy) {
+    if (declaredAllow) {
+      if (declaredAllow.includes(body.sessionPolicy)) {
+        sessionPolicy = body.sessionPolicy;
+      } else {
+        throw new SessionChoiceValidationError(
+          'SESSION_POLICY_NOT_ALLOWED',
+          `Requested sessionPolicy '${body.sessionPolicy}' is not allowed for this workflow transition (allowed: ${declaredAllow.join(', ')}).`
+        );
       }
-      const priorStepDef = definition?.steps?.[h.step];
-      const priorExecutor = priorStepDef?.executor || 'agent';
-      if (priorExecutor === 'human') {
-        continue;
-      }
-      try {
-        const { createAgentSessionBindingService } = await import('../sessions/binding-service.mjs');
-        const bindingService = createAgentSessionBindingService({
-          storageDir: join(repoRoot, '.nevo-ai-local', 'sessions'),
-        });
-        const stepBindings = await bindingService.listBindings({
-          specId: canonicalSpecId,
-          taskId: targetTaskId,
-          step: h.step,
-          ...(h.attempt !== undefined ? { attempt: h.attempt } : {}),
-        });
-        if (stepBindings.length === 1) {
-          parentSessionId = stepBindings[0].sessionId;
-          break;
-        } else if (stepBindings.length > 1) {
-          parentSessionId = null;
-          break;
-        }
-      } catch {}
+    } else if (declaredSessionPolicy && body.sessionPolicy !== declaredSessionPolicy) {
+      throw new AiValidationError(
+        `Requested sessionPolicy '${body.sessionPolicy}' conflicts with server-resolved workflow session policy '${declaredSessionPolicy}'.`
+      );
     }
+  } else if (declaredSessionPolicy === 'reuse' && !parentSessionId && !body.sessionId && declaredAllow?.includes('fresh')) {
+    // Graceful fallback to fresh when no candidate exists and fresh is allowed,
+    // ensuring no behavior change for legacy requests that do not specify sessionPolicy
+    sessionPolicy = 'fresh';
   }
 
   // Validate client lineage hints
@@ -277,13 +414,22 @@ export async function resolveDeterministicExecutionPlan({
 
   if (sessionPolicy === 'reuse') {
     if (!parentSessionId) {
-      throw new AiValidationError(
-        'Target workflow transition requires session reuse, but no exact predecessor session could be resolved from workflow history.'
+      const searched = reuseFromStep ? `step '${reuseFromStep}'` : 'workflow history';
+      throw new SessionChoiceValidationError(
+        'REUSE_CANDIDATE_NOT_FOUND',
+        `Target workflow transition requires session reuse, but no exact predecessor session could be resolved from ${searched}.`
       );
     }
     if (body.sessionId && body.sessionId !== parentSessionId) {
-      throw new AiValidationError(
+      throw new SessionChoiceValidationError(
+        'SESSION_ID_MISMATCH',
         `Requested sessionId '${body.sessionId}' does not match server-derived session to reuse '${parentSessionId}'.`
+      );
+    }
+    if (candidate?.provider && effectiveProvider && candidate.provider !== effectiveProvider) {
+      throw new SessionChoiceValidationError(
+        'PROVIDER_MISMATCH',
+        `Candidate session '${parentSessionId}' uses provider '${candidate.provider}', which differs from target role provider '${effectiveProvider}'. Provider switching on session reuse is not permitted.`
       );
     }
   } else if (sessionPolicy === 'fresh') {
@@ -319,6 +465,7 @@ export async function resolveDeterministicExecutionPlan({
     authoritativeRole,
     sessionPolicy,
     parentSessionId,
+    candidate,
     effectiveProvider,
     effectiveMode,
     effectiveModel,
