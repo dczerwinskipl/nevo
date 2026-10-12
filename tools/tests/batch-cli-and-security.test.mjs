@@ -93,8 +93,9 @@ tasks:
           transitioned_to: review
 `;
   fs.writeFileSync(path.join(changeDir, 'change.yaml'), changeYaml, 'utf8');
-  fs.writeFileSync(path.join(taskDir, 't1.md'), '# Task 1\n', 'utf8');
-  fs.writeFileSync(path.join(taskDir, 't2.md'), '# Task 2\n', 'utf8');
+  const taskFixture = (title) => `# ${title}\n\n## Verification\n\`\`\`bash\nnpm test\n\`\`\`\n`;
+  fs.writeFileSync(path.join(taskDir, 't1.md'), taskFixture('Task 1'), 'utf8');
+  fs.writeFileSync(path.join(taskDir, 't2.md'), taskFixture('Task 2'), 'utf8');
 
   execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
   execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: tmpRoot });

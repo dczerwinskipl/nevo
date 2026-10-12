@@ -281,13 +281,47 @@ export function prevalidateBatchFinish(params = {}) {
   const normalizedResults = extractTaskResults(inputs, taskIds);
 
   // Check for foreign task submissions outside reserved scope
-  const nonTaskKeys = new Set(['tasks', 'results', 'reportPath', 'report', 'crossTaskFindings', 'sessionId', 'commit.title', 'commit.message']);
-  if (rawTasks && typeof rawTasks === 'object') {
+  const nonTaskKeys = new Set(['tasks', 'results', 'reportPath', 'report', 'crossTaskFindings', 'sessionId', 'commit.title', 'commit.message', 'include', 'exclude']);
+  if (inputs.tasks && typeof inputs.tasks === 'object') {
+    for (const key of Object.keys(inputs.tasks)) {
+      if (!taskIds.includes(key)) {
+        throw new WorkflowError(
+          `Unexpected task '${key}' in finish inputs is outside reserved batch scope`,
+          { code: 'EXECUTION_SCOPE_MISMATCH', unexpectedTaskId: key }
+        );
+      }
+    }
+  } else if (rawTasks && typeof rawTasks === 'object') {
     for (const key of Object.keys(rawTasks)) {
       if (!nonTaskKeys.has(key) && !taskIds.includes(key)) {
         throw new WorkflowError(
           `Unexpected task '${key}' in finish inputs is outside reserved batch scope`,
           { code: 'EXECUTION_SCOPE_MISMATCH', unexpectedTaskId: key }
+        );
+      }
+    }
+  }
+
+  // Validate explicit include scope if provided
+  if (Array.isArray(inputs.include)) {
+    const allMemberAllowed = [];
+    for (const taskId of taskIds) {
+      try {
+        const task = requireTask(change, taskId);
+        const { allowedPaths } = resolveTaskScope(change, task, { repoRoot, activeDir });
+        if (Array.isArray(allowedPaths)) allMemberAllowed.push(...allowedPaths);
+      } catch {}
+    }
+    const relChangeYaml = `specs/active/${changeSlug}/change.yaml`;
+    const relReviews = `specs/active/${changeSlug}/reviews/**`;
+    const authorizedScope = [...allMemberAllowed, relChangeYaml, relReviews, 'specs/index.generated.json', 'specs/active.generated.md', 'specs/archive.generated.md', 'docs/**'];
+    for (const pattern of inputs.include) {
+      if (pattern === '*' || pattern === '**') continue;
+      const isAuth = authorizedScope.some(auth => pathMatchesAllowedPattern(pattern, auth) || pathMatchesAllowedPattern(auth, pattern));
+      if (!isAuth) {
+        throw new WorkflowError(
+          `Batch finish input 'include' references path '${pattern}' outside authorized batch scope`,
+          { code: 'OUT_OF_SCOPE_COMMIT_SELECTION', unauthorizedPattern: pattern }
         );
       }
     }

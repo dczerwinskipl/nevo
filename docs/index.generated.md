@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-10-10T13:16:51.065Z_
+_Generated: 2026-10-10T22:37:26.551Z_
 
 ## Hub
 
@@ -104,6 +104,7 @@ _Generated: 2026-10-10T13:16:51.065Z_
 | `adr.0008-canonical-ai-session-chat-and-turn-model` | [Canonical AI session chat and turn model in the specification dashboard](decisions/ADR-0008-canonical-ai-session-chat-and-turn-model.md) | accepted |  |
 | `adr.0009-agent-admission-and-execution-ownership-model` | [Agent admission, execution ownership, and terminal classification model](decisions/ADR-0009-agent-admission-and-execution-ownership-model.md) | accepted |  |
 | `adr.0010-local-append-only-activity-history` | [Local append-only activity history for workflow execution](decisions/ADR-0010-local-append-only-activity-history.md) | accepted | Persist an observational, append-only Activity ledger under .nevo-ai-local for runtime execution facts without violating the git-as-history boundary. |
+| `adr.0011-workflow-owned-derived-artifacts-and-transition-aware-gates` | [Workflow-owned derived artifacts and transition-aware exit gates](decisions/ADR-0011-workflow-owned-derived-artifacts-and-transition-aware-gates.md) | accepted | Establish deterministic workflow engine ownership of generated repository artifacts and transition-aware exit gate evaluation with replayable failure recovery. |
 
 ## Ai
 

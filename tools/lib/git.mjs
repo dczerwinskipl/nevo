@@ -303,6 +303,40 @@ export async function getAheadBehindAsync(root, branch, options = {}) {
   return { hasUpstream: true, ahead, behind };
 }
 
+function toRepoRelative(root, p) {
+  if (typeof p !== 'string') return p;
+  const normP = p.replace(/\\/g, '/');
+  const normRoot = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  if (normP.startsWith(normRoot + '/')) {
+    return normP.slice(normRoot.length + 1);
+  }
+  return normP.replace(/^\.\//, '');
+}
+
+export function getStagedPaths(root) {
+  const records = getDirtyRecords(root);
+  const paths = [];
+  for (const r of records) {
+    if (r.status[0] !== ' ' && r.status[0] !== '?') {
+      paths.push(r.path);
+      if (r.oldPath) paths.push(r.oldPath);
+    }
+  }
+  return paths;
+}
+
+export async function getStagedPathsAsync(root, options = {}) {
+  const records = await getDirtyRecordsAsync(root, options);
+  const paths = [];
+  for (const r of records) {
+    if (r.status[0] !== ' ' && r.status[0] !== '?') {
+      paths.push(r.path);
+      if (r.oldPath) paths.push(r.oldPath);
+    }
+  }
+  return paths;
+}
+
 export function commitAll(root, message) {
   run(root, ['add', '-A']);
   run(root, ['commit', '-m', message]);
@@ -315,11 +349,14 @@ export async function commitAllAsync(root, message, options = {}) {
 
 export async function addAndCommitAsync(root, paths, message, options = {}) {
   if (Array.isArray(paths) && paths.length > 0) {
-    await runGitAsync(root, ['add', '--', ...paths], options);
+    const cleanPaths = [...new Set(paths.map(p => toRepoRelative(root, p)))];
+    const pathspecs = cleanPaths.map(p => (p.startsWith(':(literal)') ? p : `:(literal)${p}`));
+    await runGitAsync(root, ['add', '--', ...pathspecs], options);
+    await runGitAsync(root, ['commit', '-m', message, '--', ...pathspecs], options);
   } else {
     await runGitAsync(root, ['add', '-A'], options);
+    await runGitAsync(root, ['commit', '-m', message], options);
   }
-  await runGitAsync(root, ['commit', '-m', message], options);
 }
 
 export function push(root, branch) {

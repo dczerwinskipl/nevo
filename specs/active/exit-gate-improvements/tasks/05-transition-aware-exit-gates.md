@@ -19,6 +19,7 @@ allowed_paths:
   - tools/specs/workflow/templates/**
   - .nevo-ai/workflows/**
   - tools/tests/transition-aware-gates.test.mjs
+  - tools/tests/workflow-definitions-schema.test.mjs
 forbidden_paths:
   - tools/dashboard/**
   - src/**

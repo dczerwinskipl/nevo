@@ -125,6 +125,7 @@ async function executeSingleCommandWithLiveOutput(command, cwd, silent) {
       resolve({
         passed: false,
         exitCode: 1,
+        spawnError: err,
         stdout,
         stderr: stderr + '\n' + err.message,
       });
@@ -136,44 +137,63 @@ async function runCliCommandWithLiveOutput(command, context = {}) {
   const cwd = context.repoRoot || process.cwd();
   const activeDir = context.activeDir || join(cwd, 'specs', 'active');
   const changeSlug = context.changeSlug || context.changeId || context.change?._slug || context.change?.id;
-  const task = context.task;
+  let task = context.task;
+  if (!task && changeSlug && (context.taskId || context.task?.id)) {
+    try {
+      const change = requireChange(changeSlug, activeDir);
+      task = requireTask(change, context.taskId || context.task?.id);
+    } catch {}
+  }
 
-  if (command === 'npm test' && task && changeSlug) {
-    const taskFile = task.file || (task.id ? `tasks/${task.id}.md` : null);
-    if (taskFile) {
-      const taskPath = join(activeDir, changeSlug, taskFile);
-      if (existsSync(taskPath)) {
-        try {
-          const body = readFileSync(taskPath, 'utf8');
-          const taskCommands = parseVerificationCommands(body);
-          if (taskCommands.length > 0) {
-            let combinedStdout = '';
-            let combinedStderr = '';
-            for (const subCmd of taskCommands) {
-              const res = await executeSingleCommandWithLiveOutput(subCmd, cwd, context.silent);
-              combinedStdout += res.stdout + '\n';
-              combinedStderr += res.stderr + '\n';
-              if (!res.passed) {
-                return {
-                  passed: false,
-                  exitCode: res.exitCode,
-                  stdout: combinedStdout,
-                  stderr: combinedStderr,
-                };
+  if (context.action === 'task-verification') {
+    if (task && changeSlug) {
+      const taskFile = task.file || (task.id ? `tasks/${task.id}.md` : null);
+      if (taskFile) {
+        const taskPath = join(activeDir, changeSlug, taskFile);
+        if (existsSync(taskPath)) {
+          try {
+            const body = readFileSync(taskPath, 'utf8');
+            const taskCommands = parseVerificationCommands(body);
+            if (taskCommands.length > 0) {
+              let combinedStdout = '';
+              let combinedStderr = '';
+              for (const subCmd of taskCommands) {
+                const res = await executeSingleCommandWithLiveOutput(subCmd, cwd, context.silent);
+                combinedStdout += res.stdout + '\n';
+                combinedStderr += res.stderr + '\n';
+                if (!res.passed) {
+                  return {
+                    passed: false,
+                    exitCode: res.exitCode,
+                    stdout: combinedStdout,
+                    stderr: combinedStderr,
+                  };
+                }
               }
+              return {
+                passed: true,
+                exitCode: 0,
+                stdout: combinedStdout,
+                stderr: combinedStderr,
+              };
             }
+          } catch (err) {
             return {
-              passed: true,
-              exitCode: 0,
-              stdout: combinedStdout,
-              stderr: combinedStderr,
+              passed: false,
+              exitCode: 1,
+              stdout: '',
+              stderr: `Failed to execute task verification: ${err.message}`,
             };
           }
-        } catch {
-          // fallback to generic command
         }
       }
     }
+    return {
+      passed: false,
+      exitCode: 1,
+      stdout: '',
+      stderr: `No verification commands found for task '${task?.id || 'unknown'}' in '${changeSlug || 'unknown'}'`,
+    };
   }
 
   return executeSingleCommandWithLiveOutput(command, cwd, context.silent);
@@ -186,7 +206,7 @@ async function runCliCommandWithLiveOutput(command, context = {}) {
 export function buildWorkflowGateRegistry(repoRoot, changeSlug, taskId, attempt) {
   const effectiveAttempt = typeof attempt === 'object' ? attempt?.workflow_progress?.current_attempt : attempt;
   return createDefaultGateRegistry({
-    commandRunner: runCliCommandWithLiveOutput,
+    commandRunner: (command, ctx = {}) => runCliCommandWithLiveOutput(command, { repoRoot, changeSlug, taskId, ...ctx }),
     commandVerificationStore: new MemoryCommandVerificationStore(),
     humanVerificationReader: new FileHumanVerificationStore({
       repoRoot,
@@ -516,8 +536,8 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   const activeStep = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
   if (activeStep) {
     const finalizeCheck = await aggregateFinalizeCheck(activeStep, context);
-    const parameters = buildFinishContract(finalizeCheck, activeStep);
     const effectiveInputs = inFlight?.resolvedInputs ? { ...inFlight.resolvedInputs, ...inputs } : inputs;
+    const parameters = buildFinishContract(finalizeCheck, activeStep, effectiveInputs.result);
     validateFinishInputs(effectiveInputs, parameters, { allowMissing: Boolean(opts.check) });
   }
 

@@ -149,6 +149,7 @@ function setupTestRepo(slug, workflowYaml) {
   fs.mkdirSync(taskDir, { recursive: true });
   fs.mkdirSync(workflowDir, { recursive: true });
   fs.writeFileSync(path.join(workflowDir, 'standard.yaml'), workflowYaml, 'utf8');
+  fs.writeFileSync(path.join(tmpRoot, '.gitignore'), 'gate-flag.txt\n', 'utf8');
 
   return { tmpRoot, activeDir, changeDir, taskDir };
 }

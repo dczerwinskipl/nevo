@@ -11,7 +11,7 @@ import {
   getWorkingTreeStatus, isWorkingTreeClean, branchExists, checkoutBranch, createAndCheckoutBranch,
   getCurrentBranch, hasUpstream, getAheadBehind, commitAll, push, touchesPaths,
   checkoutTrackingBranch, getDirtyFiles, getDirtyPaths, getWorkingTreeSummary,
-  getCurrentRevision, getChangedFiles,
+  getCurrentRevision, getChangedFiles, addAndCommitAsync, getStagedPaths,
 } from '../lib/git.mjs';
 
 let repo, remote;
@@ -239,6 +239,28 @@ describe('lib/git.mjs against a disposable temp repo', () => {
     // implementation would report false here.
     assert.throws(() => execFileSync('git', ['-C', repo, 'rev-parse', '--verify', 'origin/feature/stale-ref-test'], { encoding: 'utf8' }));
     assert.equal(hasUpstream(repo, 'feature/stale-ref-test'), true);
+  });
+
+  test('addAndCommitAsync treats file names with brackets literally without pattern expansion and preserves other staged files', async () => {
+    // Stage an unrelated file that would match bracket pattern foo[12].txt if interpreted as a glob
+    writeFileSync(join(repo, 'foo1.txt'), 'staged candidate\n');
+    git(['add', 'foo1.txt']);
+
+    // Target file has square brackets in its name
+    writeFileSync(join(repo, 'foo[12].txt'), 'bracket literal\n');
+
+    await addAndCommitAsync(repo, ['foo[12].txt'], 'chore: commit literal bracket file');
+
+    const committedFiles = getChangedFiles(repo, 'HEAD~1', 'HEAD');
+    assert.ok(committedFiles.includes('foo[12].txt'), 'foo[12].txt must be committed');
+    assert.equal(committedFiles.includes('foo1.txt'), false, 'foo1.txt must NOT be committed');
+
+    const staged = getStagedPaths(repo);
+    assert.ok(staged.includes('foo1.txt'), 'foo1.txt must remain staged in the index');
+
+    // Clean up
+    git(['reset', '--hard', 'HEAD']);
+    execFileSync('git', ['-C', repo, 'clean', '-fd'], { encoding: 'utf8' });
   });
 });
 

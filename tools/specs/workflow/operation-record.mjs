@@ -132,7 +132,20 @@ export function isFinishOperationReplayable(record) {
   }
   if (Array.isArray(record.operations)) {
     for (const op of record.operations) {
-      if (op && (op.status === 'unknown' || op.status === 'blocked' || op.status === 'failed')) {
+      if (!op) continue;
+      if (op.status === 'unknown' || op.status === 'blocked') {
+        return false;
+      }
+      if (op.status === 'failed') {
+        // A failed verify-gates stage is replayable before mutation starts
+        // (i.e. as long as update-task and all subsequent stages are still pending).
+        if (op.id === 'verify-gates') {
+          const subsequentOps = record.operations.filter(o => o.id !== 'verify-gates');
+          const allSubsequentPending = subsequentOps.every(o => o.status === 'pending');
+          if (allSubsequentPending) {
+            continue;
+          }
+        }
         return false;
       }
     }

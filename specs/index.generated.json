@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-11T09:18:57.895Z",
+  "generated": "2026-10-11T19:30:13.156Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -13,57 +13,7 @@
           "id": "activity-core-model-and-contracts",
           "order": 1,
           "file": "tasks/01-activity-core-model-and-contracts.md",
-          "status": "verified",
-          "workflow_progress": {
-            "current_step": "human-verification",
-            "current_attempt": 2,
-            "state": "completed",
-            "history": [
-              {
-                "step": "implementation",
-                "attempt": 1,
-                "completed_at": "2026-09-21T17:03:12.123Z",
-                "transitioned_to": "review"
-              },
-              {
-                "step": "review",
-                "attempt": 1,
-                "completed_at": "2026-09-21T17:13:41.787Z",
-                "transitioned_to": "human-verification",
-                "result": "pass",
-                "feedback": "Independent review: model.mjs/activity-model.test.mjs fully satisfy task 01 (required-field checks, ActorRef shape, no closed type enum, no defaulting/mutation, all 19 tests pass). No corrective edits needed within allowed_paths. Found, but did not fix (out of scope/forbidden path): specs/index.generated.json is stale relative to change.yaml (last regenerated at f9b946b, before workflow step start/finish mutated change.yaml task statuses/workflow_progress), causing 2 unrelated pre-existing failures in tools/tests/cli-smoke.test.mjs and tools/tests/e2e-workflow.test.mjs (REC-03). Root cause is the deterministic step-finish operation in tools/specs/workflow/** not regenerating derived indexes after mutating change.yaml — flagging for owner follow-up."
-              },
-              {
-                "step": "human-verification",
-                "attempt": 1,
-                "completed_at": "2026-09-21T17:15:48.177Z",
-                "transitioned_to": "implementation",
-                "result": "fail",
-                "feedback": "Zaakceptowane ale testuje czy dostałeś review. Jak dojdziesz do kolejnej implementacji, to napisz mi \"krowa\" w podsumowaniu."
-              },
-              {
-                "step": "implementation",
-                "attempt": 2,
-                "completed_at": "2026-09-21T17:16:22.446Z",
-                "transitioned_to": "review"
-              },
-              {
-                "step": "review",
-                "attempt": 2,
-                "completed_at": "2026-09-21T17:18:00.826Z",
-                "transitioned_to": "human-verification",
-                "result": "pass",
-                "feedback": "Deliverable files (tools/specs/activity/model.mjs, tools/tests/activity-model.test.mjs) are unchanged (byte-identical) since the prior full review at bb380f1, which already confirmed all task-01 acceptance criteria are met. Re-ran required verification: 19/19 tests pass, specs.mjs validate clean. No corrective edits needed."
-              },
-              {
-                "step": "human-verification",
-                "attempt": 2,
-                "completed_at": "2026-09-21T17:19:30.097Z",
-                "transitioned_to": "verified",
-                "result": "pass"
-              }
-            ]
-          }
+          "status": "verified"
         },
         {
           "id": "activity-local-store",
@@ -72,37 +22,7 @@
           "status": "verified",
           "depends_on": [
             "activity-core-model-and-contracts"
-          ],
-          "workflow_progress": {
-            "current_step": "human-verification",
-            "current_attempt": 1,
-            "state": "completed",
-            "history": [
-              {
-                "step": "implementation",
-                "attempt": 1,
-                "completed_at": "2026-09-29T21:07:35.324Z",
-                "transitioned_to": "review",
-                "sessionId": "50246ee3-8c54-404a-a83e-10e22eda883b"
-              },
-              {
-                "step": "review",
-                "attempt": 1,
-                "completed_at": "2026-09-29T21:12:07.032Z",
-                "transitioned_to": "human-verification",
-                "sessionId": "e7f482c1-cefc-4cc8-94a3-e8c322e0cb76",
-                "result": "pass",
-                "feedback": "Independent review: store.mjs and activity-store.test.mjs fully satisfy task 02 requirements and acceptance criteria (pure append-only NDJSON store, leading-newline framing for crash recovery, read-side deduplication by id, specId canonicalization, and no pruning). All 16 unit tests pass."
-              },
-              {
-                "step": "human-verification",
-                "attempt": 1,
-                "completed_at": "2026-10-03T06:52:04.045Z",
-                "transitioned_to": "verified",
-                "result": "pass"
-              }
-            ]
-          }
+          ]
         },
         {
           "id": "actor-resolver",
@@ -111,36 +31,7 @@
           "status": "verified",
           "depends_on": [
             "activity-core-model-and-contracts"
-          ],
-          "workflow_progress": {
-            "current_step": "human-verification",
-            "current_attempt": 1,
-            "state": "completed",
-            "history": [
-              {
-                "step": "implementation",
-                "attempt": 1,
-                "completed_at": "2026-09-30T06:38:14.826Z",
-                "transitioned_to": "review",
-                "sessionId": "c1b76f10-cdca-49d2-bccc-781deb3d889d"
-              },
-              {
-                "step": "review",
-                "attempt": 1,
-                "completed_at": "2026-09-30T06:45:16.494Z",
-                "transitioned_to": "human-verification",
-                "sessionId": "c1b76f10-cdca-49d2-bccc-781deb3d889d",
-                "result": "pass"
-              },
-              {
-                "step": "human-verification",
-                "attempt": 1,
-                "completed_at": "2026-10-11T08:07:41.362Z",
-                "transitioned_to": "verified",
-                "result": "pass"
-              }
-            ]
-          }
+          ]
         },
         {
           "id": "activity-query-and-export",
@@ -150,36 +41,7 @@
           "depends_on": [
             "activity-core-model-and-contracts",
             "activity-local-store"
-          ],
-          "workflow_progress": {
-            "current_step": "human-verification",
-            "current_attempt": 1,
-            "state": "completed",
-            "history": [
-              {
-                "step": "implementation",
-                "attempt": 1,
-                "completed_at": "2026-10-10T10:40:01.522Z",
-                "transitioned_to": "review",
-                "sessionId": "0e8b3420-2d52-43da-962b-592925e5c06b"
-              },
-              {
-                "step": "review",
-                "attempt": 1,
-                "completed_at": "2026-10-10T10:42:42.004Z",
-                "transitioned_to": "human-verification",
-                "sessionId": "72fb21a3-92e9-46e2-b084-94a4202d858f",
-                "result": "pass"
-              },
-              {
-                "step": "human-verification",
-                "attempt": 1,
-                "completed_at": "2026-10-11T08:07:52.277Z",
-                "transitioned_to": "verified",
-                "result": "pass"
-              }
-            ]
-          }
+          ]
         },
         {
           "id": "activity-dashboard-api",
@@ -188,36 +50,7 @@
           "status": "verified",
           "depends_on": [
             "activity-query-and-export"
-          ],
-          "workflow_progress": {
-            "current_step": "human-verification",
-            "current_attempt": 1,
-            "state": "completed",
-            "history": [
-              {
-                "step": "implementation",
-                "attempt": 1,
-                "completed_at": "2026-10-10T10:53:24.030Z",
-                "transitioned_to": "review",
-                "sessionId": "f7ad0b55-cc28-4eb8-b164-6a38e78472df"
-              },
-              {
-                "step": "review",
-                "attempt": 1,
-                "completed_at": "2026-10-10T10:57:07.651Z",
-                "transitioned_to": "human-verification",
-                "sessionId": "11c5a47e-f229-4462-aa22-e14023030d11",
-                "result": "pass"
-              },
-              {
-                "step": "human-verification",
-                "attempt": 1,
-                "completed_at": "2026-10-11T08:08:28.408Z",
-                "transitioned_to": "verified",
-                "result": "pass"
-              }
-            ]
-          }
+          ]
         },
         {
           "id": "workflow-step-activity-producer",
@@ -227,45 +60,7 @@
           "depends_on": [
             "activity-local-store",
             "actor-resolver"
-          ],
-          "workflow_progress": {
-            "current_step": "implementation",
-            "current_attempt": 2,
-            "state": "completed",
-            "history": [
-              {
-                "step": "implementation",
-                "attempt": 1,
-                "completed_at": "2026-10-10T11:18:35.769Z",
-                "transitioned_to": "review",
-                "sessionId": "d24706d5-a23c-42ac-ae12-32f7b6213ff5"
-              },
-              {
-                "step": "review",
-                "attempt": 1,
-                "completed_at": "2026-10-10T11:23:13.710Z",
-                "transitioned_to": "human-verification",
-                "sessionId": "d744c37d-5539-4a6b-8a2d-699d26ecd52f",
-                "result": "pass",
-                "feedback": "Independent review: verified all 15 acceptance criteria against the implementation. autoBindAgentSession returns bindSessionSync result with explicit null early-returns (no specId, no context, caught error). workflow.mjs producer module correctly owns type constants, deterministic IDs, and data validators. Emission call sites match spec exactly: agent step start in handleWorkflowStepStart, human step start in startHumanStep (covers both CLI and dashboard HTTP transport), step completed immediately after ensureUpdateTask returns (not gated on its internal recovery branch), and both already-completed/completed short-circuits re-attempt emission from plan.existingRecord. Durable actor captured once at createOperationRecord, read back via record.actor at every completion site (never re-read from finishSteps per-call param), correctly handling resume-under-different-actor. recordActivity failures are swallowed in the producer module so finishStep never fails on activity recording errors. All 11 new producer tests, 36 finish-operation tests, and 40 workflow-cli tests pass; node tools/specs.mjs validate passes with 31 changes and no errors. No gaps found; no corrective changes required."
-              },
-              {
-                "step": "human-verification",
-                "attempt": 1,
-                "completed_at": "2026-10-11T08:08:49.900Z",
-                "transitioned_to": "implementation",
-                "result": "fail",
-                "feedback": "Human review: changes required.\n\nThe implementation correctly handles the declared CLI and human-step paths, including durable actor capture and idempotent finish retries. However, the current batch execution path exposes an integration gap:\n\n1. batch-start/operation.mjs activates task members directly through ensureStepActivated(), bypassing workflow.step.started emission.\n2. batch-finish/operation.mjs calls finishStep() without an actor, so batch completion activities default to SYSTEM_ACTOR even though the batch has an effectiveSessionId.\n3. The producer data validators are defined but never applied before recordActivity().\n\nPlease investigate how to provide consistent Activity recording across both single-task and batch execution paths, preserving deterministic IDs, original actor attribution, replay safety and non-blocking recording semantics.\n\nBatch modules are outside this task's allowed_paths. Do not modify them without an approved scope amendment or a separately owned corrective task. Propose the required scope adjustment and add regression coverage for the missing start event and incorrect batch actor attribution.\n\nAlso enforce the producer-owned payload validators before persistence."
-              },
-              {
-                "step": "implementation",
-                "attempt": 2,
-                "completed_at": "2026-10-11T08:32:23.873Z",
-                "transitioned_to": "review",
-                "sessionId": "523d125b-c6c0-4b08-9e29-6f5782714cc0"
-              }
-            ]
-          }
+          ]
         },
         {
           "id": "human-verification-activity-producer",
@@ -275,29 +70,7 @@
           "depends_on": [
             "activity-local-store",
             "actor-resolver"
-          ],
-          "workflow_progress": {
-            "current_step": "review",
-            "current_attempt": 1,
-            "state": "completed",
-            "history": [
-              {
-                "step": "implementation",
-                "attempt": 1,
-                "completed_at": "2026-10-10T11:46:49.160Z",
-                "transitioned_to": "review",
-                "sessionId": "f5ecace0-2cab-4710-a9d3-b2424be18f68"
-              },
-              {
-                "step": "review",
-                "attempt": 1,
-                "completed_at": "2026-10-10T11:48:45.427Z",
-                "transitioned_to": "human-verification",
-                "sessionId": "08296956-0c29-4170-8037-384133bbffe9",
-                "result": "pass"
-              }
-            ]
-          }
+          ]
         },
         {
           "id": "activity-adr-and-docs",
@@ -308,30 +81,7 @@
             "activity-dashboard-api",
             "workflow-step-activity-producer",
             "human-verification-activity-producer"
-          ],
-          "workflow_progress": {
-            "current_step": "review",
-            "current_attempt": 1,
-            "state": "completed",
-            "history": [
-              {
-                "step": "implementation",
-                "attempt": 1,
-                "completed_at": "2026-10-10T12:37:56.048Z",
-                "transitioned_to": "review",
-                "sessionId": "f3930156-ab0c-4d1e-8daa-c9a3a5d1841e"
-              },
-              {
-                "step": "review",
-                "attempt": 1,
-                "completed_at": "2026-10-11T06:53:04.977Z",
-                "transitioned_to": "human-verification",
-                "sessionId": "4dd7a6a1-d410-47fc-ad0e-c5ee8c944625",
-                "result": "pass",
-                "feedback": "All verification passes: docs.mjs validate, specs.mjs validate, specs.mjs check (indexes current after the exit-gate-improvements fix landed). Found and fixed during review: ADR number collision (renumbered 0009->0010 via owner-authorized scope amendment, commits 3ebb5174/d2132892). Root-cause note for the prior stale-index CI failure recorded in reviews/activity-query-and-export.md, attributing it to the activity-query-and-export implementation commit, not this task."
-              }
-            ]
-          }
+          ]
         }
       ]
     },
@@ -347,71 +97,95 @@
           "id": "derived-registry-and-deterministic-generators",
           "order": 1,
           "file": "tasks/01-derived-registry-and-deterministic-generators.md",
-          "status": "draft"
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "97530f4443692961811d973f47dccfb6f5062a25"
+          }
         },
         {
           "id": "finish-derived-sync",
           "order": 2,
           "file": "tasks/02-finish-derived-sync.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "derived-registry-and-deterministic-generators"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "35e5bca4d77b0b70fa07ed802872efa5459d0e4d"
+          }
         },
         {
           "id": "publish-and-batch-derived-sync",
           "order": 3,
           "file": "tasks/03-publish-and-batch-derived-sync.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "finish-derived-sync"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "2f269433e41af39a28d99f6fd8d1dc98162b03b5"
+          }
         },
         {
           "id": "specs-index-projection-stability",
           "order": 4,
           "file": "tasks/04-specs-index-projection-stability.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "derived-registry-and-deterministic-generators"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "660257cade653706f05e2c725245f2199ba40576"
+          }
         },
         {
           "id": "transition-aware-exit-gates",
           "order": 5,
           "file": "tasks/05-transition-aware-exit-gates.md",
-          "status": "draft"
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "262e22f4679e709bb0df81623ba32f446cbce9d6"
+          }
         },
         {
           "id": "gate-failure-recovery-and-taxonomy",
           "order": 6,
           "file": "tasks/06-gate-failure-recovery-and-taxonomy.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "transition-aware-exit-gates"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "e330fa48a04ad5f6e74d43efcb5c141e3dff8820"
+          }
         },
         {
           "id": "workflow-documentation-and-adr",
           "order": 7,
           "file": "tasks/07-workflow-documentation-and-adr.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "finish-derived-sync",
             "publish-and-batch-derived-sync",
             "specs-index-projection-stability",
             "gate-failure-recovery-and-taxonomy",
             "explicit-task-verification-action"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "8513548c8a8066929dc31a0ca3690b4805406367"
+          }
         },
         {
           "id": "explicit-task-verification-action",
           "order": 8,
           "file": "tasks/08-explicit-task-verification-action.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "transition-aware-exit-gates"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "0a634cfc7b6cdfd318805e7855afab9de0de6cc3"
+          }
         }
       ]
     },

@@ -43,7 +43,8 @@ export class CommandCatalog {
    */
   has(alias) {
     if (typeof alias !== 'string') return false;
-    return this._mappings.has(alias.trim());
+    const trimmed = alias.trim();
+    return trimmed === 'task-verification' || this._mappings.has(trimmed);
   }
 
   /**
@@ -59,6 +60,9 @@ export class CommandCatalog {
       throw new WorkflowError('Command alias must be a non-empty string', { code: 'INVALID_COMMAND_ALIAS' });
     }
     const trimmed = alias.trim();
+    if (trimmed === 'task-verification') {
+      return this._mappings.get('task-verification') || 'task-verification';
+    }
     if (!this._mappings.has(trimmed)) {
       throw new WorkflowError(
         `Unknown command verification alias '${trimmed}' — must be one of: [${this.listAliases().join(', ')}]`,
@@ -81,7 +85,9 @@ export class CommandCatalog {
    * @returns {Set<string>}
    */
   asSet() {
-    return new Set(this._mappings.keys());
+    const s = new Set(this._mappings.keys());
+    s.add('task-verification');
+    return s;
   }
 
   /**
