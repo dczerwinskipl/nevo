@@ -6,9 +6,7 @@ status: draft
 priority: 10
 created: 2026-10-11
 workflow:
-  mode: deterministic
-  version: 1
-  definition: standard-v1
+  mode: legacy
 
 branch:
   mode: per-change
