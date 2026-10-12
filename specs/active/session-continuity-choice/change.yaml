@@ -23,7 +23,7 @@ tasks:
   - id: server-session-choice-resolution
     order: 2
     file: tasks/02-server-session-choice-resolution.md
-    status: implemented
+    status: verified
     depends_on: [ definition-session-choice-schema ]
     implementation:
       baseline_revision: fac1b55e398ccb657b9cbe622ece9dadc9dd483e
