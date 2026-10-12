@@ -17,6 +17,7 @@
 | `deterministic-status-architecture` | Deterministic workflow status architecture | archived | 10 | 2026-09-17 |
 | `deterministic-workflow-foundation` | Deterministic workflow foundation | archived | 10 | 2026-08-18 |
 | `event-sourcing-api-hardening` | Event Sourcing API hardening and persistence readiness | archived | 10 | 2026-08-10 |
+| `exit-gate-improvements` | Exit gate improvements | archived | 10 | 2026-10-10 |
 | `fix-finalize-step` | Fix finalize step | archived | 10 | 2026-08-24 |
 | `multi-provider-agent-sessions` | Multi-provider local agent chat and session integration | archived | 10 | 2026-08-17 |
 | `multi-task-agent-execution` | Multi-task agent execution | archived | 10 | 2026-09-27 |
